@@ -1,62 +1,62 @@
-# Lab 4 — Infrastructure as Code (Terraform & Pulumi)
+# Lab 4 — инфраструктура как код (Terraform и Pulumi)
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
 ![topic](https://img.shields.io/badge/topic-Infrastructure%20as%20Code-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Terraform%20%7C%20Pulumi-informational)
 
-> **Goal:** Provision the *same* small VM twice — once in **Terraform** HCL, once in **Pulumi** Python — and feel the trade-offs in your hands.
-> **Deliverable:** A PR from `lab04` with `terraform/`, `pulumi/`, `docs/LAB04.md`, and (bonus) `.github/workflows/terraform-ci.yml`.
+> **Цель:** поднимите *одну и ту же* маленькую VM дважды — один раз на HCL **Terraform**, один раз на Python **Pulumi** — и прочувствуйте компромиссы руками.
+> **Что сдаёте:** PR из `lab04` с каталогами `terraform/`, `pulumi/`, файлом `docs/LAB04.md` и (бонус) `.github/workflows/terraform-ci.yml`.
 
 ---
 
-## Overview
+## Обзор
 
-In this lab you will practice:
-- The **`init → plan → apply → destroy`** lifecycle (and reading the plan like a diff)
-- Writing the four HCL primitives — `provider`, `resource`, `variable`, `output` — and one `data` source
-- Recreating the same infrastructure in Pulumi Python (real loops, real types, real imports)
-- **State management** — what's in `terraform.tfstate`, why it's a secret, why locking matters
+В этой лабораторной вы:
+- проходите жизненный цикл **`init → plan → apply → destroy`** (и читаете plan как diff)
+- пишете четыре примитива HCL — `provider`, `resource`, `variable`, `output` — и один источник `data`
+- собираете ту же инфраструктуру заново на Python в Pulumi (настоящие циклы, настоящие типы, настоящие импорты)
+- разбираете **управление state** — что лежит в `terraform.tfstate`, почему это секрет и почему важна блокировка
 
-> ⚠️ **Scope:** one cloud VM (or one docker-provider stand-in — see note below). No Kubernetes, no app deploy yet. Lab 5 will SSH into whatever you build here.
+> ⚠️ **Границы:** одна облачная VM (или замена на docker-provider — см. заметку ниже). Без Kubernetes и без выкладки приложения. В Lab 5 вы зайдёте по SSH на то, что соберёте здесь.
 
-**Cloud or docker-provider?** Pick a free-tier cloud (recommended — that's the real skill), but if you can't open a card-protected account, the `kreuzwerker/docker` provider runs the *exact same lifecycle* locally against a container. **Lab 5 cross-ref for docker users:** the container has no sshd; Lab 5 will use `ansible_connection: community.docker.docker` (or run Ansible with `connection: local` against `docker exec`) instead of SSH — same roles, different connection plugin. Either path scores full marks; document which you picked.
-
----
-
-## Project State
-
-**You should have from previous labs:**
-- Lab 1: `app_python/` (and maybe `app_go/`) — the service you'll run on the VM
-- Lab 2: a multi-stage Docker image pushed to GHCR
-- Lab 3: GitHub Actions building/pushing on every PR
-
-**This lab adds:**
-- `terraform/` — HCL you wrote yourself, provisioning **one VM** (or one container)
-- `pulumi/` — Python that recreates the *same* infrastructure
-- `docs/LAB04.md` — your run notes + the Terraform-vs-Pulumi comparison
-
-By Lab 5 you SSH into this host and Ansible-configure it. By Lab 9 you replace it with k3d, but the IaC mindset is the same.
+**Облако или docker-provider?** Берите облако с free-tier (так и надо: это и есть навык). Если аккаунт с обязательной картой завести не получается, провайдер `kreuzwerker/docker` гоняет *тот же* жизненный цикл локально, на контейнере. **Ссылка на Lab 5 для тех, кто на docker:** в контейнере нет sshd; Lab 5 возьмёт `ansible_connection: community.docker.docker` (или Ansible с `connection: local` против `docker exec`) вместо SSH. Роли те же, connection plugin другой. Оба пути дают полный балл; запишите, какой выбрали.
 
 ---
 
-## Tech Stack & Versions
+## Состояние проекта
 
-| Tool | Version | Notes |
+**Из прошлых лабораторных у вас уже должно быть:**
+- Lab 1: `app_python/` (и, возможно, `app_go/`) — сервис, который вы запустите на VM
+- Lab 2: multi-stage образ Docker, запушенный в GHCR
+- Lab 3: GitHub Actions собирает и пушит на каждом PR
+
+**Эта лабораторная добавляет:**
+- `terraform/` — HCL, который вы написали сами; поднимает **одну VM** (или один контейнер)
+- `pulumi/` — Python, который собирает *ту же* инфраструктуру
+- `docs/LAB04.md` — заметки прогона и сравнение Terraform с Pulumi
+
+К Lab 5 вы зайдёте на этот хост по SSH, и Ansible его настроит. К Lab 9 вы замените его на k3d, но подход IaC останется тем же.
+
+---
+
+## Стек и версии
+
+| Инструмент | Версия | Заметки |
 |------|---------|-------|
-| **Terraform** | **1.15.3** | BSL-1.1 since **2023-08-10**. Lock at `>= 1.15.0`. |
-| **OpenTofu** | **1.12.0** | MPL-2.0, Linux Foundation. 1:1 drop-in — `tofu` works for every command below. |
-| **Pulumi** | **3.243.0** | Apache-2.0 throughout. |
-| **AWS provider** | `~> 5.0` | Most-documented cloud path. |
-| **GCP provider** | `~> 6.0` | Alternative. |
-| **Yandex provider** | `~> 0.115` | Russia-friendly, no card initially. |
-| **Docker provider** | `kreuzwerker/docker ~> 3.0` | Free local stand-in if no cloud account. |
+| **Terraform** | **1.15.3** | BSL-1.1 с **2023-08-10**. Зафиксируйте минимум `>= 1.15.0`. |
+| **OpenTofu** | **1.12.0** | MPL-2.0, Linux Foundation. Замена один в один: `tofu` подходит для каждой команды ниже. |
+| **Pulumi** | **3.243.0** | Везде Apache-2.0. |
+| **Провайдер AWS** | `~> 5.0` | Облачный путь с самой полной документацией. |
+| **Провайдер GCP** | `~> 6.0` | Альтернатива. |
+| **Провайдер Yandex** | `~> 0.115` | Удобно из России, карта на старте не нужна. |
+| **Провайдер Docker** | `kreuzwerker/docker ~> 3.0` | Бесплатная локальная замена, если облачного аккаунта нет. |
 
-> **OpenTofu note:** the August 10 2023 BSL re-licensing made OpenTofu necessary; today's 1.12.0 runs identical HCL against the same registry. The grader accepts either CLI.
+> **Заметка про OpenTofu:** перелицензирование на BSL 10 августа 2023 сделало OpenTofu необходимым. Сегодняшний 1.12.0 гоняет тот же HCL против того же реестра. Проверяющий принимает любой из двух CLI.
 
 ---
 
-## Setup
+## Подготовка
 
 ```bash
 terraform -version   # or: tofu -version
@@ -68,19 +68,19 @@ chmod 600 ~/.ssh/lab04
 cat  ~/.ssh/lab04.pub          # this is what your IaC will inject
 ```
 
-Pick **one** target and stick with it for both tools:
+Выберите **одну** цель и держитесь её в обоих инструментах:
 
-| Target | Smallest free unit | Provider |
+| Цель | Минимальная бесплатная единица | Провайдер |
 |--------|---------------------|----------|
-| **AWS** | `t3.micro` (12 mo free) | `hashicorp/aws` |
-| **GCP** | `e2-micro` (always-free zone) | `hashicorp/google` |
+| **AWS** | `t3.micro` (12 месяцев бесплатно) | `hashicorp/aws` |
+| **GCP** | `e2-micro` (зона always-free) | `hashicorp/google` |
 | **Yandex** | 2 vCPU @ 20%, 1 GB | `yandex-cloud/yandex` |
-| **DigitalOcean** | `$200` student credit | `digitalocean/digitalocean` |
-| **Docker (local)** | a container | `kreuzwerker/docker` |
+| **DigitalOcean** | студенческий кредит `$200` | `digitalocean/digitalocean` |
+| **Docker (локально)** | контейнер | `kreuzwerker/docker` |
 
-> **No credentials in code.** Use env vars (`AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `YC_TOKEN`, …) or a shared profile. Never inline them in `provider {}`.
+> **Никаких учётных данных в коде.** Берите переменные окружения (`AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `YC_TOKEN`, …) или общий профиль. В `provider {}` их не вписывайте.
 
-Directory layout (you'll fill the files yourself):
+Раскладка каталогов (файлы заполните сами):
 
 ```
 terraform/
@@ -103,17 +103,17 @@ docs/LAB04.md
 
 ---
 
-## Task 1 — Terraform VM (4 pts)
+## Задание 1 — VM на Terraform (4 балла)
 
-**Goal:** a reachable VM, written in your own HCL, with clean state hygiene.
+**Цель:** доступная VM на вашем HCL, с чистой гигиеной state.
 
-### 1.1 — Write the HCL building blocks
+### 1.1 — Напишите строительные блоки HCL
 
-Lecture 4 told you HCL has the six primitives you'll meet today: `terraform {}`, `provider`, `variable`, `data`, `resource`, `output`. This task is where you write them.
+Lecture 4 уже назвала шесть примитивов HCL, которые вы встретите сегодня: `terraform {}`, `provider`, `variable`, `data`, `resource`, `output`. Здесь вы их и пишете.
 
-`YOUR TASK`: produce `terraform/main.tf` covering **all** of the following. Don't pull a copy off Stack Overflow — that's how secrets end up in tfstate.
+`ВАША ЗАДАЧА`: соберите `terraform/main.tf`, который покрывает **всё** ниже. Не тащите копию со Stack Overflow: так секреты и попадают в tfstate.
 
-Required HCL **shape** (fill every `___` and every `# YOUR TASK:` comment with real values; do **not** copy a full solution from elsewhere):
+Нужная **форма** HCL (заполните каждый `___` и каждый комментарий `# YOUR TASK:` реальными значениями; готовое решение откуда-то ещё **не** копируйте):
 
 ```hcl
 # main.tf
@@ -194,7 +194,7 @@ output "ssh_command" {
 # DO commit .terraform.lock.hcl — it pins provider versions for reproducibility.
 ```
 
-### 1.2 — Run the lifecycle (and read the plan)
+### 1.2 — Пройдите жизненный цикл и прочитайте plan
 
 ```bash
 terraform fmt -recursive
@@ -204,48 +204,48 @@ terraform plan -out=tfplan      # READ THIS. + create / ~ update / - destroy / -
 terraform apply tfplan
 ```
 
-`YOUR TASK`: after `apply`, **SSH in and prove the user_data ran**:
+`ВАША ЗАДАЧА`: после `apply` **зайдите по SSH и докажите, что user_data отработал**:
 
 ```bash
 ssh -i ~/.ssh/lab04 ubuntu@<public_ip> "cat /var/log/lab4-boot.log; hostname"
 ```
 
-(If you picked the docker-provider stand-in: `docker exec` instead and `curl` the app port — the reference submission shows the equivalent capture.)
+(Если вы выбрали замену на docker-provider: вместо SSH — `docker exec`, и `curl` на порт приложения. Эталонная сдача показывает эквивалентный захват.)
 
-### 1.3 — State management — the failure-mode focus
+### 1.3 — Управление state: где это ломается
 
-This is where students and pros both lose hours. Lecture 4 slides 15–17 are the theory; this is the practice.
+Здесь часы теряют и студенты, и опытные. Слайды 15–17 Lecture 4 — теория, здесь практика.
 
-`YOUR TASK`: in `docs/LAB04.md`, paste the output of `terraform state list` and answer in **3 sentences total**:
+`ВАША ЗАДАЧА`: в `docs/LAB04.md` вставьте вывод `terraform state list` и ответьте **суммарно тремя предложениями**:
 
-1. What does `terraform.tfstate` contain that makes it a secret? (Look at it. Don't commit it.)
-2. Why is local state catastrophic for a team of two engineers?
-3. What does `.terraform.lock.hcl` do, and why do you commit *it* but never the tfstate?
+1. Что в `terraform.tfstate` делает его секретом? (Откройте файл. В Git его не кладите.)
+2. Почему локальный state — катастрофа для команды из двух инженеров?
+3. Что делает `.terraform.lock.hcl` и почему коммитят *его*, а tfstate — никогда?
 
-### 1.4 — Proof of work
+### 1.4 — Доказательство
 
-**Paste into `docs/LAB04.md`:**
+**Вставьте в `docs/LAB04.md`:**
 
-- `terraform plan` output (sanitized — strip ARNs/account IDs)
-- `terraform apply` summary line (`N to add, M to change, K to destroy`)
-- `terraform state list` output
-- The SSH session showing `cat /var/log/lab4-boot.log` and `hostname`
-- Output of `find terraform -maxdepth 2 -type f | sort` proving `.tfstate` is **not** in the tree
+- вывод `terraform plan` (очищенный: вырежьте ARN и ID аккаунтов)
+- строку итога `terraform apply` (`N to add, M to change, K to destroy`)
+- вывод `terraform state list`
+- сессию SSH, где видны `cat /var/log/lab4-boot.log` и `hostname`
+- вывод `find terraform -maxdepth 2 -type f | sort`, из которого видно, что `.tfstate` в дереве **нет**
 
 ---
 
-## Task 2 — Pulumi VM (4 pts)
+## Задание 2 — VM на Pulumi (4 балла)
 
-**Goal:** recreate the *same* infrastructure in Pulumi Python so you can compare it.
+**Цель:** соберите *ту же* инфраструктуру на Python в Pulumi, чтобы было с чем сравнить.
 
-### 2.1 — Tear down or keep the Terraform VM
+### 2.1 — Снесите VM Terraform или оставьте её
 
-`YOUR TASK`: pick one path and document it:
+`ВАША ЗАДАЧА`: выберите один путь и запишите его:
 
-- **Path A** (recommended): `terraform destroy` first, build the Pulumi VM, keep that one for Lab 5. Paste the `destroy` output.
-- **Path B**: keep the Terraform VM for Lab 5, build the Pulumi VM, `pulumi destroy` it after the screenshot. Don't leave two VMs running undocumented — that's how billing alerts fire at 3 a.m.
+- **Путь A** (рекомендуется): сначала `terraform destroy`, затем поднимите VM на Pulumi и оставьте её для Lab 5. Вставьте вывод `destroy`.
+- **Путь B**: оставьте VM Terraform для Lab 5, поднимите VM на Pulumi и после скриншота выполните `pulumi destroy`. Не оставляйте две VM работать без записи: именно так биллинговый алерт приходит в 3 ночи.
 
-### 2.2 — Write the Pulumi program
+### 2.2 — Напишите программу Pulumi
 
 ```python
 # pulumi/__main__.py
@@ -298,7 +298,7 @@ pulumi.export("ssh_command", ___)         # hint: .apply(lambda ip: f"ssh ...")
 # committed if all values are `pulumi config set --secret`-encrypted.
 ```
 
-### 2.3 — Run the lifecycle
+### 2.3 — Пройдите жизненный цикл
 
 ```bash
 pulumi login --local                             # or `pulumi login` for Pulumi Cloud
@@ -313,48 +313,48 @@ pulumi up --yes
 pulumi destroy --yes                             # if Path B above, or before Lab 5 if Path A
 ```
 
-### 2.4 — Proof of work
+### 2.4 — Доказательство
 
-**Paste into `docs/LAB04.md`:**
+**Вставьте в `docs/LAB04.md`:**
 
-- `pulumi preview` output (sanitized)
-- `pulumi up` summary line
-- The SSH session against the Pulumi VM (or the equivalent on the docker stand-in)
-- Either the `terraform destroy` proof (Path A) or the `pulumi destroy` proof (Path B)
+- вывод `pulumi preview` (очищенный)
+- строку итога `pulumi up`
+- сессию SSH на VM Pulumi (или эквивалент на docker-стенде)
+- доказательство `terraform destroy` (путь A) или доказательство `pulumi destroy` (путь B)
 
-### 2.5 — The comparison (this is the point of doing both)
+### 2.5 — Сравнение: ради этого вы делаете оба
 
-`YOUR TASK`: in `docs/LAB04.md`, write 3–5 sentences for each of:
+`ВАША ЗАДАЧА`: в `docs/LAB04.md` напишите по 3–5 предложений на каждый пункт:
 
-1. **Readability** — which file was easier to skim a week later?
-2. **Logic & loops** — imagine deploying the same VM × `["dev","staging","prod"]`. Which tool did you find more natural for that?
-3. **Debugging** — when your `apply`/`up` failed, which tool's error message pointed you at the fix faster?
-4. **State + secrets** — where does each tool put state? Which one encrypts secrets by default?
-5. **When you'd pick each** — one concrete scenario per tool, drawn from your own experience this week.
-
----
-
-## Task 3 — Documentation (2 pts)
-
-`docs/LAB04.md` must contain, in order:
-
-1. **Provider & target** — which cloud (or docker stand-in), which region/zone, instance size, and a one-line cost note (should be `$0`).
-2. **Terraform implementation** — version used, file layout, the 3-sentence state-management answer from 1.3, sanitized lifecycle output, SSH proof.
-3. **Pulumi implementation** — language + version, lifecycle output, SSH proof.
-4. **Terraform vs Pulumi** — the 5-bullet comparison from 2.5.
-5. **Lab 5 prep & cleanup** — which VM (if any) is staying alive, or how Lab 5 will recreate one from your IaC. Plus `destroy` proof for everything you tore down.
-
-> All terminal output must be sanitized: no full account IDs, no access keys, no API tokens. Mark anything reconstructed `(illustrative)`.
+1. **Читаемость** — какой файл через неделю было легче пробежать глазами?
+2. **Логика и циклы** — представьте ту же VM × `["dev","staging","prod"]`. Какой инструмент для этого оказался естественнее?
+3. **Отладка** — когда упали `apply` или `up`, чьё сообщение об ошибке быстрее вывело на исправление?
+4. **State и секреты** — куда каждый инструмент кладёт state? Кто шифрует секреты по умолчанию?
+5. **Когда вы выберете каждый** — по одному конкретному сценарию на инструмент, из вашего опыта на этой неделе.
 
 ---
 
-## Bonus Task — IaC CI/CD + Remote State (2 pts)
+## Задание 3 — документация (2 балла)
 
-### Part 1 — GitHub Actions validation (1 pt)
+В `docs/LAB04.md` по порядку должно быть:
 
-`YOUR TASK`: create `.github/workflows/terraform-ci.yml` that runs on PRs touching `terraform/**` and runs `fmt -check -recursive`, `init -backend=false`, `validate`, and `tflint`. Use **first-party** actions only — `hashicorp/setup-terraform` (or `opentofu/setup-opentofu`) and `terraform-linters/setup-tflint`. No long-lived cloud creds: `-backend=false` skips state.
+1. **Провайдер и цель** — какое облако (или docker-стенд), какой регион или зона, размер инстанса и заметка о стоимости в одну строку (должно выйти `$0`).
+2. **Реализация Terraform** — какая версия, раскладка файлов, ответ из трёх предложений про state из п. 1.3, очищенный вывод жизненного цикла, доказательство SSH.
+3. **Реализация Pulumi** — язык и версия, вывод жизненного цикла, доказательство SSH.
+4. **Terraform и Pulumi** — сравнение из пяти пунктов из п. 2.5.
+5. **Подготовка к Lab 5 и уборка** — какая VM (если какая-то) остаётся жить, или как Lab 5 поднимет новую из вашего IaC. Плюс доказательство `destroy` для всего, что вы снесли.
 
-Skeleton — fill the blanks:
+> Весь вывод терминала очищайте: никаких полных ID аккаунтов, ключей доступа и API-токенов. Всё, что восстановили по памяти, а не скопировали из терминала, помечайте `(illustrative)`.
+
+---
+
+## Бонус — CI/CD для IaC и удалённый state (2 балла)
+
+### Часть 1 — проверка в GitHub Actions (1 балл)
+
+`ВАША ЗАДАЧА`: создайте `.github/workflows/terraform-ci.yml`, который запускается на PR, затрагивающих `terraform/**`, и гоняет `fmt -check -recursive`, `init -backend=false`, `validate` и `tflint`. Только официальные action: `hashicorp/setup-terraform` (или `opentofu/setup-opentofu`) и `terraform-linters/setup-tflint`. Долгоживущих облачных кредов нет: `-backend=false` не поднимает state.
+
+Каркас — заполните пропуски:
 
 ```yaml
 # .github/workflows/terraform-ci.yml
@@ -379,27 +379,27 @@ jobs:
       # tflint needs its own setup action; add a minimal terraform/.tflint.hcl too.
 ```
 
-**Prove it:**
-- Open a PR touching `terraform/` — the workflow runs and stays green.
-- Push a `fmt`-violating commit on top — the workflow goes **red** at the `fmt -check` step. Screenshot or paste the failing log.
-- Touch a non-`terraform/**` file — the workflow does **not** trigger.
+**Докажите:**
+- Откройте PR, который трогает `terraform/`. Workflow запускается и остаётся зелёным.
+- Сверху запушьте коммит, который ломает `fmt`. Workflow становится **красным** на шаге `fmt -check`. Скриншот или вставьте падающий лог.
+- Троньте файл вне `terraform/**`. Workflow **не** запускается.
 
-### Part 2 — Migrate to remote, locked state (1 pt)
+### Часть 2 — Переезд на удалённый state с блокировкой (1 балл)
 
-`YOUR TASK`:
+`ВАША ЗАДАЧА`:
 
-1. Create a state bucket: S3 with **versioning + encryption**, or GCS with versioning, or Yandex Object Storage. By hand or by a tiny separate Terraform config — document which.
-2. Add a `backend "s3"` / `backend "gcs"` block to your `terraform/` config:
-   - For S3, use `use_lockfile = true` (TF 1.10+ native state locking — no more DynamoDB table).
-   - For GCS, locking is native and automatic.
-   - **Always** set `encrypt = true`.
-3. `terraform init -migrate-state` and confirm the local `terraform.tfstate` moved to the bucket.
-4. Run `terraform plan` again — it must report **No changes** (proves the state migrated cleanly, not re-imported).
-5. In `docs/LAB04.md`, explain in 2–3 sentences **why locking prevents two engineers from corrupting state** and what the failure mode looks like without it.
+1. Создайте бакет для state: S3 с **версионированием и шифрованием**, GCS с версионированием или Yandex Object Storage. Руками или крошечным отдельным конфигом Terraform. Запишите, как именно.
+2. Добавьте блок `backend "s3"` или `backend "gcs"` в конфиг `terraform/`:
+   - Для S3 ставьте `use_lockfile = true` (нативная блокировка state в TF 1.10+: отдельная таблица DynamoDB больше не нужна).
+   - Для GCS блокировка встроена и включается сама.
+   - **Всегда** ставьте `encrypt = true`.
+3. Выполните `terraform init -migrate-state` и убедитесь, что локальный `terraform.tfstate` уехал в бакет.
+4. Снова запустите `terraform plan`. Он должен сообщить **No changes** (state переехал чисто, а не был импортирован заново).
+5. В `docs/LAB04.md` за 2–3 предложения объясните, **почему блокировка не даёт двум инженерам испортить state** и как выглядит поломка без неё.
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab04
@@ -409,12 +409,12 @@ git commit -m "feat(lab04): IaC with Terraform + Pulumi"
 git push -u origin lab04
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab04` → `course-repo:master` *(reviewed)*
+- `your-fork:lab04` → `course-repo:master` *(на ревью)*
 - `your-fork:lab04` → `your-fork:master`
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] terraform/ provisions a VM end-to-end; SSH proven
@@ -428,104 +428,104 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 — Terraform (4 pts)
-- ✅ Provider chosen, authenticated via env/profile (no inline creds)
-- ✅ `data` source for the Ubuntu image (not a hardcoded AMI/ID)
-- ✅ Security group / firewall restricts **SSH 22 to your IP/32** only
-- ✅ All six primitives present: `terraform{}`, `provider`, `variable`, `resource`, `data`, `output`
-- ✅ `user_data` runs on first boot and writes to `/var/log/lab4-boot.log`
-- ✅ SSH session in `docs/LAB04.md` shows the boot log line + hostname
-- ✅ `.gitignore` correct: tfstate ignored, `.terraform.lock.hcl` committed
-- ✅ 3-sentence state-management answer present
+### Задание 1 — Terraform (4 балла)
+- ✅ Провайдер выбран, аутентификация через env или профиль (кредов в коде нет)
+- ✅ источник `data` для образа Ubuntu (не захардкоженный AMI или ID)
+- ✅ security group или firewall пускает **SSH 22 только на ваш IP/32**
+- ✅ на месте все шесть примитивов: `terraform{}`, `provider`, `variable`, `resource`, `data`, `output`
+- ✅ `user_data` отрабатывает при первой загрузке и пишет в `/var/log/lab4-boot.log`
+- ✅ сессия SSH в `docs/LAB04.md` показывает строку boot-лога и hostname
+- ✅ `.gitignore` верный: tfstate игнорируется, `.terraform.lock.hcl` закоммичен
+- ✅ ответ из трёх предложений про управление state есть
 
-### Task 2 — Pulumi (4 pts)
-- ✅ Same infra recreated in Pulumi Python (or TS/Go/Java — Python recommended)
-- ✅ `pulumi preview` + `pulumi up` succeed; SSH proven
-- ✅ At most one of the two VMs is left running and it's documented
-- ✅ 5-bullet TF-vs-Pulumi comparison
+### Задание 2 — Pulumi (4 балла)
+- ✅ та же инфраструктура собрана заново на Python в Pulumi (или на TS, Go, Java — Python рекомендуется)
+- ✅ `pulumi preview` и `pulumi up` проходят; SSH доказан
+- ✅ живой остаётся максимум один из двух VM, и это записано
+- ✅ сравнение Terraform и Pulumi из пяти пунктов написано
 
-### Task 3 — Docs (2 pts)
-- ✅ All 5 sections in `docs/LAB04.md`
-- ✅ Outputs sanitized; cleanup proof included
+### Задание 3 — документация (2 балла)
+- ✅ в `docs/LAB04.md` есть все 5 разделов
+- ✅ выводы очищены, доказательство уборки приложено
 
-### Bonus (2 pts)
-- ✅ `terraform-ci.yml` runs `fmt`/`init`/`validate`/`tflint`, gated to `terraform/**`, proven green + red — **1 pt**
-- ✅ Remote, encrypted, **locked** backend; migration confirmed; locking rationale explained — **1 pt**
+### Бонус (2 балла)
+- ✅ `terraform-ci.yml` гоняет `fmt`, `init`, `validate` и `tflint`, ограничен путями `terraform/**`, зелёный и красный прогоны доказаны — **1 балл**
+- ✅ backend удалённый, зашифрованный и **с блокировкой**; миграция подтверждена; зачем нужна блокировка, объяснено — **1 балл**
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задание | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — Terraform VM | **4** | Working infra, data source, restricted SSH, vars/outputs, clean state hygiene |
-| **Task 2** — Pulumi VM | **4** | Same infra in Pulumi, SSH proven, comparison written |
-| **Task 3** — Documentation | **2** | All 5 sections, sanitized output, cleanup proof |
-| **Bonus** — CI for IaC | **1** | Path-filtered fmt/validate/lint workflow, green-and-red proof |
-| **Bonus** — Remote state | **1** | Encrypted + locked backend, migration proven, rationale explained |
-| **Total** | **10 + 2** | 10 main + 2 bonus |
+| **Задание 1** — VM Terraform | **4** | Рабочая инфраструктура, data source, ограниченный SSH, переменные и output, чистая гигиена state |
+| **Задание 2** — VM Pulumi | **4** | Та же инфраструктура в Pulumi, SSH доказан, сравнение написано |
+| **Задание 3** — документация | **2** | Все 5 разделов, очищенный вывод, доказательство уборки |
+| **Бонус** — CI для IaC | **1** | Workflow с фильтром путей: fmt, validate, lint; доказаны зелёный и красный прогоны |
+| **Бонус** — удалённый state | **1** | Зашифрованный backend с блокировкой, миграция доказана, обоснование написано |
+| **Итого** | **10 + 2** | 10 основных + 2 бонуса |
 
-**Non-negotiables:** free-tier only · no secrets or state in Git · SSH proof required · at most one VM left for Lab 5.
+**Жёсткие условия:** только free-tier · никаких секретов и state в Git · доказательство SSH обязательно · для Lab 5 остаётся максимум одна VM.
 
 ---
 
-## Resources
+## Материалы
 
 <details>
 <summary>📚 Terraform / OpenTofu</summary>
 
-- [Terraform docs](https://developer.hashicorp.com/terraform/docs) · [Registry](https://registry.terraform.io/)
-- [OpenTofu](https://opentofu.org) — drop-in fork; migration guide
-- [S3 backend](https://developer.hashicorp.com/terraform/language/settings/backends/s3) · [State locking](https://developer.hashicorp.com/terraform/language/state/locking) · [`terraform import`](https://developer.hashicorp.com/terraform/cli/import)
+- [Документация Terraform](https://developer.hashicorp.com/terraform/docs) · [Registry](https://registry.terraform.io/)
+- [OpenTofu](https://opentofu.org) — форк-замена; гайд по миграции
+- [Backend S3](https://developer.hashicorp.com/terraform/language/settings/backends/s3) · [Блокировка state](https://developer.hashicorp.com/terraform/language/state/locking) · [`terraform import`](https://developer.hashicorp.com/terraform/cli/import)
 - [tflint](https://github.com/terraform-linters/tflint)
-- *Terraform: Up & Running* — Brikman (4e, 2024 — covers OpenTofu)
+- *Terraform: Up & Running* — Brikman (4-е изд., 2024 — там есть и OpenTofu)
 
 </details>
 
 <details>
 <summary>📦 Pulumi</summary>
 
-- [Pulumi docs](https://www.pulumi.com/docs/) · [Registry](https://www.pulumi.com/registry/)
-- [Pulumi vs Terraform](https://www.pulumi.com/docs/concepts/vs/terraform/) · [Secrets](https://www.pulumi.com/docs/concepts/secrets/)
+- [Документация Pulumi](https://www.pulumi.com/docs/) · [Registry](https://www.pulumi.com/registry/)
+- [Pulumi и Terraform](https://www.pulumi.com/docs/concepts/vs/terraform/) · [Секреты](https://www.pulumi.com/docs/concepts/secrets/)
 
 </details>
 
 <details>
-<summary>☁️ Provider quick-references</summary>
+<summary>☁️ Краткие справки по провайдерам</summary>
 
-- **AWS** — [provider docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs); auth via `AWS_ACCESS_KEY_ID` / `~/.aws/credentials`. Ubuntu owner ID: `099720109477`.
-- **GCP** — [provider docs](https://registry.terraform.io/providers/hashicorp/google/latest/docs); auth via `gcloud auth application-default login`. Enable Compute Engine API. SSH key in instance `metadata = { ssh-keys = "ubuntu:${var.ssh_public_key}" }`.
-- **Yandex** — [provider docs](https://registry.terraform.io/providers/yandex-cloud/yandex/latest/docs); service-account JSON key. Free-tier shape: `standard-v3`, `core_fraction = 20`, 1 GB RAM.
-- **Docker stand-in** — `kreuzwerker/docker ~> 3.0`; `docker_image` + `docker_container`. No SSH; `docker exec` + curl the published port.
+- **AWS** — [документация провайдера](https://registry.terraform.io/providers/hashicorp/aws/latest/docs); аутентификация через `AWS_ACCESS_KEY_ID` / `~/.aws/credentials`. Owner ID Ubuntu: `099720109477`.
+- **GCP** — [документация провайдера](https://registry.terraform.io/providers/hashicorp/google/latest/docs); аутентификация через `gcloud auth application-default login`. Включите Compute Engine API. SSH-ключ в metadata инстанса: `metadata = { ssh-keys = "ubuntu:${var.ssh_public_key}" }`.
+- **Yandex** — [документация провайдера](https://registry.terraform.io/providers/yandex-cloud/yandex/latest/docs); JSON-ключ сервисного аккаунта. Форма free-tier: `standard-v3`, `core_fraction = 20`, 1 GB RAM.
+- **Стенд Docker** — `kreuzwerker/docker ~> 3.0`; `docker_image` и `docker_container`. SSH нет; `docker exec` и curl на опубликованный порт.
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
+<summary>⚠️ Типичные ловушки (с реальных пробных прогонов)</summary>
 
-- **`type = int` is invalid HCL.** Variable types are `string`, `number`, `bool`, `list`, `map`, `set`, `object`, `tuple`, `any`. `int` will fail `terraform validate` with a "Invalid type specification" — use `number`.
-- **Committed `terraform.tfstate`.** Holds resource IDs, private IPs, sometimes plaintext secrets, and merge conflicts on JSON are *unrecoverable*. `.gitignore` line 1.
-- **Forgetting `.terraform.lock.hcl`.** This one **you DO commit** — it pins provider hashes so a teammate's `init` resolves to the same `aws ~> 5.x` patch you used. Without it, two engineers can apply with subtly different provider versions and produce different infra.
-- **Credentials in `provider {}`.** Code Spaces (2014) was deleted in 12 hours because of this exact pattern. Env vars or shared profile, never inline. Don't put them in `.tfvars` either — that's another file students commit by accident.
-- **Default-deny egress on a new AWS security group.** Terraform's `aws_security_group` resource has *no implicit egress* unlike the AWS console — you must write the `egress` block yourself or the VM can't reach the internet for `apt`, the user_data hangs, and `apply` "succeeds" with a broken host.
-- **Relying on the default VPC.** It exists on day-one AWS accounts but new orgs delete it for compliance. Either look it up via `data "aws_vpc" "default" { default = true }` or create your own — never assume.
-- **SSH wide open.** `0.0.0.0/0` on port 22 = your VM is in a botnet within hours. `var.my_ip/32` only. (`curl -s ifconfig.me` to find your IP.)
-- **Hardcoded AMI ID.** `ami-0c55b159cbfafe1f0` was the Ubuntu 22.04 AMI in eu-central-1 *once*. AMIs rotate as Canonical ships patches; hardcoded IDs go 404 in months. Use a `data "aws_ami"` filter on the name pattern.
-- **Two simultaneous `apply`s with local state.** State JSON gets half-written, Terraform can't parse it, recovery is hand-editing — which itself is forbidden. This is the whole reason the bonus task exists.
+- **`type = int` в HCL невалиден.** Типы переменных: `string`, `number`, `bool`, `list`, `map`, `set`, `object`, `tuple`, `any`. `int` уронит `terraform validate` с сообщением "Invalid type specification". Берите `number`.
+- **Закоммиченный `terraform.tfstate`.** В нём ID ресурсов, приватные IP, иногда секреты открытым текстом, а конфликт слияния JSON *не восстановить*. Первая строка `.gitignore`.
+- **Забытый `.terraform.lock.hcl`.** **Его как раз коммитят.** Он фиксирует хеши провайдеров, чтобы `init` коллеги разрешился в тот же патч `aws ~> 5.x`, что и у вас. Без файла двое инженеров могут сделать apply с чуть разными версиями провайдера и получить разную инфраструктуру.
+- **Креды в `provider {}`.** Code Spaces (2014) удалили за 12 часов ровно из-за этого. Переменные окружения или общий профиль, в коде их нет. В `.tfvars` тоже не кладите: этот файл студенты коммитят случайно.
+- **Egress с default-deny на новой security group AWS.** У ресурса Terraform `aws_security_group` *нет неявного egress*, в отличие от консоли AWS. Блок `egress` напишите сами, иначе VM не достанет интернет для `apt`, user_data зависнет, а `apply` отрапортует успех на сломанном хосте.
+- **Расчёт на VPC по умолчанию.** На аккаунтах AWS в первый день он есть, новые организации удаляют его по требованиям compliance. Либо найдите его через `data "aws_vpc" "default" { default = true }`, либо создайте свой. Не рассчитывайте, что он на месте.
+- **SSH настежь.** `0.0.0.0/0` на порту 22, и через несколько часов VM уже в ботнете. Только `var.my_ip/32`. (Свой IP: `curl -s ifconfig.me`.)
+- **Захардкоженный AMI ID.** `ami-0c55b159cbfafe1f0` *один раз* был AMI Ubuntu 22.04 в eu-central-1. AMI меняются, когда Canonical выкатывает патчи; захардкоженные ID через месяцы отвечают 404. Фильтруйте `data "aws_ami"` по шаблону имени.
+- **Два одновременных `apply` на локальном state.** JSON state записывается наполовину, Terraform его не разбирает, а восстановление — правка руками, которая сама запрещена. Бонус существует именно из-за этого.
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-| Lab | What it does with your Lab 4 VM |
+| Lab | Что она делает с вашей VM из Lab 4 |
 |---:|---|
-| 5 | Ansible roles SSH in and install Docker + your Lab 1–3 app |
-| 6 | Ansible blocks/rescue, tags, Compose deploy via the same SSH path |
-| 9 | k3d replaces the hand-VM model — same IaC mindset, different unit |
-| 13 | ArgoCD takes over deploys; your IaC still defines the cluster |
+| 5 | Роли Ansible заходят по SSH и ставят Docker и приложение из Lab 1–3 |
+| 6 | Блоки Ansible `blocks`/`rescue`, теги, выкладка Compose по тому же пути SSH |
+| 9 | k3d заменяет модель VM, собранной руками: тот же подход IaC, другая единица |
+| 13 | ArgoCD забирает выкладки; кластер по-прежнему описывает ваш IaC |
 
-> **Remember:** if you can't `git clone && terraform apply` from scratch, it's not IaC — it's a history of console clicks. No secrets in code, no state in Git. The five rules from lecture 4 slide 22 are paid for in real money (slide 23).
+> **Запомните:** если с чистого листа не выходит `git clone && terraform apply`, это не IaC, а история кликов в консоли. Никаких секретов в коде, никакого state в Git. Пять правил со слайда 22 Lecture 4 оплачены живыми деньгами (слайд 23).

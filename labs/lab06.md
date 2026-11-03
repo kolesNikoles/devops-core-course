@@ -1,46 +1,46 @@
-# Lab 6 — Advanced Ansible & Continuous Deployment
+# Lab 6 — Продвинутый Ansible и непрерывная выкладка
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-Ansible%20%26%20CI%2FCD-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Ansible%202.21%20|%20Docker%20Compose%20v2%20|%20GitHub%20Actions-informational)
 
-> **Goal:** Turn the Lab 5 playbooks into a real deployment pipeline — refactor with `block`/`rescue`/`always`, template a Compose stack with Jinja2, add a double-gated wipe, and push-button deploy from GitHub Actions.
-> **Deliverable:** A PR from `lab06` with refactored `ansible/roles/{common,docker,web_app}`, `.github/workflows/ansible-deploy.yml`, and `ansible/docs/LAB06.md` showing real proof (list-tags, rescue fired, idempotent PLAY RECAP).
+> **Цель:** превратите playbook из Lab 5 в настоящий deployment pipeline (цепочка автоматической сборки и выкладки). Отрефакторьте через `block`/`rescue`/`always`, соберите Compose-стек шаблоном Jinja2, добавьте wipe с двумя предохранителями и выкатывайте одной кнопкой из GitHub Actions.
+> **Что сдать:** PR из ветки `lab06` с переработанными `ansible/roles/{common,docker,web_app}`, файлом `.github/workflows/ansible-deploy.yml` и `ansible/docs/LAB06.md`, где есть живое доказательство (list-tags, сработавший rescue, идемпотентный PLAY RECAP).
 
 ---
 
-## Overview
+## Обзор
 
-In Lab 5 you built roles that **configure** a server. In Lab 6 you make those same roles **deliver** an application — repeatedly, safely, and from CI. You will:
+В Lab 5 вы собрали роли, которые **настраивают** сервер. В Lab 6 те же роли **доставляют** приложение: повторно, безопасно и из CI. Вы:
 
-- Refactor `common` and `docker` with `block`/`rescue`/`always` and a deliberate tag taxonomy
-- Replace `docker run` with a Jinja2-templated Compose stack via `community.docker.docker_compose_v2`
-- Add a clean-reinstall button (`web_app_wipe`) that is gated **twice** so a single typo can't destroy prod
-- Wire `.github/workflows/ansible-deploy.yml` to lint → deploy → verify on every push to `ansible/**`
+- переработаете `common` и `docker` через `block`/`rescue`/`always` и осознанную таксономию тегов
+- замените `docker run` на Compose-стек из шаблона Jinja2 через `community.docker.docker_compose_v2`
+- добавите кнопку чистой переустановки (`web_app_wipe`), закрытую **дважды**, чтобы одна опечатка не снесла прод
+- подключите `.github/workflows/ansible-deploy.yml`: на каждый push в `ansible/**` идут lint, выкладка и проверка
 
-> ⚠️ **Scope:** the lab targets one VM (yours from Lab 4) plus localhost for offline practice. Multi-host rolling rollouts are discussed but proven only structurally — same patterns transfer.
+> ⚠️ **Границы:** лабораторная целится в одну ВМ (вашу из Lab 4) плюс localhost, чтобы практиковаться без целевой ВМ. Rolling rollout на несколько хостов мы обсуждаем, а доказываем только структурно. Те же приёмы переносятся дальше.
 
-**What stays from Lab 5:** YAML, role layout, inventory, group_vars, Vault. We do **not** re-teach them.
+**Что остаётся из Lab 5:** YAML, раскладка ролей, inventory, group_vars, Vault. Заново это **не** разбираем.
 
 ---
 
-## Project State
+## Состояние проекта
 
-**You have from previous labs:**
-- The DevOps Info Service (Lab 1) on a registry (Lab 2/3)
-- A target VM with SSH access (Lab 4)
-- Ansible roles `common`, `docker`, `app_deploy`, an inventory, group_vars + Vault (Lab 5)
+**У вас уже есть из прошлых лабораторных:**
+- DevOps Info Service (Lab 1) в registry (Lab 2/3)
+- целевая ВМ с доступом по SSH (Lab 4)
+- роли Ansible `common`, `docker`, `app_deploy`, inventory, group_vars и Vault (Lab 5)
 
-**This lab adds:**
-- `ansible/roles/{common,docker}` refactored with blocks + tags
-- `ansible/roles/web_app/` (renamed from `app_deploy`) with `meta/main.yml`, `templates/docker-compose.yml.j2`, `tasks/main.yml`, `tasks/wipe.yml`, `defaults/main.yml`
+**Эта лабораторная добавляет:**
+- `ansible/roles/{common,docker}`, переработанные блоками и тегами
+- `ansible/roles/web_app/` (переименована из `app_deploy`) с `meta/main.yml`, `templates/docker-compose.yml.j2`, `tasks/main.yml`, `tasks/wipe.yml`, `defaults/main.yml`
 - `.github/workflows/ansible-deploy.yml`
-- `ansible/docs/LAB06.md` — your proof report
+- `ansible/docs/LAB06.md` — ваш отчёт с доказательствами
 
 ---
 
-## Setup
+## Подготовка
 
 ```bash
 ansible --version | head -1                  # ansible-core 2.21.x
@@ -49,40 +49,40 @@ ansible-lint --version
 docker compose version                       # v2.x (the plugin, NOT docker-compose v1)
 ```
 
-Rename the Lab 5 role before you start — the new name lines up with the wipe variable in Task 3:
+Переименуйте роль из Lab 5 до старта. Новое имя совпадает с переменной wipe в задаче 3:
 
 ```bash
 cd ansible/roles && git mv app_deploy web_app
 # update every reference: playbook roles:, group_vars keys, docs
 ```
 
-> ⚠️ **More than a `mv`.** Lab 5's `app_deploy` used `community.docker.docker_container` to run a single container. Task 2 replaces that with a Compose deployment, so `tasks/main.yml` and `handlers/main.yml` get **rewritten**, not edited. Keep the Vault file + the role's `defaults/main.yml` skeleton — but expect to **rename variables** to match Lab 6's new keys (`app_port` → `app_host_port` / `app_internal_port`, `docker_image_tag` → `docker_tag`, `app_container_name` → `app_name`). Grep `group_vars/` and `inventory/` for the old names after you write `defaults/main.yml` in §2.4.
+> ⚠️ **Это больше, чем `mv`.** В Lab 5 роль `app_deploy` запускала один контейнер через `community.docker.docker_container`. Задача 2 заменяет это на выкладку через Compose, поэтому `tasks/main.yml` и `handlers/main.yml` нужно **переписать**, а не подправить. Файл Vault и каркас `defaults/main.yml` роли оставьте, но **переименуйте переменные** под новые ключи Lab 6 (`app_port` → `app_host_port` / `app_internal_port`, `docker_image_tag` → `docker_tag`, `app_container_name` → `app_name`). После того как напишете `defaults/main.yml` в §2.4, пройдитесь `grep` по `group_vars/` и `inventory/` в поисках старых имён.
 
 ---
 
-## Task 1 — Refactor with Blocks & Tags (2 pts)
+## Задача 1 — Рефакторинг: блоки и теги (2 балла)
 
-Lab 5's `common` and `docker` were linear task lists. You will restructure them so that (a) a transient apt/GPG flake doesn't kill the run, (b) you can target a single phase from the CLI, and (c) the `systemd` enable step runs **even when the install fails**.
+В Lab 5 роли `common` и `docker` были линейными списками задач. Перестройте их так, чтобы (a) случайный сбой apt или GPG не убивал прогон, (b) из CLI можно было целиться в одну фазу и (c) шаг enable в `systemd` выполнялся **даже если установка упала**.
 
-### 1.1 Tag strategy (three axes)
+### 1.1 Стратегия тегов (три оси)
 
-Adopt three orthogonal tag axes and apply them consistently across both roles. This is the single decision that decides whether `--tags` is useful or noise.
+Возьмите три независимые оси тегов и применяйте их одинаково в обеих ролях. От этого одного решения зависит, полезен `--tags` или это шум.
 
-| Axis | Tag names you must use | Used for |
+| Ось | Имена тегов, которые нужно использовать | Зачем |
 |------|------------------------|----------|
-| Component | `common`, `docker`, `web_app` | "Touch one role only" |
-| Action | `install`, `config`, `deploy`, `wipe` | "Run one phase across roles" |
-| Risk gate | `web_app_wipe` | Dangerous, opt-in only (Task 3) |
+| Компонент | `common`, `docker`, `web_app` | «Тронуть только одну роль» |
+| Действие | `install`, `config`, `deploy`, `wipe` | «Прогнать одну фазу сквозь роли» |
+| Предохранитель | `web_app_wipe` | Опасно, только по явному opt-in (задача 3) |
 
-`YOUR TASK`: in `ansible/docs/LAB06.md`, write a 3-line table showing which two-or-three tags each block gets. Example row: *"`roles/docker` install block → `[docker, docker_install, install]`."* This forces you to commit to the taxonomy **before** sprinkling tags.
+`ВАША ЗАДАЧА`: в `ansible/docs/LAB06.md` напишите таблицу из трёх строк: какие два или три тега получает каждый блок. Пример строки: *«блок install в `roles/docker` → `[docker, docker_install, install]`».* Так вы зафиксируете таксономию **до** того, как начнёте расставлять теги.
 
-### 1.2 Refactor the `docker` role
+### 1.2 Переработайте роль `docker`
 
-**File:** `roles/docker/tasks/main.yml`
+**Файл:** `roles/docker/tasks/main.yml`
 
-Group the apt-key + repo + `docker-ce` install in a block. Give it a `rescue` that handles a flaky mirror/GPG fetch, and an `always` that guarantees the service is enabled — cleanup is sacred, it must run whether the install succeeded or not.
+Соберите установку apt-ключа, репозитория и `docker-ce` в один блок. Дайте ему `rescue`, который переживает дёрганое зеркало или сбой загрузки GPG, и `always`, который гарантирует, что сервис включён. Зачистка священна: она должна отработать и при успехе установки, и при провале.
 
-`YOUR TASK`: fill in the shape below. Hints in the comments — do not paste solutions from Lab 5 unchanged; you are restructuring them.
+`ВАША ЗАДАЧА`: заполните форму ниже. Подсказки в комментариях. Решения из Lab 5 как есть не вставляйте: вы их перестраиваете.
 
 ```yaml
 - name: ___                                    # YOUR TASK: name the parent block
@@ -114,34 +114,34 @@ Group the apt-key + repo + `docker-ce` install in a block. Give it a `rescue` th
   tags: [___, ___, ___]                        # YOUR TASK: pick three tags from the taxonomy
 ```
 
-> A tag on a `block` inherits to every task inside — do **not** re-tag each task. Lift `become: true` to the block, do not repeat it. If the `rescue` also fails, the host is marked failed and `always` still runs.
+> Тег на `block` наследуется каждой задачей внутри. Каждую задачу заново **не** размечайте. Поднимите `become: true` на блок и не повторяйте его. Если `rescue` тоже падает, хост помечается failed, а `always` всё равно выполняется.
 
-### 1.3 Refactor the `common` role
+### 1.3 Переработайте роль `common`
 
-**File:** `roles/common/tasks/main.yml`
+**Файл:** `roles/common/tasks/main.yml`
 
-Apply the same shape with these requirements:
-- The block installs your Lab 5 baseline packages (curl, gnupg, ca-certificates, …).
-- `rescue` runs `apt-get update --fix-missing` then retries.
-- `always` writes a small completion marker to `/tmp/lab6-common-ran` so you can prove the block executed end-to-end.
-- Tags follow the taxonomy. Lift `become: true` to the block.
+Ту же форму, с такими требованиями:
+- Блок ставит базовые пакеты из Lab 5 (curl, gnupg, ca-certificates, …).
+- `rescue` запускает `apt-get update --fix-missing`, затем повторяет попытку.
+- `always` пишет маленький маркер завершения в `/tmp/lab6-common-ran`, чтобы вы доказали: блок прошёл от начала до конца.
+- Теги идут по таксономии. `become: true` поднимите на блок.
 
-`YOUR TASK`: write the file. Same shape as 1.2, different module choices (`apt` package list, `command`/`shell` for the marker — pick the right one and justify).
+`ВАША ЗАДАЧА`: напишите файл. Форма та же, что в 1.2, модули другие (список пакетов через `apt`, для маркера `command` или `shell` — выберите правильный и обоснуйте).
 
-### 1.4 Prove a `rescue` actually fires
+### 1.4 Докажите, что `rescue` реально срабатывает
 
-It's easy to write `rescue:` and never exercise it — and an unproven rescue path is worse than no rescue at all (you'll find out it doesn't work the day you need it).
+Легко написать `rescue:` и ни разу его не прогнать. Непроверенный путь rescue хуже, чем его отсутствие: что он не работает, вы узнаете в тот день, когда он понадобится.
 
-`YOUR TASK`: deliberately break a task inside one of your blocks **once**, confirm the rescue runs, then revert. Capture the **rescue task's output** in the proof section — the recap line `rescued=1` alone is not enough.
+`ВАША ЗАДАЧА`: один раз специально сломайте задачу внутри одного из блоков, убедитесь, что rescue выполняется, затем откатите. В раздел с доказательствами положите **вывод задачи rescue**. Одной строки recap `rescued=1` мало.
 
-Two safe ways to force a failure (pick one — both fail the *block* task, both let `rescue` catch it, both revert cleanly):
+Два безопасных способа вызвать сбой (выберите один: оба валят задачу *блока*, оба дают `rescue` её поймать, оба чисто откатываются):
 
-1. **Edit the role for one run.** Point `apt_repository:` at `http://does-not-exist.example.com/` (or set an apt key URL to a 404), run, then `git checkout roles/<role>/tasks/main.yml` to revert. Pro: most realistic — it's the exact failure mode rescue exists for.
-2. **Use `--extra-vars` + a dummy assertion.** Add `ansible.builtin.fail: msg="forced"` gated by `when: simulate_failure | default(false) | bool` inside the block; run once with `-e simulate_failure=true`, capture proof, run again without it. Pro: no `git checkout` dance; the trigger lives in the role and you can re-run the proof on demand.
+1. **Поправьте роль на один прогон.** Направьте `apt_repository:` на `http://does-not-exist.example.com/` (или поставьте URL apt-ключа на 404), запустите, затем откатите через `git checkout roles/<role>/tasks/main.yml`. Плюс: ближе всего к реальному сбою. Ровно тот режим отказа, ради которого rescue и существует.
+2. **`--extra-vars` и фиктивная проверка.** Добавьте внутрь блока `ansible.builtin.fail: msg="forced"` под условием `when: simulate_failure | default(false) | bool`. Один раз запустите с `-e simulate_failure=true`, снимите доказательство, запустите снова без него. Плюс: не нужно танцевать с `git checkout`. Триггер живёт в роли, и доказательство можно повторить когда угодно.
 
-> **Do not** comment out a task or run with `--check` — neither exercises the rescue path. The block's task must actually FAIL (`failed=1` on a task line before the rescue line).
+> Задачу **не** комментируйте и с `--check` **не** гоняйте. Ни то, ни другое не проходит путь rescue. Задача блока должна реально упасть (`failed=1` на строке задачи до строки rescue).
 
-### 1.5 Verify selective execution
+### 1.5 Проверьте выборочный запуск
 
 ```bash
 ansible-playbook playbooks/provision.yml --list-tags                # shows the union of all tags
@@ -151,33 +151,33 @@ ansible-playbook playbooks/provision.yml --skip-tags common         # component 
 ansible-playbook playbooks/provision.yml --tags docker --check      # dry-run, component axis
 ```
 
-> `--list-tags` only prints the union — it does **not** prove your taxonomy is three-axis (component / action / risk-gate). Pair it with `--list-tasks --tags <axis>` from each axis to show selective filtering actually reaches the right slice. The taxonomy table from §1.1 carries the explanation.
+> `--list-tags` печатает только объединение. Оно **не** доказывает, что таксономия трёхосевая (компонент / действие / предохранитель). Добавьте `--list-tasks --tags <axis>` с каждой оси и покажите: выборочный фильтр попадает в нужный срез. Объяснение лежит в таблице таксономии из §1.1.
 
-### 1.6 Proof of work — paste into `docs/LAB06.md`
+### 1.6 Доказательство работы — вставьте в `docs/LAB06.md`
 
-- The **`--list-tags` output**, unedited. Tags from all three axes (component / action / risk-gate) must be present in the union.
-- One **selective `--tags`** run from EACH axis (e.g. `--tags docker`, `--tags install`, plus a `--tags web_app_wipe` dry-run) showing **most tasks skipped** in each — not "all 12 ran with tag=docker_install".
-- The **rescue path output** from 1.4 — the actual task name + result, not just `PLAY RECAP`.
-- Your taxonomy table from 1.1.
+- Вывод **`--list-tags`** без правок. В объединении должны быть теги всех трёх осей (компонент / действие / предохранитель).
+- По одному **выборочному прогону `--tags`** с каждой оси (например `--tags docker`, `--tags install` и сухой прогон `--tags web_app_wipe`). В каждом **большинство задач skipped**, а не «все 12 прошли с tag=docker_install».
+- **Вывод пути rescue** из 1.4: настоящее имя задачи и результат, не только `PLAY RECAP`.
+- Ваша таблица таксономии из 1.1.
 
-**Research (answer in your docs):**
-- How do tags inherit from a `block` into its tasks? Do tags on the role import combine or override?
-- Difference between the special `never` tag and a normal opt-in tag like `web_app_wipe`?
-- What happens to a host's downstream tasks when its `rescue` also fails?
+**Разберите (ответ в документации):**
+- Как теги наследуются из `block` в его задачи? Теги на импорте роли складываются или перекрывают друг друга?
+- Чем особый тег `never` отличается от обычного opt-in тега вроде `web_app_wipe`?
+- Что происходит с последующими задачами хоста, если его `rescue` тоже падает?
 
 ---
 
-## Task 2 — Upgrade to Docker Compose (3 pts)
+## Задача 2 — Переход на Docker Compose (3 балла)
 
-Replace the Lab 5 `docker run` with a Jinja2-templated Compose stack, applied via `community.docker.docker_compose_v2`. The win is declarative state + free idempotency: re-running with the same rendered file shows `changed=0`.
+Замените `docker run` из Lab 5 на Compose-стек из шаблона Jinja2 и применяйте его через `community.docker.docker_compose_v2`. Выигрыш — декларативное состояние, а идемпотентность получается сама: повторный прогон с тем же отрендеренным файлом показывает `changed=0`.
 
-### 2.1 Declare the role dependency
+### 2.1 Объявите зависимость роли
 
-**File:** `roles/web_app/meta/main.yml`
+**Файл:** `roles/web_app/meta/main.yml`
 
-A `meta/main.yml` dependency makes `web_app` pull in `docker` automatically, in the right order, exactly once per play. You do not need a second `roles:` entry in your playbook.
+Зависимость в `meta/main.yml` заставляет `web_app` подтянуть `docker` сама, в правильном порядке, ровно один раз на play. Вторую запись `roles:` в playbook добавлять не нужно.
 
-`YOUR TASK`: write this file. The shape:
+`ВАША ЗАДАЧА`: напишите этот файл. Форма:
 
 ```yaml
 ---
@@ -188,23 +188,23 @@ dependencies:
                                                #            Lab 5 docker role
 ```
 
-### 2.2 Template the Compose file
+### 2.2 Шаблон файла Compose
 
-**File:** `roles/web_app/templates/docker-compose.yml.j2`
+**Файл:** `roles/web_app/templates/docker-compose.yml.j2`
 
-**Target render:** a working `docker-compose.yml` for **one** service that:
-- pulls `{{ docker_image }}:{{ docker_tag }}`,
-- publishes `{{ app_host_port }}:{{ app_internal_port }}`,
-- injects every key/value from `{{ app_env }}` (a dict from group_vars) as environment variables,
-- restarts per `{{ restart_policy }}` (default `unless-stopped` — use a Jinja filter),
-- ships a **healthcheck** hitting `/health` on `{{ app_internal_port }}` so `docker compose ps` shows `(healthy)`.
+**Что должно получиться:** рабочий `docker-compose.yml` для **одного** сервиса, который:
+- тянет `{{ docker_image }}:{{ docker_tag }}`,
+- публикует `{{ app_host_port }}:{{ app_internal_port }}`,
+- прокидывает каждую пару ключ/значение из `{{ app_env }}` (словарь из group_vars) как переменные окружения,
+- перезапускается по `{{ restart_policy }}` (по умолчанию `unless-stopped`, нужен фильтр Jinja),
+- описывает **healthcheck**, который бьёт в `/health` на `{{ app_internal_port }}`, чтобы `docker compose ps` показывал `(healthy)`.
 
-You must use **all three** Jinja2 mechanisms:
-1. `{{ var }}` interpolation
-2. At least one `{% if %}` block (e.g. skip `environment:` when `app_env` is empty)
-3. At least one filter chain (e.g. `| default('...')` or `| to_nice_yaml`)
+Нужны **все три** механизма Jinja2:
+1. подстановка `{{ var }}`
+2. хотя бы один блок `{% if %}` (например, не рендерить `environment:`, когда `app_env` пуст)
+3. хотя бы одна цепочка фильтров (например `| default('...')` или `| to_nice_yaml`)
 
-`YOUR TASK`: write the template. The shape (intentionally incomplete — fill the body):
+`ВАША ЗАДАЧА`: напишите шаблон. Форма намеренно неполная, заполните тело:
 
 ```jinja
 {# Compose v2 — NO top-level `version:` field (dropped in 2023) #}
@@ -228,13 +228,13 @@ services:
       retries: ___
 ```
 
-> Compose v2 dropped the top-level `version:` key — if a tutorial still writes `version: '3.8'`, it predates 2023. Leave it off. Test the render locally with `ansible all -i localhost, -m template -a "src=... dest=/tmp/out.yml"` before running the full play.
+> Compose v2 выкинул ключ `version:` верхнего уровня. Если в туториале всё ещё пишут `version: '3.8'`, туториал старше 2023. Не ставьте этот ключ. Проверьте рендер локально командой `ansible all -i localhost, -m template -a "src=... dest=/tmp/out.yml"` до полного play.
 
-### 2.3 Implement the deploy tasks
+### 2.3 Реализуйте задачи выкладки
 
-**File:** `roles/web_app/tasks/main.yml`
+**Файл:** `roles/web_app/tasks/main.yml`
 
-The shape — fill the bodies:
+Форма. Заполните тела:
 
 ```yaml
 ---
@@ -280,20 +280,20 @@ The shape — fill the bodies:
   tags: [___, ___, ___]                        # YOUR TASK: three tags from the taxonomy
 ```
 
-Setup notes (these don't need YOUR-TASK; they are plumbing):
-- Collection installed on the **controller**: `ansible-galaxy collection install community.docker`.
-- `python3-docker` on the **target** (your `docker` role does this).
-- Re-running the same play with no changes must show `changed=0`. If it doesn't, something in your template depends on a mutable input (timestamp, random, unsorted dict iteration).
+Заметки по окружению (это не пометки `ВАША ЗАДАЧА`, это обвязка):
+- Коллекция стоит на **контроллере** (управляющий узел): `ansible-galaxy collection install community.docker`.
+- `python3-docker` стоит на **цели** (это делает ваша роль `docker`).
+- Повторный прогон того же play без изменений должен показать `changed=0`. Если нет, в шаблоне есть что-то нестабильное: метка времени, случайное значение или обход словаря без сортировки.
 
-### 2.4 Variables
+### 2.4 Переменные
 
-**File:** `roles/web_app/defaults/main.yml`
+**Файл:** `roles/web_app/defaults/main.yml`
 
-`YOUR TASK`: declare the defaults. The keys you need: `app_name`, `docker_image`, `docker_tag`, `app_host_port`, `app_internal_port`, `compose_project_dir`, `restart_policy`, `app_env`. Use sensible defaults. **Do not** default `docker_tag` to `latest` for prod — pin it per-env in `group_vars`. Keep real secrets in your Lab 5 Vault file (`group_vars/.../vault.yml`) and merge them into `app_env` from there.
+`ВАША ЗАДАЧА`: объявите значения по умолчанию. Нужные ключи: `app_name`, `docker_image`, `docker_tag`, `app_host_port`, `app_internal_port`, `compose_project_dir`, `restart_policy`, `app_env`. Возьмите разумные значения. **Не** ставьте `docker_tag` в `latest` для прода: запиньте его в `group_vars` для каждого окружения. Настоящие секреты держите в файле Vault из Lab 5 (`group_vars/.../vault.yml`) и оттуда подмешайте их в `app_env`.
 
-> ⚠️ **Migrate the Lab 5 names** at the same time. Lab 5 used `app_port`, `app_container_name`, `docker_image_tag` — those collide or just plain confuse against Lab 6's `app_host_port` / `app_internal_port`, `app_name`, `docker_tag`. After you write `defaults/main.yml`, `grep -RIn 'app_port\|app_container_name\|docker_image_tag' ansible/` and rename anything still using the old keys (group_vars, host_vars, vault). Leaving both around silently breaks templating.
+> ⚠️ **Заодно перенесите имена из Lab 5.** В Lab 5 были `app_port`, `app_container_name`, `docker_image_tag`. Они сталкиваются с ключами Lab 6 или просто путают: `app_host_port` / `app_internal_port`, `app_name`, `docker_tag`. После `defaults/main.yml` выполните `grep -RIn 'app_port\|app_container_name\|docker_image_tag' ansible/` и переименуйте всё, что ещё сидит на старых ключах (group_vars, host_vars, vault). Если оставить оба варианта, шаблоны ломаются молча.
 
-### 2.5 Verify
+### 2.5 Проверьте
 
 ```bash
 ansible-playbook playbooks/deploy.yml --tags deploy            # run #1: changed
@@ -306,42 +306,42 @@ curl -fsS "http://<VM-IP>:<app_host_port>/health" | jq .
 # ansible all -m shell -a 'docker compose -f {{ compose_project_dir }}/docker-compose.yml ps'
 ```
 
-### 2.6 Proof of work — paste into `docs/LAB06.md`
+### 2.6 Доказательство работы — вставьте в `docs/LAB06.md`
 
-- The **rendered** `docker-compose.yml` (post-template) — at least the first 20 lines.
-- Both PLAY RECAPs side-by-side — run #1 `changed≥1`, run #2 `changed=0`. **This is the idempotency proof.** A second run that still shows `changed=2` means your template renders differently each time (sort your dict keys, drop timestamps).
-- `docker compose ps` showing `(healthy)`.
-- `curl /health` output with your real hostname/uptime.
+- **Отрендеренный** `docker-compose.yml` (после шаблона), хотя бы первые 20 строк.
+- Оба PLAY RECAP рядом: прогон №1 `changed≥1`, прогон №2 `changed=0`. **Это доказательство идемпотентности.** Если второй прогон всё ещё показывает `changed=2`, шаблон каждый раз рендерится по-другому. Отсортируйте ключи словаря и уберите метки времени.
+- `docker compose ps` со статусом `(healthy)`.
+- Вывод `curl /health` с вашим настоящим hostname и uptime.
 
-**Research:**
-- `restart: always` vs `unless-stopped` — when does the difference actually bite?
-- Why does `python3-docker` go on the **target**, not the controller?
-- Why is one templated Compose file better than N `docker run` tasks?
+**Разберите:**
+- `restart: always` против `unless-stopped`. Когда разница реально даёт о себе знать?
+- Почему `python3-docker` ставится на **цель**, а не на контроллер?
+- Почему один шаблон Compose лучше, чем N задач `docker run`?
 
 ---
 
-## Task 3 — Double-Gated Wipe Logic (2 pts)
+## Задача 3 — Wipe с двумя предохранителями (2 балла)
 
-A clean reinstall is sometimes the only safe rollback: corrupted volume, rotated secret, broken cache. You need the button, **and** you need it gated so a sleepy 2am `--tags` typo can't destroy prod.
+Чистая переустановка иногда единственный безопасный откат: битый том, ротированный секрет, сломанный кэш. Кнопка wipe (полная зачистка) нужна, **и** её нужно закрыть, чтобы сонная опечатка в `--tags` в два часа ночи не снесла прод.
 
-### 3.1 The double gate
+### 3.1 Два предохранителя
 
-Two **independent** gates: a `when:` variable check **and** an opt-in tag. Both must align for the wipe to run.
+Два **независимых** предохранителя: проверка переменной в `when:` **и** opt-in тег. Чтобы wipe пошёл, должны совпасть оба.
 
-| Invocation | Wipe? | Why |
+| Вызов | Wipe? | Почему |
 |------------|-------|-----|
-| `deploy.yml` | No | var false, tag not requested |
-| `deploy.yml --tags web_app_wipe` | No | `when` blocks it (var still false) |
-| `deploy.yml -e web_app_wipe=true` | Yes — wipe **then** deploy | clean reinstall |
-| `deploy.yml -e web_app_wipe=true --tags web_app_wipe` | Yes — wipe **only** | deploy tasks skipped by tag |
+| `deploy.yml` | Нет | переменная false, тег не запрошен |
+| `deploy.yml --tags web_app_wipe` | Нет | `when` блокирует (переменная всё ещё false) |
+| `deploy.yml -e web_app_wipe=true` | Да — сначала wipe, **потом** выкладка | чистая переустановка |
+| `deploy.yml -e web_app_wipe=true --tags web_app_wipe` | Да — **только** wipe | задачи выкладки пропущены по тегу |
 
-> Why two gates and not just the special `never` tag? `never` is a single gate — anyone who passes `--tags web_app_wipe` (or, with `never`, anyone who passes `--tags never`) triggers the wipe. A second, independent gate (the variable) means a typo or a CI mistake in **either** dimension alone is harmless: the other gate still blocks. Defence in depth, not cleverness in one place.
+> Зачем два предохранителя, а не один особый тег `never`? `never` — один предохранитель. Кто передал `--tags web_app_wipe` (а с `never` — кто передал `--tags never`), тот и запускает wipe. Второй, независимый предохранитель (переменная) значит: опечатка или ошибка CI только в **одном** измерении безвредна, второй предохранитель всё ещё держит. Это защита в глубину, а не одна хитрость в одном месте.
 
-### 3.2 Implement
+### 3.2 Реализация
 
-**File:** `roles/web_app/tasks/wipe.yml`
+**Файл:** `roles/web_app/tasks/wipe.yml`
 
-The shape:
+Форма:
 
 ```yaml
 ---
@@ -369,39 +369,39 @@ The shape:
   tags: [___, ___]                             # YOUR TASK: gate #2 — opt-in tag
 ```
 
-**File:** `roles/web_app/defaults/main.yml` — add:
+**Файл:** `roles/web_app/defaults/main.yml` — добавьте:
 
 ```yaml
 web_app_wipe: ___                              # YOUR TASK: safe default — what should it be?
 ```
 
-The `include_tasks: wipe.yml` line from Task 2.3 sits **before** the deploy block, so `-e web_app_wipe=true` gives you wipe-then-deploy in one run.
+Строка `include_tasks: wipe.yml` из задачи 2.3 стоит **до** блока выкладки, поэтому `-e web_app_wipe=true` даёт сначала wipe, потом выкладку, за один прогон.
 
-### 3.3 Verify all four rows
+### 3.3 Проверьте все четыре строки
 
-`YOUR TASK`: run each of the four invocations in §3.1 and capture the output. For each, prove what you claim:
-- Row 1 (plain `deploy.yml`) — search the recap or `--list-tasks` output for the wipe tasks; they should be skipped.
-- Row 2 (`--tags web_app_wipe` alone) — the wipe tasks **enter** the play but the `when:` skips them. The recap shows `skipped`, not `ok`.
-- Row 3 (`-e web_app_wipe=true`) — `docker ps` before (running) → `docker ps` after the wipe inside the run (gone) → after deploy (running again, fresh container ID).
-- Row 4 (`-e ... --tags web_app_wipe`) — wipe runs, deploy tasks skipped by tag, `docker ps` ends empty.
+`ВАША ЗАДАЧА`: прогоните каждый из четырёх вызовов в §3.1 и сохраните вывод. Для каждого докажите то, что утверждаете:
+- Строка 1 (просто `deploy.yml`). Поищите задачи wipe в recap или в выводе `--list-tasks`. Они должны быть skipped.
+- Строка 2 (только `--tags web_app_wipe`). Задачи wipe **входят** в play, но `when:` их пропускает. В recap стоит `skipped`, не `ok`.
+- Строка 3 (`-e web_app_wipe=true`). `docker ps` до (работает), `docker ps` после wipe внутри прогона (пропал), после выкладки (снова работает, свежий ID контейнера).
+- Строка 4 (`-e ... --tags web_app_wipe`). Wipe выполняется, задачи выкладки пропущены по тегу, `docker ps` в конце пустой.
 
-### 3.4 Proof of work — paste into `docs/LAB06.md`
+### 3.4 Доказательство работы — вставьте в `docs/LAB06.md`
 
-- Four terminal captures, one per row, each labelled with the invocation.
-- `docker ps --filter name=<app>` immediately before and immediately after the wipe-only run.
-- A one-line note explaining **why `| bool` is mandatory** on the `when:`. (Spoiler in Common Pitfalls if you're stuck.)
+- Четыре снимка терминала, по одному на строку, каждый подписан вызовом.
+- `docker ps --filter name=<app>` сразу до и сразу после прогона «только wipe».
+- Одна строка, **почему `| bool` обязателен** в `when:`. (Если застряли, спойлер в разделе «Типичные ловушки».)
 
 ---
 
-## Task 4 — CI/CD with GitHub Actions (3 pts)
+## Задача 4 — CI/CD на GitHub Actions (3 балла)
 
-Automate the whole thing: push to `main` → lint → deploy → verify. Prefer **OIDC short-lived credentials** to a long-lived SSH key where the target supports it.
+Автоматизируйте всё: push в `main`, затем lint, выкладка и проверка. Где цель это умеет, предпочитайте **короткоживущие учётные данные OIDC** долгоживущему SSH-ключу.
 
-### 4.1 Workflow skeleton
+### 4.1 Каркас workflow
 
-**File:** `.github/workflows/ansible-deploy.yml`
+**Файл:** `.github/workflows/ansible-deploy.yml`
 
-The shape — fill the bodies:
+Форма. Заполните тела:
 
 ```yaml
 name: Ansible Deploy
@@ -440,23 +440,23 @@ jobs:
       # YOUR TASK: pick ONE auth tier from §4.2 and run the playbook + smoke test
 ```
 
-> Pin `ansible-core==2.21.*` so CI matches your local lockfile. ansible-core has **no LTS label** — pin the exact minor that matches your `community.docker` 4.x collection.
+> Зафиксируйте `ansible-core==2.21.*`, чтобы CI совпал с локальным lockfile. У ansible-core **нет метки LTS**. Зафиксируйте тот минор, который стыкуется с вашей коллекцией `community.docker` 4.x.
 
-### 4.2 Pick an auth tier
+### 4.2 Выберите уровень аутентификации
 
-> ⚠️ **First, the easy mistake:** the auto-injected `secrets.GITHUB_TOKEN` authenticates to **GitHub** (the API, GHCR). It is **not** an SSH key, it cannot log in to your VM. Plain SSH-to-VM always needs *something* — a key, or a federated mechanism that ultimately produces a key/session.
+> ⚠️ **Сначала простая ошибка:** автоматически подставляемый `secrets.GITHUB_TOKEN` аутентифицирует вас в **GitHub** (API, GHCR). Это **не** SSH-ключ, войти им на ВМ нельзя. Обычный SSH на ВМ всегда требует *чего-то ещё*: ключа или федеративного механизма, который в итоге выдаёт ключ или сессию.
 
-> ⚠️ **OIDC for SSH-to-VM, honestly.** OIDC's win is "no long-lived secret in GitHub" — but the VM at the far end has to accept the federated identity. That means: AWS SSM Session Manager / EC2 Instance Connect, GCP IAP TCP-tunnel, or a cloud-provisioned short-lived SSH cert (e.g. Teleport, HashiCorp Boundary, Smallstep). **Raw `ssh user@ip` against a hand-built VM with `authorized_keys` does NOT speak OIDC.** Pick OIDC only if your Lab 4 cloud supports one of these paths; otherwise the honest answer is Tier 2 (Environment secret + a deploy key) and the lab grades you on **justifying the choice**, not on picking OIDC for cosmetics.
+> ⚠️ **OIDC для SSH на ВМ, честно.** Выигрыш OIDC в том, что в GitHub нет долгоживущего секрета. Но ВМ на том конце должна принимать федеративную личность. Это AWS SSM Session Manager / EC2 Instance Connect, GCP IAP TCP-tunnel или короткоживущий SSH-сертификат, который выдало облако (например Teleport, HashiCorp Boundary, Smallstep). **Голый `ssh user@ip` на собранную руками ВМ с `authorized_keys` OIDC не понимает.** Берите OIDC, только если облако из Lab 4 умеет один из этих путей. Иначе честный ответ — уровень 2 (секрет Environment и deploy key). Лабораторная оценивает **обоснование выбора**, а не OIDC для красоты.
 
-| Tier | Mechanism | Trade-off |
+| Уровень | Механизм | Компромисс |
 |------|-----------|-----------|
-| Repo secret as env | `secrets.SSH_KEY` → `~/.ssh/id_ed25519` | Simple; a long-lived key is the new "password in source" |
-| GitHub Environment | Per-env secrets (deploy key per env) + manual approval | Needed for prod; small ops overhead |
-| **OIDC + cloud IAM** | Short-lived federated token → cloud-mediated SSH (SSM / IAP / cert) | No static key in CI; requires the target to support a federated SSH path |
+| Секрет репозитория как env | `secrets.SSH_KEY` → `~/.ssh/id_ed25519` | Просто. Долгоживущий ключ — это новый «пароль в исходниках» |
+| GitHub Environment | Секреты на окружение (deploy key на каждое) и ручное подтверждение | Нужно для прода. Небольшой операционный наклад |
+| **OIDC + облачный IAM** | Короткоживущий федеративный токен, дальше SSH через облако (SSM / IAP / сертификат) | В CI нет статического ключа. Цель должна уметь федеративный путь SSH |
 
-`YOUR TASK`: pick one, implement it. Justify your choice in the docs in 2–3 sentences referencing the trade-offs above. The skeletons:
+`ВАША ЗАДАЧА`: выберите один уровень и реализуйте его. Обоснуйте выбор в документации в 2–3 предложениях, со ссылкой на компромиссы выше. Каркасы:
 
-**OIDC (recommended):**
+**OIDC (рекомендуется):**
 
 ```yaml
       - uses: aws-actions/configure-aws-credentials@v4
@@ -468,7 +468,7 @@ jobs:
           ___                                  # YOUR TASK: ansible-playbook against your inventory
 ```
 
-**SSH-in-secret (fallback):**
+**SSH в секрете (запасной путь):**
 
 ```yaml
       - env:
@@ -483,23 +483,23 @@ jobs:
           ___                                  # YOUR TASK: ansible-playbook with --vault-password-file
 ```
 
-> Never echo a secret to the log (no `run: echo "$SSH"` for debugging — pipe it into a file with redirected stdin, like the install above). A self-hosted runner on the target network removes the SSH key entirely — but it is a trust boundary, **never** run it on PRs from forks.
+> Никогда не печатайте секрет в лог (не `run: echo "$SSH"` для отладки: кладите его в файл через перенаправленный stdin, как `install` выше). Self-hosted runner в сети цели убирает SSH-ключ совсем, но это граница доверия. На PR из форков его **никогда** не гоняйте.
 
-### 4.3 Verify in CI, not just exit 0
+### 4.3 Проверяйте в CI, а не только код возврата 0
 
-`ansible-playbook` returning 0 only means the playbook ran without errors — it does **not** mean the app responds. Add a smoke-test step.
+Код возврата 0 у `ansible-playbook` значит только, что playbook прошёл без ошибок. Это **не** значит, что приложение отвечает. Добавьте шаг smoke-теста.
 
-`YOUR TASK`: write a step that polls `/health` **on the deployed VM** (not `localhost` on the runner — that's just curling GitHub's runner) up to N times (you pick a bounded N), exits 0 on first 200, exits 1 if it never comes up. Use plain shell, not a third-party action. Hint: `curl -fsS http://<VM-IP>:<app_host_port>/health` returns non-zero on non-2xx; pair it with a small retry loop. Get the VM address from the same source the playbook used (inventory variable, GH variable, or `terraform output -json`).
+`ВАША ЗАДАЧА`: напишите шаг, который опрашивает `/health` **на выкатанной ВМ** (не `localhost` на runner: это просто curl до runner GitHub) до N раз. N ограничьте сами. На первом 200 выходите с 0. Если сервис так и не поднялся, выходите с 1. Пишите обычным shell, без стороннего action. Подсказка: `curl -fsS http://<VM-IP>:<app_host_port>/health` возвращает ненулевой код на ответе не из 2xx. Состыкуйте его с коротким циклом повторов. Адрес ВМ берите из того же источника, что и playbook (переменная inventory, переменная GH или `terraform output -json`).
 
-Add the status badge to your repo `README.md`:
+Добавьте бейдж статуса в `README.md` репозитория:
 
 ```markdown
 [![Ansible Deploy](https://github.com/<you>/<repo>/actions/workflows/ansible-deploy.yml/badge.svg)](https://github.com/<you>/<repo>/actions/workflows/ansible-deploy.yml)
 ```
 
-### 4.4 Deployment strategy
+### 4.4 Стратегия выкладки
 
-`serial:` on a play caps how many hosts deploy **at the same moment**. It does **NOT** mean "deploy to 50% of hosts and stop." With 10 hosts and `serial: "50%"`, Ansible runs **two batches of 5** — every host eventually gets the new version. The lever controls *concurrency*, not *coverage*. For a true canary that stops to observe, use a list: `serial: [1, 5, "100%"]` — first batch is 1, then 5, then the rest.
+`serial:` на play ограничивает, сколько хостов выкатываются **в один момент**. Это **не** значит «выкатить на 50% хостов и остановиться». При 10 хостах и `serial: "50%"` Ansible делает **две пачки по 5**. Новая версия в итоге доезжает до каждого хоста. Рычаг крутит *параллельность*, не *охват*. Для настоящего canary, который останавливается посмотреть, используйте список: `serial: [1, 5, "100%"]`. Первая пачка из 1, потом 5, потом остальные.
 
 ```yaml
 - name: Deploy web tier
@@ -510,56 +510,58 @@ Add the status badge to your repo `README.md`:
   roles: [web_app]
 ```
 
-| Strategy | Typical `serial:` | When |
+| Стратегия | Типичный `serial:` | Когда |
 |----------|-------------------|------|
-| Rolling | `1` or `25%` | Zero-downtime behind a load balancer |
-| Canary | `1` (first batch, then observe) | Test on one host before continuing |
-| All-at-once | omit `serial:` | Dev/staging only |
+| Rolling | `1` или `25%` | Без простоя за балансировщиком |
+| Canary | `1` (первая пачка, потом смотрим) | Проверить на одном хосте, прежде чем идти дальше |
+| Все сразу | не указывайте `serial:` | Только dev/staging |
 
-In your docs: which strategy did you pick for prod, and why?
+В документации: какую стратегию вы выбрали для прода и почему?
 
-### 4.5 Proof of work — paste into `docs/LAB06.md`
+### 4.5 Доказательство работы — вставьте в `docs/LAB06.md`
 
-- A screenshot (or pasted log block) of a green workflow run.
-- Log lines showing **ansible-lint passing** (not skipped, not all-warnings).
-- The smoke-test step output (curl 200).
-- The passing status badge URL.
-- 2–3 sentences justifying your `serial:` + auth-tier choices.
+- Скриншот (или вставленный блок лога) зелёного прогона workflow.
+- Строки лога, где **ansible-lint проходит** (не skipped и не сплошные warnings).
+- Вывод шага smoke-теста (curl 200).
+- URL зелёного бейджа статуса.
+- 2–3 предложения, почему вы выбрали такой `serial:` и такой уровень аутентификации.
 
-**Research:**
-- Security implications: long-lived SSH key in a repo secret vs OIDC + cloud IAM. What's the blast radius if each leaks?
-- How would you add a rollback job that triggers on the verify step failing? Sketch the YAML.
-- Why must a self-hosted runner never execute jobs from fork PRs?
+**Разберите:**
+- По безопасности: долгоживущий SSH-ключ в секрете репозитория против OIDC и облачного IAM. Какой радиус поражения, если утечёт каждое?
+- Как добавить job отката, который стартует, если шаг проверки упал? Набросайте YAML.
+- Почему self-hosted runner никогда не должен выполнять job из PR форков?
 
 ---
 
-## Bonus — Multi-Environment Promotion (2 pts)
+## Бонус — Продвижение между окружениями (2 балла)
 
-> Single bonus task (2 pts). Promote **one immutable image** through `staging` → `prod` using per-environment inventories and a manual approval gate. Same artifact, never rebuilt, never retagged.
+> Одна бонусная задача (2 балла). Проведите **один неизменяемый образ** по пути `staging` → `prod` через inventory на каждое окружение и ручное подтверждение. Тот же артефакт, без пересборки и без смены тега.
 
-Build on your Task 4 workflow. The whole point: the identical image (pinned by SHA or SemVer, **not** `:latest`) flows to staging automatically, then to prod only after a human approves.
+Опирайтесь на workflow из задачи 4. Суть в том, что один и тот же образ (запинен SHA или SemVer, **не** `:latest`) сам едет на staging, а на прод — только после того, как человек подтвердит.
 
-`YOUR TASK`:
+`ВАША ЗАДАЧА`:
 
-1. **Two inventories** with per-env pinned `docker_tag` (staging leads, prod lags). Both tags must point at the **same `docker_image`** that exists in your registry — promotion means "same image, newer environment", never a rebuild:
+1. **Два inventory** с запиненным `docker_tag` на окружение (staging впереди, prod отстаёт). Оба тега должны указывать на **один и тот же `docker_image`**, который есть в вашем registry. Продвижение значит «тот же образ, более новое окружение», и никогда не пересборку:
 
-   ```
+   
+```
    ansible/inventories/
      staging/hosts.ini   group_vars/all.yml   docker_tag: ___   # YOUR TASK: the newer SemVer or :sha-abc123 — what staging is testing
      prod/hosts.ini      group_vars/all.yml   docker_tag: ___   # YOUR TASK: the SemVer / SHA that already passed staging — what prod is running
    ```
 
-   Per-env Vault files. Do **not** branch the playbook on `inventory_hostname == 'prod'` — branch on **variables only**.
+   Файлы Vault на каждое окружение. **Не** ветвите playbook по `inventory_hostname == 'prod'`. Ветвите только по **переменным**.
 
-2. **Promotion workflow** — extend `ansible-deploy.yml` (or add `ansible-promote.yml`):
-   - `deploy-staging` runs automatically on push to `main` against `inventories/staging`.
-   - `deploy-prod` `needs: deploy-staging`, uses `environment: production` with a **required reviewer**, targets `inventories/prod`.
-   - The **same** `docker_image` flows to both; only `docker_tag` differs per env.
-   - Prod uses `serial:` + `max_fail_percentage:` from Task 4.4.
+2. **Workflow продвижения.** Расширьте `ansible-deploy.yml` (или добавьте `ansible-promote.yml`):
+   - `deploy-staging` сам запускается на push в `main` против `inventories/staging`.
+   - У `deploy-prod` стоит `needs: deploy-staging`, он использует `environment: production` с **обязательным ревьюером** и целится в `inventories/prod`.
+   - В оба едет **один и тот же** `docker_image`. По окружениям отличается только `docker_tag`.
+   - На проде используются `serial:` и `max_fail_percentage:` из задачи 4.4.
 
-   Skeleton:
+   Каркас:
 
-   ```yaml
+   
+```yaml
    deploy-prod:
      needs: ___                                # YOUR TASK
      environment: ___                          # YOUR TASK: env name with required reviewer
@@ -571,16 +573,16 @@ Build on your Task 4 workflow. The whole point: the identical image (pinned by S
        #   - smoke-test /health on a prod host
    ```
 
-3. **Verify** end to end:
-   - Staging deploy auto-runs on push.
-   - Prod job **pauses** for approval (screenshot the GitHub UI showing the gate).
-   - Both envs serve the expected (different) tags via `/health` or a `?version=` field.
+3. **Проверьте** от начала до конца:
+   - Выкладка на staging сама стартует на push.
+   - Job прода **встаёт** на подтверждение (скриншот UI GitHub, где виден предохранитель).
+   - Оба окружения отдают ожидаемые (разные) теги через `/health` или поле `?version=`.
 
-**Proof:** the two `group_vars/all.yml` files with different pinned tags, the prod approval gate screenshot, and `curl` output proving each env runs its pinned version.
+**Доказательство:** два файла `group_vars/all.yml` с разными запиненными тегами, скриншот предохранителя подтверждения на проде и вывод `curl`, который показывает: каждое окружение крутит свою запиненную версию.
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab06
@@ -589,13 +591,13 @@ git commit -m "feat(lab06): advanced ansible — blocks, tags, compose, CI"
 git push -u origin lab06
 ```
 
-Confirm `.vault_pass` and any unencrypted secret are **not** staged. Encrypted Vault files are fine to commit.
+Убедитесь, что `.vault_pass` и любой незашифрованный секрет **не** в индексе. Зашифрованные файлы Vault коммитить можно.
 
-Open **two** PRs:
-- `your-fork:lab06` → `course-repo:master` *(reviewed)*
-- `your-fork:lab06` → `your-fork:master` *(merges into your own main when done)*
+Откройте **два** PR:
+- `your-fork:lab06` → `course-repo:master` *(на ревью)*
+- `your-fork:lab06` → `your-fork:master` *(сольётся в ваш main, когда закончите)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 — roles refactored, --list-tags + selective --tags captured, rescue fired
@@ -607,119 +609,119 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Main Tasks (10 pts)
+### Основные задачи (10 баллов)
 
-**Blocks & Tags (2 pts):**
-- ✅ `docker` and `common` refactored with `block`/`rescue`/`always`
-- ✅ Three-axis tag taxonomy applied to every block
-- ✅ `--list-tags` output + one selective `--tags` run captured
-- ✅ Rescue path demonstrably **fired** (task output, not just `rescued=1`)
+**Блоки и теги (2 балла):**
+- ✅ `docker` и `common` переработаны через `block`/`rescue`/`always`
+- ✅ Трёхосевая таксономия тегов стоит на каждом блоке
+- ✅ Сняты вывод `--list-tags` и один выборочный прогон `--tags`
+- ✅ Путь rescue явно **сработал** (вывод задачи, не только `rescued=1`)
 
-**Docker Compose (3 pts):**
-- ✅ `app_deploy` renamed to `web_app`, all references updated
-- ✅ `meta/main.yml` declares the `docker` dependency
-- ✅ Jinja2 template uses interpolation **+** `{% if %}` **+** at least one filter
-- ✅ Deployed via `community.docker.docker_compose_v2`; both runs captured (changed → 0)
-- ✅ App reachable on `/health`; container shows `(healthy)`
+**Docker Compose (3 балла):**
+- ✅ `app_deploy` переименована в `web_app`, все ссылки обновлены
+- ✅ `meta/main.yml` объявляет зависимость `docker`
+- ✅ Шаблон Jinja2 использует подстановку, **и** `{% if %}`, **и** хотя бы один фильтр
+- ✅ Выкладка через `community.docker.docker_compose_v2`; оба прогона сняты (changed → 0)
+- ✅ Приложение доступно на `/health`; контейнер показывает `(healthy)`
 
-**Wipe Logic (2 pts):**
-- ✅ Gated by `when: web_app_wipe | bool` **and** the `web_app_wipe` tag
-- ✅ Included **before** the deploy block (clean reinstall works in one run)
-- ✅ All four invocation rows captured
+**Логика wipe (2 балла):**
+- ✅ Закрыто и `when: web_app_wipe | bool`, и тегом `web_app_wipe`
+- ✅ Подключено **до** блока выкладки (чистая переустановка работает за один прогон)
+- ✅ Сняты все четыре строки вызовов
 
-**CI/CD (3 pts):**
-- ✅ Workflow runs `ansible-lint` then deploy
-- ✅ Path filters configured (docs excluded; workflow self-test)
-- ✅ Auth via OIDC or GitHub Environment secret (no secret echoed)
-- ✅ Smoke-test step + passing badge
-- ✅ `serial:` chosen and justified
+**CI/CD (3 балла):**
+- ✅ Workflow гоняет `ansible-lint`, затем выкладку
+- ✅ Фильтры путей настроены (документация исключена, workflow проверяет сам себя)
+- ✅ Аутентификация через OIDC или секрет GitHub Environment (секрет не печатается)
+- ✅ Шаг smoke-теста и зелёный бейдж
+- ✅ `serial:` выбран и обоснован
 
-### Bonus (2 pts)
-- ✅ Separate `staging` / `prod` inventories with per-env pinned `docker_tag`
-- ✅ Same immutable image promoted (no rebuild, no `:latest`)
-- ✅ Prod behind a required-reviewer Environment
-- ✅ Rolling rollout with `serial:` + `max_fail_percentage:`
-- ✅ Evidence both envs serve their pinned versions
+### Бонус (2 балла)
+- ✅ Отдельные inventory `staging` / `prod` с запиненным `docker_tag` на окружение
+- ✅ Продвигается один неизменяемый образ (без пересборки, без `:latest`)
+- ✅ Прод за Environment с обязательным ревьюером
+- ✅ Rolling rollout с `serial:` и `max_fail_percentage:`
+- ✅ Доказательство, что оба окружения отдают свои запиненные версии
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задача | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — Blocks & Tags | **2** | block/rescue/always; three-axis tags; rescue fired with output |
-| **Task 2** — Docker Compose | **3** | renamed role + meta dep; Jinja2 (vars+if+filter); idempotent |
-| **Task 3** — Wipe Logic | **2** | double-gated; all four rows verified |
-| **Task 4** — CI/CD | **3** | lint → deploy → verify; OIDC/Environment auth; serial justified |
-| **Bonus** — Multi-Env Promotion | **2** | immutable image; required-reviewer gate; both envs proven |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задача 1** — Блоки и теги | **2** | block/rescue/always; теги по трём осям; rescue сработал, есть вывод |
+| **Задача 2** — Docker Compose | **3** | переименованная роль и зависимость в meta; Jinja2 (переменные, if, фильтр); идемпотентно |
+| **Задача 3** — Логика wipe | **2** | два предохранителя; все четыре строки проверены |
+| **Задача 4** — CI/CD | **3** | lint, затем выкладка, затем проверка; аутентификация OIDC или Environment; serial обоснован |
+| **Бонус** — Продвижение между окружениями | **2** | неизменяемый образ; предохранитель обязательного ревьюера; оба окружения доказаны |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
-**Grading scale:**
-- **10/10:** Everything works; rescue + wipe + idempotency all proven; CI verifies; sharp docs.
-- **8–9/10:** All works; minor gaps in proof or docs.
-- **6–7/10:** Core deploy works; weak tag strategy, missing rescue proof, or thin CI verify.
-- **<6/10:** Missing Compose deploy, ungated wipe, or no working workflow.
+**Шкала оценки:**
+- **10/10:** Всё работает. Rescue, wipe и идемпотентность доказаны. CI проверяет. Документация чёткая.
+- **8–9/10:** Всё работает. Мелкие дыры в доказательствах или в документации.
+- **6–7/10:** Основная выкладка работает. Слабая стратегия тегов, нет доказательства rescue или тонкая проверка в CI.
+- **<6/10:** Нет выкладки через Compose, wipe без предохранителя или workflow не работает.
 
 ---
 
-## Resources
+## Материалы
 
 <details>
-<summary>📚 Documentation</summary>
+<summary>📚 Документация</summary>
 
-- [Ansible Blocks (error handling)](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_blocks.html)
-- [Ansible Tags](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_tags.html)
-- [Role dependencies](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html#using-role-dependencies)
+- [Блоки Ansible (обработка ошибок)](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_blocks.html)
+- [Теги Ansible](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_tags.html)
+- [Зависимости ролей](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html#using-role-dependencies)
 - [`community.docker.docker_compose_v2`](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_compose_v2_module.html)
-- [Compose file reference](https://docs.docker.com/reference/compose-file/)
-- [Jinja2 templating](https://jinja.palletsprojects.com/)
-- [GHA `paths` filters](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#using-filters)
-- [GitHub OIDC for cloud deploys](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect)
-- [Environments & required reviewers](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
+- [Справка по файлу Compose](https://docs.docker.com/reference/compose-file/)
+- [Шаблоны Jinja2](https://jinja.palletsprojects.com/)
+- [Фильтры `paths` в GHA](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#using-filters)
+- [GitHub OIDC для облачных выкладок](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect)
+- [Environments и обязательные ревьюеры](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
+<summary>⚠️ Типичные ловушки (с реальных сухих прогонов)</summary>
 
-- **Stale `/tmp/<project>` as a file blocks `state: directory`.** An aborted previous run can leave the project path as a file (or a symlink to one). The `file: state=directory` task fails with *"file exists, refusing to overwrite"*. Fix: `rm -rf <dir>` once, then re-run; or add an explicit `file: state=absent` before the create (only safe if your wipe doesn't depend on contents).
-- **Compose v2 vs v1 module names.** `community.docker.docker_compose` (v1, deprecated) and `community.docker.docker_compose_v2` (current) look one underscore apart. v1 shells out to the dead `docker-compose` Python CLI and errors with *"docker-compose: command not found"* on a fresh Ubuntu 24.04. **Always use `docker_compose_v2`.**
-- **FQCN vs bare module name.** `ansible-lint` flags `apt:` / `file:` / `template:` as `fqcn[action-core]`. Use `ansible.builtin.apt`, `ansible.builtin.file`, `ansible.builtin.template`. CI will fail your PR otherwise.
-- **`serial: "50%"` semantics.** `serial` caps **concurrent** hosts, not total. With 10 hosts and `serial: "50%"`, Ansible runs **two batches of 5** — every host eventually gets the new version. It is **not** "deploy to 50% and stop." For a true canary, use `serial: [1, 5, "100%"]` (a list — first batch is 1, then 5, then the rest).
-- **`-e web_app_wipe=true` is a STRING.** Ansible passes `--extra-vars key=value` as a Python `str`, not a `bool`. Without `| bool`, `when: web_app_wipe` evaluates the truthiness of the **string** — and *both* `"true"` and `"false"` are non-empty strings, so both pass. The gate that's supposed to keep prod safe fires on `-e web_app_wipe=false` too. The `| bool` filter coerces `"true"` / `"false"` / `"yes"` / `"no"` / `"1"` / `"0"` to real booleans. Forget it and the gate is broken **in the most dangerous direction** — wipe runs when you typed "false".
-- **`| default('latest')` in production.** Convenient for dev, fatal in prod — re-deploying with `docker_tag=latest` silently picks up whatever was pushed to the registry since. Pin per-env in `group_vars`. The Bonus task makes this explicit.
-- **`become: true` repeated per task.** Lift it to the `block`; tagging the block also tags every task inside. Less noise, fewer drift bugs.
-- **Lab 7 reuses port 8080.** Next lab's Compose stack defines an `app` service on host port 8080 too. If you keep Lab 6's stack running while you start Lab 7, the second `docker compose up -d` errors with *"port is already allocated"*. Pick a non-conflicting `app_host_port` here (e.g. 8084), or `docker compose down` Lab 6 before starting Lab 7. Lab 7 expects an `app=devops-python` container label — if you're keeping both alive, set that label on this lab's container too so Lab 7's relabel rule sees it.
+- **Застывший `/tmp/<project>` в виде файла блокирует `state: directory`.** Прерванный прошлый прогон может оставить путь проекта файлом (или симлинком на файл). Задача `file: state=directory` падает с *"file exists, refusing to overwrite"*. Как починить: один раз `rm -rf <dir>`, затем повторите прогон. Или явно поставьте `file: state=absent` перед созданием (безопасно, только если wipe не зависит от содержимого).
+- **Имена модулей Compose v2 и v1.** `community.docker.docker_compose` (v1, устарел) и `community.docker.docker_compose_v2` (текущий) отличаются одним подчёркиванием. v1 вызывает мёртвый Python CLI `docker-compose` и на свежей Ubuntu 24.04 падает с *"docker-compose: command not found"*. **Всегда берите `docker_compose_v2`.**
+- **FQCN против голого имени модуля.** `ansible-lint` помечает `apt:` / `file:` / `template:` как `fqcn[action-core]`. Пишите `ansible.builtin.apt`, `ansible.builtin.file`, `ansible.builtin.template`. Иначе CI завалит PR.
+- **Что значит `serial: "50%"`.** `serial` ограничивает **одновременные** хосты, не общее число. При 10 хостах и `serial: "50%"` Ansible делает **две пачки по 5**. Новая версия в итоге доезжает до каждого. Это **не** «выкатить на 50% и остановиться». Для настоящего canary берите `serial: [1, 5, "100%"]` (список: первая пачка из 1, потом 5, потом остальные).
+- **`-e web_app_wipe=true` — это СТРОКА.** Ansible передаёт `--extra-vars key=value` как Python `str`, не `bool`. Без `| bool` условие `when: web_app_wipe` смотрит на истинность **строки**, а и `"true"`, и `"false"` непустые, поэтому обе проходят. Предохранитель, который должен беречь прод, срабатывает и на `-e web_app_wipe=false`. Фильтр `| bool` приводит `"true"` / `"false"` / `"yes"` / `"no"` / `"1"` / `"0"` к настоящим булевым. Забудете — предохранитель сломан **в самую опасную сторону**: wipe идёт, когда вы написали «false».
+- **`| default('latest')` на проде.** Удобно для dev, смертельно на проде: повторная выкладка с `docker_tag=latest` молча подхватывает всё, что с тех пор запушили в registry. Зафиксируйте тег по окружениям в `group_vars`. Бонусная задача делает это явным.
+- **`become: true` повторён на каждой задаче.** Поднимите его на `block`. Тег на блоке размечает и каждую задачу внутри. Меньше шума, меньше багов с drift.
+- **Lab 7 снова берёт порт 8080.** Compose-стек следующей лабораторной тоже описывает сервис `app` на порту хоста 8080. Если стек Lab 6 ещё работает, когда вы стартуете Lab 7, второй `docker compose up -d` падает с *"port is already allocated"*. Выберите здесь непересекающийся `app_host_port` (например 8084) или сделайте `docker compose down` для Lab 6 перед стартом Lab 7. Lab 7 ждёт метку контейнера `app=devops-python`. Если держите оба живыми, поставьте эту метку и на контейнер этой лабораторной, чтобы правило relabel в Lab 7 его увидело.
 
 </details>
 
 <details>
-<summary>🛠️ Dev tools worth knowing</summary>
+<summary>🛠️ Инструменты, которые стоит знать</summary>
 
-- `ansible-lint` — runs in CI; matches it locally first to save round-trips
-- `ansible-playbook --list-tasks --list-tags --list-hosts` — three flags, no execution; ideal for pre-flight checks
-- `ansible-doc -t filter -l` — every Jinja2 filter that ships with ansible-core
-- `jq` — pair with `community.docker.docker_compose_v2` `register:`-ed output
+- `ansible-lint` — крутится в CI. Сначала прогоните локально, чтобы не гонять круги.
+- `ansible-playbook --list-tasks --list-tags --list-hosts` — три флага, без выполнения. Удобно для проверки перед стартом.
+- `ansible-doc -t filter -l` — все фильтры Jinja2, которые идут с ansible-core.
+- `jq` — в паре с выводом `community.docker.docker_compose_v2`, который вы сняли через `register:`.
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-You've shipped the app — next labs see and measure it:
+Приложение выкатили. Следующие лабораторные его смотрят и измеряют:
 
-| Lab | What it adds to this service |
+| Lab | Что добавляет к этому сервису |
 |---:|---|
-| 7 | Loki + Alloy logging — deploy the stack with the very patterns from this lab |
-| 8 | Prometheus `/metrics`, instrumented endpoints, RED-method PromQL |
-| 9 | Kubernetes (k3d) — migrate from Compose to K8s, reusing `/health` |
-| 10 | Helm 4 charts for templated K8s deploys |
-| 13 | ArgoCD — declarative, pull-based GitOps |
-| 14 | Argo Rollouts — canary + blue/green for the same service |
+| 7 | Логи Loki + Alloy. Стек выкатывается теми же приёмами, что в этой лабораторной |
+| 8 | Prometheus `/metrics`, инструментированные эндпоинты, PromQL по методу RED |
+| 9 | Kubernetes (k3d): переезд с Compose на K8s, `/health` остаётся |
+| 10 | Helm-чарты версии 4 для шаблонных выкладок в K8s |
+| 13 | ArgoCD: декларативный GitOps, который тянет изменения сам |
+| 14 | Argo Rollouts: canary и blue-green для того же сервиса |
 
 ---
 
-**Good luck.** Block gives you the error boundary, tag gives you the scalpel, Compose gives you the declarative state, CI gives you the button — and the double gate keeps the button from going off by itself.
+**Удачи.** Блок даёт границу ошибки, тег — скальпель, Compose — декларативное состояние, CI — кнопку. Двойной предохранитель не даёт кнопке сработать самой.

@@ -1,184 +1,184 @@
-# 📌 Lecture 4 — Infrastructure as Code with Terraform & Pulumi
+# 📌 Lecture 4 — Инфраструктура как код: Terraform и Pulumi
 
-## 📍 Slide 1 – 🏗️ Welcome to Infrastructure as Code
+## 📍 Slide 1 – 🏗️ Добро пожаловать в инфраструктуру как код
 
-* 🐶 **Lecture 1 promised cattle, not pets** — today we deliver
-* 📝 **IaC** = your cloud lives in Git, not in someone's browser tabs
-* 🌍 **Terraform + Pulumi** = the two ways modern teams provision infrastructure
-* 🎯 By the end: you can spin up (and tear down) a VM with one command — and review the diff before applying
+* 🐶 **Lecture 1 обещала скот, не питомцев** — сегодня делаем
+* 📝 **IaC** = облако живёт в Git, а не во вкладках чьего-то браузера
+* 🌍 **Terraform + Pulumi** = два способа, которыми современные команды создают инфраструктуру
+* 🎯 К концу: одной командой поднимаете VM и сносите её — и смотрите diff до apply
 
 ```mermaid
 flowchart LR
-  Manual[🖱️ Console clicks] -->|IaC| Code[📝 Code in Git]
+  Manual[🖱️ Клики в консоли] -->|IaC| Code[📝 Код в Git]
   Code --> Plan[📋 plan]
   Plan --> Apply[🚀 apply]
-  Apply --> Cloud[☁️ Reproducible cloud]
+  Apply --> Cloud[☁️ Воспроизводимое облако]
 ```
 
-> 🔗 **Tie-in to Lab 4:** you'll build the *same* VM twice — once with Terraform, once with Pulumi — and feel the trade-offs first hand. The bonus task adds a GitHub Actions workflow that runs `plan` on every PR.
+> 🔗 **Связка с Lab 4:** одну и ту же VM вы соберёте *дважды* — раз на Terraform, раз на Pulumi — и почувствуете разницу сами. Бонус добавляет workflow GitHub Actions, который гоняет `plan` на каждый PR.
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Slide 2 – 🎯 Чему научитесь
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Explain why snowflake servers are a business risk |
-| 2 | 📝 Write a working Terraform configuration with provider, resource, variable, output |
-| 3 | 🔄 Run the `init → plan → apply → destroy` lifecycle confidently |
-| 4 | 📦 Move state from local disk to a remote, locked backend — and explain why |
-| 5 | 🐍 Provision the same infrastructure with Pulumi in Python |
-| 6 | ⚖️ Pick Terraform vs Pulumi vs OpenTofu based on team and use case |
+| 1 | 🧠 Объяснить, почему серверы-снежинки — риск для бизнеса |
+| 2 | 📝 Написать рабочую конфигурацию Terraform: provider, resource, variable, output |
+| 3 | 🔄 Уверенно пройти цикл `init → plan → apply → destroy` |
+| 4 | 📦 Перенести state с локального диска на удалённый backend с блокировкой — и объяснить зачем |
+| 5 | 🐍 Поднять ту же инфраструктуру на Pulumi на Python |
+| 6 | ⚖️ Выбрать Terraform, Pulumi или OpenTofu по команде и задаче |
 
 ---
 
-## 📍 Slide 3 – 🔧 Tech Stack Pinned for May 2026
+## 📍 Slide 3 – 🔧 Стек, зафиксированный на май 2026
 
-| Tool | Version | Notes |
+| Инструмент | Версия | Заметки |
 |------|---------|-------|
-| 🌍 **Terraform** | **1.15.3** | Released May 13 2026; BSL-1.1 since **August 10, 2023** |
-| 🌱 **OpenTofu** | **1.12.0** | Released May 14 2026; MPL-2.0, Linux Foundation; 1:1 drop-in CLI |
-| 📦 **Pulumi** | **3.243.0** | May 2026; Apache-2.0 throughout |
-| ☁️ **AWS provider** | v5.x | Used in most Lab 4 examples |
-| ☁️ **GCP provider** | v6.x | Alternative for Lab 4 |
-| ☁️ **Yandex provider** | v0.115+ | Default for Russia-only labs |
+| 🌍 **Terraform** | **1.15.3** | Релиз 13 мая 2026; BSL-1.1 с **10 августа 2023** |
+| 🌱 **OpenTofu** | **1.12.0** | Релиз 14 мая 2026; MPL-2.0, Linux Foundation; CLI-замена 1:1 |
+| 📦 **Pulumi** | **3.243.0** | Май 2026; Apache-2.0 целиком |
+| ☁️ **AWS provider** | v5.x | В большинстве примеров Lab 4 |
+| ☁️ **GCP provider** | v6.x | Альтернатива для Lab 4 |
+| ☁️ **Yandex provider** | v0.115+ | По умолчанию для лаб только под Россию |
 
-> 🔧 **You can swap `terraform` for `tofu` in every command on these slides.** The HCL is identical. Choose based on license preference and team norms — labs accept both.
-
----
-
-## 📍 Slide 4 – ❓ The Big Question
-
-* 📊 The 2024 Flexera *State of the Cloud* report: **89%** of enterprises run multi-cloud — and **70%+** report uncontrolled drift between intended and actual config
-* ⏱️ Manual VM provisioning: **hours to days** for one server, then days more to make a copy match
-* 💥 Most outages are caused by **changes** — and untracked changes are the worst kind
-
-> 💬 *"It worked in staging — staging was different."* — Every ops engineer, ever
-
-**🤔 Think:**
-* Could you recreate your production cloud from scratch tomorrow?
-* If the person who built it left this morning, how long until you're stuck?
+> 🔧 **`terraform` можно менять на `tofu` в любой команде на этих слайдах.** HCL тот же. Выбор — по лицензии и по тому, как принято в команде. Лабы принимают оба.
 
 ---
 
-## 📍 Slide 5 – 🐶 Pets vs. Cattle (Bill Baker, Microsoft, 2012)
+## 📍 Slide 4 – ❓ Главный вопрос
 
-* 🐶 **Pets** — named (`web-prod-01`), nursed, irreplaceable, downtime if sick
-* 🐄 **Cattle** — numbered (`web-001..099`), identical, disposable, replaced if sick
-* ☁️ **Cloud-native = cattle mindset.** Lecture 1 foreshadowed this; today we make it real.
+* 📊 Отчёт Flexera *State of the Cloud* за 2024: **89%** предприятий сидят в нескольких облаках — и **70%+** говорят о неконтролируемом drift (расхождение задуманного и факта)
+* ⏱️ Ручной провижининг VM: **часы или дни** на один сервер, и ещё дни, чтобы копия совпала
+* 💥 Большинство аварий вызывают **изменения** — неотслеженное изменение хуже всех
+
+> 💬 *«На стейджинге работало — стейджинг был другим.»* — Каждый инженер эксплуатации, всегда
+
+**🤔 Подумайте:**
+* Сможете завтра собрать прод-облако с нуля?
+* Если тот, кто его собрал, ушёл сегодня утром — через сколько вы застрянете?
+
+---
+
+## 📍 Slide 5 – 🐶 Питомцы и скот (Bill Baker, Microsoft, 2012)
+
+* 🐶 **Питомцы** — с именем (`web-prod-01`), их выхаживают, незаменимы, заболел — простой
+* 🐄 **Скот** — с номером (`web-001..099`), одинаковые, расходные, заболел — заменили
+* ☁️ **Cloud-native = мышление скота.** Lecture 1 это уже наметила; сегодня делаем взаправду.
 
 ```mermaid
 flowchart LR
-  Pets[🐶 Pets<br/>SSH'd into, hand-tuned]
-  Cattle[🐄 Cattle<br/>Defined in code, replaced in minutes]
-  Pets -.->|IaC + immutable infra| Cattle
+  Pets[🐶 Питомцы<br/>вход по SSH, правка руками]
+  Cattle[🐄 Скот<br/>в коде, замена за минуты]
+  Pets -.->|IaC + неизменяемая инфра| Cattle
 ```
 
-> 📖 Bill Baker coined this metaphor in a 2012 internal Microsoft talk later popularized by Randy Bias of CloudScaling. Twelve years later, every cloud architecture book still uses it. It works because it's true.
+> 📖 Метафору придумал Bill Baker во внутреннем докладе Microsoft в 2012 году, позже её популяризировал Randy Bias из CloudScaling. Двенадцать лет спустя её всё ещё берёт каждая книга по облачной архитектуре. Работает, потому что это правда.
 
 ---
 
-## 📍 Slide 6 – 😱 Snowflakes, Drift, and Bus Factor
+## 📍 Slide 6 – 😱 Снежинки, drift и bus factor
 
-The three failure modes IaC fixes:
+Три отказа, которые убирает IaC:
 
-| Failure | What it looks like | What it costs |
+| Отказ | Как выглядит | Чем платите |
 |---------|---------------------|---------------|
-| ❄️ **Snowflake server** | "Don't touch web-03, only Petya knows what's on it" | Can't scale, can't reproduce, can't replace |
-| 📉 **Configuration drift** | Staging and prod were identical 6 months ago — not anymore | Bugs that only repro in prod, hours debugging |
-| 🚌 **Bus factor = 1** | One person holds the cloud architecture in their head | Project halts when they're on vacation or quit |
+| ❄️ **Сервер-снежинка** | «Не трогай web-03, что там — знает только Петя» | Не масштабируется, не повторить, не заменить |
+| 📉 **Drift конфигурации** | Стейджинг и прод совпадали 6 месяцев назад — уже нет | Баги только в проде, часы на отладку |
+| 🚌 **Bus factor = 1** | Архитектура облака в голове у одного человека | Проект встаёт, когда он в отпуске или уволился |
 
-> 🔥 **Hot take:** if you can't *delete and recreate* your production environment from a Git tag, you don't have IaC — you have an `aws` CLI history.
+> 🔥 **Жёстко:** если прод нельзя *удалить и собрать заново* из git-тега, у вас нет IaC — у вас история команд `aws`.
 
 ---
 
-## 📍 Slide 7 – 💡 What Infrastructure as Code Actually Is
+## 📍 Slide 7 – 💡 Что такое инфраструктура как код на самом деле
 
-* 📝 **Definition:** managing and provisioning infrastructure through *machine-readable, version-controlled* config files instead of manual console clicks or ad-hoc scripts.
-* 🔄 The cloud becomes a **build artifact**, not a hand-crafted environment
-* 📜 Every change goes through the same process you use for application code: PR → review → CI → merge → deploy
+* 📝 **Определение:** инфраструктурой управляют и создают её через *машиночитаемые файлы конфигурации под контролем версий*, а не кликами в консоли и разовыми скриптами.
+* 🔄 Облако становится **артефактом сборки**, а не средой, собранной руками
+* 📜 Каждое изменение идёт тем же путём, что код приложения: PR → ревью → CI → мерж → выкат
 
 ```mermaid
 flowchart LR
-  Code[📝 .tf / .py in Git] --> CI[🧪 CI: plan]
-  CI --> Review[👀 PR review]
-  Review --> Merge[🚀 Merge → apply]
-  Merge --> Cloud[☁️ Real infrastructure]
+  Code[📝 .tf / .py в Git] --> CI[🧪 CI: plan]
+  CI --> Review[👀 Ревью PR]
+  Review --> Merge[🚀 Мерж → apply]
+  Merge --> Cloud[☁️ Живая инфраструктура]
   Cloud -->|diff| Code
 ```
 
-> 📖 *Infrastructure as Code* — Kief Morris (2nd ed., 2020). The reference text; defines the four core principles below.
+> 📖 *Infrastructure as Code* — Kief Morris (2-е изд., 2020). Главная книга по теме; четыре принципа ниже — оттуда.
 
 ---
 
-## 📍 Slide 8 – 📐 The Four Principles (Morris)
+## 📍 Slide 8 – 📐 Четыре принципа (Morris)
 
-1. ♻️ **Reproducibility** — same code → same infrastructure, every time
-2. 🔁 **Disposability** — destroy and rebuild should be routine, not heroic
-3. 📜 **Consistency** — dev, staging, prod differ only in variables
-4. 🔍 **Visibility** — `git log` answers "who changed what, when, why"
+1. ♻️ **Воспроизводимость** — один и тот же код → одна и та же инфраструктура, каждый раз
+2. 🔁 **Одноразовость** — снести и собрать заново должно быть рутиной, не подвигом
+3. 📜 **Согласованность** — dev, staging и prod различаются только переменными
+4. 🔍 **Видимость** — `git log` отвечает: кто, что, когда и зачем поменял
 
-> 💡 **If any one of these is missing, you have automation — not IaC.** Bash scripts that create a VM are not IaC; they're a recipe nobody can replay safely.
+> 💡 **Нет хотя бы одного пункта — у вас автоматизация, не IaC.** Bash-скрипты, которые создают VM, — не IaC. Это рецепт, и прогнать его ещё раз безопасно уже нельзя.
 
 ---
 
-## 📍 Slide 9 – 🔀 Declarative vs. Imperative
+## 📍 Slide 9 – 🔀 Декларативное и императивное
 
 ```mermaid
 flowchart LR
-  Decl[📝 Declarative<br/>'I want 3 VMs'] --> Tool1[🤖 Tool figures out HOW]
-  Imp[🔧 Imperative<br/>'Create VM 1, then VM 2, then VM 3'] --> Tool2[🏃 You define each step]
+  Decl[📝 Декларативно<br/>'Хочу 3 VM'] --> Tool1[🤖 Инструмент сам решает КАК]
+  Imp[🔧 Императивно<br/>'Создай VM 1, потом VM 2, потом VM 3'] --> Tool2[🏃 Каждый шаг задаёте вы]
 ```
 
-| Aspect | 📝 Declarative | 🔧 Imperative |
+| Аспект | 📝 Декларативное | 🔧 Императивное |
 |--------|---------------|---------------|
-| You write | Desired end state | Sequence of steps |
-| Idempotency | Built in — re-run is safe | You implement it |
-| Examples | Terraform HCL, CloudFormation, Kubernetes YAML | Bash scripts, AWS SDK calls, Pulumi (mostly) |
-| Failure mode | Tool can't figure out a tricky migration | Step 7 fails on re-run |
+| Вы пишете | Желаемое конечное состояние | Последовательность шагов |
+| Идемпотентность | Встроена — повторный прогон безопасен | Её пишете вы |
+| Примеры | Terraform HCL, CloudFormation, Kubernetes YAML | Bash-скрипты, вызовы AWS SDK, Pulumi (в основном) |
+| Как ломается | Инструмент не может просчитать хитрую миграцию | Шаг 7 падает на повторном прогоне |
 
-> 🤔 **Pulumi twist:** code is imperative, but the Pulumi engine resolves it into a *declarative* desired-state graph before talking to the cloud. Best of both worlds.
+> 🤔 **Поворот Pulumi:** код императивный, но движок Pulumi до обращения к облаку сводит его в *декларативный* граф желаемого состояния. Лучшее из двух миров.
 
 ---
 
-## 📍 Slide 10 – 🛠️ The IaC Tool Landscape (May 2026)
+## 📍 Slide 10 – 🛠️ Ландшафт инструментов IaC (май 2026)
 
-| Tool | License | Language | Multi-cloud | State |
+| Инструмент | Лицензия | Язык | Мультиоблако | State |
 |------|---------|----------|-------------|-------|
-| 🌍 **Terraform 1.15.3** | BSL-1.1 (HashiCorp) | HCL | ✅ 3000+ providers | Local / S3 / TF Cloud |
-| 🌱 **OpenTofu 1.12.0** | MPL-2.0 (Linux Foundation) | HCL (Terraform-compatible) | ✅ Same providers | Local / S3 / OCI |
+| 🌍 **Terraform 1.15.3** | BSL-1.1 (HashiCorp) | HCL | ✅ 3000+ провайдеров | Local / S3 / TF Cloud |
+| 🌱 **OpenTofu 1.12.0** | MPL-2.0 (Linux Foundation) | HCL (совместим с Terraform) | ✅ Те же провайдеры | Local / S3 / OCI |
 | 📦 **Pulumi 3.243** | Apache-2.0 | Python, TS, Go, C#, Java, YAML | ✅ AWS, GCP, Azure, K8s, … | Pulumi Cloud / S3 / local |
-| ☁️ **AWS CloudFormation** | Proprietary | YAML / JSON | ❌ AWS only | Managed by AWS |
-| ☁️ **AWS CDK / GCP CDK** | Apache-2.0 | TS, Python, Java, Go | ❌ Per-cloud | Underlying CloudFormation / Deployment Manager |
-| ☸️ **Crossplane** | Apache-2.0 | Kubernetes YAML | ✅ via providers | Kubernetes etcd |
+| ☁️ **AWS CloudFormation** | Проприетарная | YAML / JSON | ❌ Только AWS | Ведёт AWS |
+| ☁️ **AWS CDK / GCP CDK** | Apache-2.0 | TS, Python, Java, Go | ❌ Своё облако | Под капотом CloudFormation / Deployment Manager |
+| ☸️ **Crossplane** | Apache-2.0 | Kubernetes YAML | ✅ через провайдеры | Kubernetes etcd |
 
-> 🔗 **This lecture focuses on Terraform and Pulumi** — the two tools Lab 4 uses. OpenTofu shows up in slide 21.
-
----
-
-## 📍 Slide 11 – 📜 A Brief History
-
-* 📅 **July 2014** — Mitchell Hashimoto and Armon Dadgar release **Terraform v0.1** at HashiCorp. First serious multi-cloud IaC tool.
-* 📅 **September 2019** — **Pulumi v1.0** released by Joe Duffy's team. First IaC tool to embrace general-purpose programming languages.
-* 📅 **August 10, 2023** — HashiCorp re-licenses Terraform from MPL-2.0 to the **Business Source License (BSL)**. Vendors building products on Terraform suddenly need a paid agreement.
-* 📅 **August 2023** — Gruntwork, env0, Spacelift, and Terragrunt fork Terraform 1.5 → **OpenTofu**.
-* 📅 **September 2023** — OpenTofu is **donated to the Linux Foundation** for vendor-neutral governance; first stable 1.6 release in January 2024.
-* 📅 **December 2023** — Linux Foundation announces **OpenBao**, the parallel community fork of Vault (same BSL backstory).
-* 📅 **May 2026 (now)** — Terraform 1.15.3 and OpenTofu 1.12.0 are CLI-compatible; most enterprises use one or the other, never both.
-
-> 🔥 The BSL change is the single most consequential IaC event of the decade. It's why this lecture treats OpenTofu as first-class.
+> 🔗 **Лекция про Terraform и Pulumi** — их и берёт Lab 4. OpenTofu появится на слайде 21.
 
 ---
 
-## 📍 Slide 12 – 🌍 Terraform Workflow
+## 📍 Slide 11 – 📜 Краткая история
+
+* 📅 **Июль 2014** — Mitchell Hashimoto и Armon Dadgar выпускают **Terraform v0.1** в HashiCorp. Первый серьёзный мультиоблачный инструмент IaC.
+* 📅 **Сентябрь 2019** — команда Joe Duffy выпускает **Pulumi v1.0**. Первый инструмент IaC на языках общего назначения.
+* 📅 **10 августа 2023** — HashiCorp переводит Terraform с MPL-2.0 на **Business Source License (BSL)**. Вендорам, которые строят продукты поверх Terraform, внезапно нужен платный договор.
+* 📅 **Август 2023** — Gruntwork, env0, Spacelift и Terragrunt форкают Terraform 1.5 → **OpenTofu**.
+* 📅 **Сентябрь 2023** — OpenTofu **отдают Linux Foundation**: управление без привязки к вендору; первый стабильный релиз 1.6 — январь 2024.
+* 📅 **Декабрь 2023** — Linux Foundation анонсирует **OpenBao**, параллельный форк сообщества для Vault (та же история с BSL).
+* 📅 **Май 2026 (сейчас)** — Terraform 1.15.3 и OpenTofu 1.12.0 совместимы по CLI; большинство компаний берёт что-то одно, не оба сразу.
+
+> 🔥 Переход на BSL — главное событие десятилетия в IaC. Поэтому лекция держит OpenTofu на равных.
+
+---
+
+## 📍 Slide 12 – 🌍 Workflow Terraform
 
 ```mermaid
 flowchart LR
-  Write[📝 Write .tf] --> Init[🔧 init]
+  Write[📝 Пишем .tf] --> Init[🔧 init]
   Init --> Plan[📋 plan]
   Plan --> Apply[🚀 apply]
   Apply --> Destroy[💥 destroy]
-  Plan -.->|review| Plan
+  Plan -.->|ревью| Plan
 ```
 
 ```bash
@@ -188,11 +188,11 @@ terraform apply     # 🚀 make reality match code
 terraform destroy   # 💥 delete everything in this state
 ```
 
-> ⚠️ **`plan` is sacred.** Read it. Every time. Especially before `apply` in production. CI should post the plan into the PR — Lab 4 bonus wires this up.
+> ⚠️ **`plan` священен.** Читайте его. Каждый раз. Особенно перед `apply` в проде. CI должен публиковать plan в PR — бонус Lab 4 это подключает.
 
 ---
 
-## 📍 Slide 13 – 🧱 HCL Building Blocks
+## 📍 Slide 13 – 🧱 Строительные блоки HCL
 
 ```hcl
 # ☁️ provider — which cloud and how to authenticate
@@ -223,11 +223,11 @@ output "public_ip" {
 }
 ```
 
-> 📝 Five primitives — `provider`, `resource`, `variable`, `output`, `data` — cover **90%** of real Terraform code. Modules are just bundles of these.
+> 📝 Пять примитивов — `provider`, `resource`, `variable`, `output`, `data` — это **90%** реального кода Terraform. Модуль — просто пачка из них.
 
 ---
 
-## 📍 Slide 14 – 🔄 `plan` Output — Read It Like A Diff
+## 📍 Slide 14 – 🔄 Вывод `plan`: читайте как diff
 
 ```text
 $ terraform plan
@@ -248,46 +248,46 @@ Terraform will perform the following actions:
 Plan: 1 to add, 0 to change, 0 to destroy.
 ```
 
-| Symbol | Meaning |
+| Символ | Значение |
 |:------:|---------|
-| `+` | Create |
-| `-` | Destroy (data loss risk!) |
-| `~` | Update in place |
-| `-/+` | Destroy and recreate (data loss risk!) |
+| `+` | Создать |
+| `-` | Уничтожить (риск потери данных!) |
+| `~` | Обновить на месте |
+| `-/+` | Уничтожить и создать заново (риск потери данных!) |
 
-> 🚨 **`-/+` on a database resource = your data is about to die.** Read every plan, every time, in production.
+> 🚨 **`-/+` на ресурсе базы = данные сейчас умрут.** В проде читайте каждый plan, каждый раз.
 
 ---
 
-## 📍 Slide 15 – 📦 State: The Thing That Makes Terraform Work
+## 📍 Slide 15 – 📦 State: без этого Terraform не работает
 
-* 🗺️ **State** = a JSON map from your code (`aws_instance.web`) to a real cloud object (`i-0abc123…`)
-* 🔍 Without state, Terraform has no idea what already exists — every apply would try to create everything
-* ⚠️ State contains **sensitive data**: passwords, private IPs, sometimes private keys — treat it like a secret
+* 🗺️ **State** = JSON-карта от вашего кода (`aws_instance.web`) к реальному объекту в облаке (`i-0abc123…`)
+* 🔍 Без state Terraform не знает, что уже есть: каждый apply пытался бы создать всё заново
+* ⚠️ В state лежат **чувствительные данные**: пароли, приватные IP, иногда приватные ключи. Обращайтесь с ним как с секретом
 
 ```mermaid
 flowchart LR
-  Code[📝 .tf code] --> TF[🌍 terraform]
+  Code[📝 код .tf] --> TF[🌍 terraform]
   State[📦 terraform.tfstate] --> TF
-  Cloud[☁️ Real cloud] --> TF
-  TF -->|plan diff| You[👀 You]
+  Cloud[☁️ Живое облако] --> TF
+  TF -->|plan diff| You[👀 Вы]
 ```
 
-> ⚠️ **Never edit `terraform.tfstate` by hand.** Use `terraform state` subcommands (`mv`, `rm`, `import`).
+> ⚠️ **Никогда не правьте `terraform.tfstate` руками.** Используйте подкоманды `terraform state` (`mv`, `rm`, `import`).
 
 ---
 
-## 📍 Slide 16 – 🌐 Local vs. Remote State
+## 📍 Slide 16 – 🌐 Локальный state и удалённый
 
-| | 📁 Local (`terraform.tfstate` on disk) | 🌐 Remote (S3, GCS, TF Cloud, …) |
+| | 📁 Локальный (`terraform.tfstate` на диске) | 🌐 Удалённый (S3, GCS, TF Cloud, …) |
 |-|----------------------------------------|----------------------------------|
-| Solo prototyping | ✅ Fine | Overkill |
-| Team of 2+ | ❌ Two engineers apply → race condition, corrupted state | ✅ Locking serializes applies |
-| Disaster recovery | ❌ Laptop dies → state lost → cloud orphaned | ✅ Versioned object storage |
-| Secrets in state | 🟡 Plaintext on disk | ✅ Encrypted at rest (KMS) |
-| CI/CD | ❌ Each runner has stale state | ✅ Shared canonical state |
+| Соло-прототип | ✅ Нормально | Избыточно |
+| Команда от 2 | ❌ Два инженера делают apply → гонка, state битый | ✅ Блокировка выстраивает apply в очередь |
+| Восстановление после аварии | ❌ Умер ноутбук → state потерян → облако сирота | ✅ Объектное хранилище с версиями |
+| Секреты в state | 🟡 Открытым текстом на диске | ✅ Шифрование at rest (KMS) |
+| CI/CD | ❌ У каждого runner свой устаревший state | ✅ Общий канонический state |
 
-**📦 Remote backend example (S3 + DynamoDB lock):**
+**📦 Пример удалённого backend (блокировка на S3 + DynamoDB):**
 
 ```hcl
 terraform {
@@ -301,19 +301,19 @@ terraform {
 }
 ```
 
-> 🔗 **Lab 4 starts with local state on purpose** — so the failure mode of two students applying at once is visible. The bonus task migrates to S3.
+> 🔗 **Lab 4 начинает с локального state специально** — чтобы было видно, как ломается одновременный apply двух студентов. Бонус переносит state на S3.
 
 ---
 
-## 📍 Slide 17 – 🚨 State Pitfalls (Where Students and Pros Both Screw Up)
+## 📍 Slide 17 – 🚨 Ловушки state (где и студенты, и профи наступают на грабли)
 
-1. 🙅 **Committing `terraform.tfstate` to Git** — it has secrets, and merge conflicts on JSON are unrecoverable. Add it to `.gitignore` on day one.
-2. 🔓 **No locking on remote state** — two simultaneous `apply`s race; state ends up corrupt; recovery is manual.
-3. 📉 **Drift** — someone clicks in the AWS console; Terraform doesn't know; next `apply` reverts or fails.
-   * Catch it: `terraform plan` in a nightly CI job — any non-zero diff = drift.
-4. 🔄 **Orphaned resources** — you `rm -rf` a module; Terraform forgets about its resources; they bill forever.
-   * Use `terraform state list` before deleting code.
-5. 📥 **Need to manage existing cloud objects you didn't create with Terraform?**
+1. 🙅 **Коммит `terraform.tfstate` в Git** — там секреты, а конфликты мержа в JSON не разобрать. В `.gitignore` — в первый же день.
+2. 🔓 **На удалённом state нет блокировки** — два `apply` одновременно гоняются; state портится; чинить руками.
+3. 📉 **Drift** — кто-то кликает в консоли AWS; Terraform не в курсе; следующий `apply` откатит или упадёт.
+   * Как поймать: `terraform plan` в ночном job CI — любой ненулевой diff = drift.
+4. 🔄 **Осиротевшие ресурсы** — сделали `rm -rf` модуля; Terraform забыл его ресурсы; счета идут вечно.
+   * Перед удалением кода выполните `terraform state list`.
+5. 📥 **Нужно взять под управление облачные объекты, которые создавали не через Terraform?**
 
 ```bash
 # Adopt an existing EC2 instance into Terraform state
@@ -326,16 +326,16 @@ import {
 }
 ```
 
-> 🔥 **Drift detection is half the value of IaC.** Cattle that wander off the ranch are still cattle — until somebody renames them.
+> 🔥 **Поиск drift — половина пользы IaC.** Скот, который ушёл с ранчо, всё ещё скот — пока кто-нибудь его не переименует.
 
 ---
 
-## 📍 Slide 18 – 📦 Pulumi — Infrastructure in Your Favorite Language
+## 📍 Slide 18 – 📦 Pulumi: инфраструктура на любимом языке
 
-* 🐍 Write infrastructure in **Python, TypeScript, Go, C#, Java**, or YAML
-* 🔧 Loops, conditionals, functions, classes, unit tests — your normal dev tools work
-* 📦 State stored in Pulumi Cloud (free for individuals, paid for teams) or self-hosted (S3, Azure Blob)
-* 🔐 Secrets **encrypted by default** in state (no opt-in needed)
+* 🐍 Пишите инфраструктуру на **Python, TypeScript, Go, C#, Java** или YAML
+* 🔧 Циклы, условия, функции, классы, юнит-тесты — привычные инструменты разработчика работают
+* 📦 State лежит в Pulumi Cloud (бесплатно одному, платно команде) или у себя (S3, Azure Blob)
+* 🔐 Секреты в state **шифруются по умолчанию** (галочку включать не надо)
 
 ```python
 # 🐍 pulumi/__main__.py — same VM as the Terraform example
@@ -356,11 +356,11 @@ pulumi preview   # plan only
 pulumi destroy   # tear down
 ```
 
-> 🔗 **Lab 4 Task 2** reimplements your Terraform VM in Pulumi Python — you'll feel the difference in 30 minutes.
+> 🔗 **Lab 4 Task 2** переписывает вашу VM с Terraform на Pulumi Python — разницу почувствуете за 30 минут.
 
 ---
 
-## 📍 Slide 19 – 🧠 Why Code-as-Infrastructure Matters
+## 📍 Slide 19 – 🧠 Зачем писать инфраструктуру кодом
 
 ```python
 # 🐍 Loops, conditionals, and reuse — natural in Python
@@ -384,37 +384,37 @@ resource "aws_instance" "web" {
 }
 ```
 
-> 💡 **The right tool depends on the team.** Python shops with strong dev culture often prefer Pulumi. Platform teams that touch dozens of providers and need HashiCorp's ecosystem usually pick Terraform/OpenTofu. **Lab 4 makes you do both so you can decide for yourself.**
+> 💡 **Инструмент выбирает команда.** Python-команды с сильной разработкой часто берут Pulumi. Платформенные команды на десятках провайдеров, которым нужна экосистема HashiCorp, обычно берут Terraform или OpenTofu. **Lab 4 заставляет сделать оба варианта, чтобы вы выбрали сами.**
 
 ---
 
-## 📍 Slide 20 – ⚖️ Terraform vs. Pulumi vs. OpenTofu
+## 📍 Slide 20 – ⚖️ Terraform, Pulumi и OpenTofu
 
-| Aspect | 🌍 Terraform 1.15.3 | 🌱 OpenTofu 1.12.0 | 📦 Pulumi 3.243 |
+| Аспект | 🌍 Terraform 1.15.3 | 🌱 OpenTofu 1.12.0 | 📦 Pulumi 3.243 |
 |--------|--------------------|------------------|------------------|
-| 📜 License | BSL-1.1 | MPL-2.0 | Apache-2.0 |
-| 🏢 Steward | HashiCorp (IBM, 2025) | Linux Foundation | Pulumi Corp |
-| 📝 Language | HCL | HCL (Terraform-compatible) | Python, TS, Go, C#, Java, YAML |
-| 🧠 Paradigm | Declarative | Declarative | Imperative → declarative graph |
-| 🔄 Logic | `for_each`, `count`, `dynamic` | Same + `for_each` improvements | Full programming language |
-| 🧪 Unit testing | Terratest (Go) | Same | Native (pytest, jest, go test) |
-| 📦 Default state | Local / S3 / TF Cloud | Local / S3 / OCI | Pulumi Cloud / S3 |
-| 🔐 Secrets in state | Plaintext (unless backend encrypts) | Plaintext + native encryption in 1.7+ | Encrypted by default |
-| 🌐 Community | Largest (millions of users) | Growing fast (LF-backed) | Smaller but loyal |
+| 📜 Лицензия | BSL-1.1 | MPL-2.0 | Apache-2.0 |
+| 🏢 Кто ведёт | HashiCorp (IBM, 2025) | Linux Foundation | Pulumi Corp |
+| 📝 Язык | HCL | HCL (совместим с Terraform) | Python, TS, Go, C#, Java, YAML |
+| 🧠 Парадигма | Декларативная | Декларативная | Императивный код → декларативный граф |
+| 🔄 Логика | `for_each`, `count`, `dynamic` | То же + доработки `for_each` | Целый язык программирования |
+| 🧪 Юнит-тесты | Terratest (Go) | То же | Нативно (pytest, jest, go test) |
+| 📦 State по умолчанию | Local / S3 / TF Cloud | Local / S3 / OCI | Pulumi Cloud / S3 |
+| 🔐 Секреты в state | Открытый текст (если backend не шифрует) | Открытый текст + своё шифрование с 1.7+ | Шифрование по умолчанию |
+| 🌐 Сообщество | Самое большое (миллионы людей) | Быстро растёт (за ним LF) | Меньше, но своё |
 
-> 🎯 **Course default:** Lab 4 accepts any of the three. Use whichever your team uses in real life.
+> 🎯 **В курсе по умолчанию:** Lab 4 принимает любой из трёх. Берите то, чем команда пользуется вживую.
 
 ---
 
-## 📍 Slide 21 – 🌱 OpenTofu: Why You Care About the Fork
+## 📍 Slide 21 – 🌱 OpenTofu: зачем вам этот форк
 
-* 📅 **August 10, 2023** — HashiCorp changes Terraform's license from MPL-2.0 (permissive) to BSL-1.1 (source-available but commercial use restricted)
-* 😡 Companies whose products *depend on* Terraform (Spacelift, env0, Gruntwork) face existential risk
-* 🍴 **August 2023:** they fork Terraform 1.5 → publish as **OpenTofu** under MPL-2.0
-* 🏛️ **September 2023:** OpenTofu is **donated to the Linux Foundation** → vendor-neutral governance
-* 🏛️ **December 2023:** Linux Foundation announces **OpenBao** — the same fork pattern, applied to Vault
-* ✅ **Today:** OpenTofu 1.12.0 is a 1:1 drop-in for Terraform 1.15.3 — same HCL, same providers, same registry (mostly)
-* 💼 **2025:** IBM acquires HashiCorp; Terraform stays BSL — the fork is permanent
+* 📅 **10 августа 2023** — HashiCorp меняет лицензию Terraform с MPL-2.0 (разрешительная) на BSL-1.1 (исходники открыты, коммерция ограничена)
+* 😡 Компании, чьи продукты *зависят* от Terraform (Spacelift, env0, Gruntwork), получают вопрос выживания
+* 🍴 **Август 2023:** они форкают Terraform 1.5 и публикуют его как **OpenTofu** под MPL-2.0
+* 🏛️ **Сентябрь 2023:** OpenTofu **отдают Linux Foundation** → управление без вендора
+* 🏛️ **Декабрь 2023:** Linux Foundation анонсирует **OpenBao** — тот же приём с форком, теперь на Vault
+* ✅ **Сегодня:** OpenTofu 1.12.0 — замена Terraform 1.15.3 один в один: тот же HCL, те же провайдеры, тот же реестр (почти)
+* 💼 **2025:** IBM покупает HashiCorp; Terraform остаётся на BSL — форк навсегда
 
 ```bash
 # Identical workflows
@@ -424,15 +424,15 @@ tofu init && tofu plan && tofu apply
 # Yes, you can copy a Terraform repo and run `tofu` against it
 ```
 
-> 🔥 The right answer in 2026 is *probably* OpenTofu for new projects, Terraform for existing ones with paid HashiCorp support. Pick deliberately.
+> 🔥 В 2026 разумный ответ такой: *скорее всего* OpenTofu для новых проектов, Terraform — если уже платите HashiCorp за поддержку. Выбирайте сознательно.
 
 ---
 
-## 📍 Slide 22 – 🔐 Security: Don't Be a Headline
+## 📍 Slide 22 – 🔐 Безопасность: не станьте заголовком
 
-**Five rules. Memorize them.**
+**Пять правил. Выучите.**
 
-1. 🚫 **Never commit credentials.** Not in `.tf`, not in `.tfvars`, not in `provider {}` blocks.
+1. 🚫 **Никогда не коммитьте учётные данные.** Ни в `.tf`, ни в `.tfvars`, ни в блоках `provider {}`.
 
 ```hcl
 # ❌ NEVER
@@ -447,92 +447,92 @@ provider "aws" {
 }
 ```
 
-2. 🙈 **Never commit `terraform.tfstate` or `*.tfstate.backup`** — they contain decrypted secrets. Add to `.gitignore` line 1.
-3. 🌐 **Use a remote backend with encryption + locking** — S3 + SSE-KMS + DynamoDB lock, GCS with versioning, or Pulumi Cloud.
-4. 🔑 **Use OIDC for CI cloud auth, not long-lived keys.** GitHub Actions → AWS / GCP via `aws-actions/configure-aws-credentials` or `google-github-actions/auth` — no secrets in repo, ever.
-5. 🔍 **Scan IaC code.** `tfsec`, `checkov`, `terrascan` — wire them into CI. Catches public S3 buckets, missing encryption, IAM wildcards.
+2. 🙈 **Никогда не коммитьте `terraform.tfstate` и `*.tfstate.backup`** — там уже расшифрованные секреты. В `.gitignore` — первой строкой.
+3. 🌐 **Удалённый backend: шифрование и блокировка** — S3 + SSE-KMS + блокировка DynamoDB, GCS с версиями или Pulumi Cloud.
+4. 🔑 **В CI в облако ходят через OIDC, не через долгоживущие ключи.** GitHub Actions → AWS / GCP через `aws-actions/configure-aws-credentials` или `google-github-actions/auth` — секретов в репозитории нет. Никогда.
+5. 🔍 **Сканируйте код IaC.** `tfsec`, `checkov`, `terrascan` — встройте их в CI. Ловят публичные бакеты S3, дыры без шифрования, wildcard в IAM.
 
-> 🔗 **Course tie-in:** Lab 4 bonus adds a `terraform plan` + `checkov` step on every PR. DevSecOps elective goes deeper.
-
----
-
-## 📍 Slide 23 – 💥 Real Incidents — Why These Rules Exist
-
-* 🏦 **Code Spaces (2014)** — credentials in a repo → AWS console takeover → attacker deleted S3 + EC2 + RDS → company *literally shut down* in 12 hours. The textbook "don't commit credentials" story.
-* 🚗 **Uber (2016)** — AWS keys hardcoded in a private GitHub repo → 57M user records exfiltrated → $148M settlement. Private ≠ safe.
-* 🏭 **2024 SAP Concur** — internal Terraform state in an unencrypted S3 bucket leaked employee PII for years.
-* 🐍 **2025 SnakeKeylogger / Codefinger** — attackers found leaked Pulumi Cloud tokens in public repos and used them to enumerate and ransom S3 buckets via SSE-C.
-* 📉 **Knight Capital (2012, pre-IaC)** — manual deploy to 7 of 8 servers, the 8th still had old code → $440M loss in 45 minutes. Manual = drift = catastrophe.
-
-> 💡 **Every one of these would have been prevented by following the rules on slide 22.** The rules are paid for in real money.
+> 🔗 **Связка с курсом:** бонус Lab 4 добавляет на каждый PR шаг `terraform plan` и `checkov`. Электив DevSecOps копает глубже.
 
 ---
 
-## 📍 Slide 24 – 🎯 Key Takeaways
+## 📍 Slide 23 – 💥 Реальные инциденты: зачем эти правила
 
-1. 🏗️ **Infrastructure as Code = your cloud lives in Git** — reproducible, disposable, consistent, visible
-2. 🐄 **Cattle, not pets** — name servers by role + number, never as individuals
-3. 🔄 **Read the `plan`** — every time, especially before production apply
-4. 📦 **Remote, locked, encrypted state from day one** in any team setting
-5. 🌍 **Terraform/OpenTofu** for big ecosystems and declarative simplicity; **Pulumi** for code-heavy teams and complex logic
-6. 🌱 **OpenTofu exists because licensing matters** — know the story, pick deliberately
-7. 🔐 **No secrets in code. No state in Git. OIDC for CI.** Three rules; non-negotiable.
+* 🏦 **Code Spaces (2014)** — учётные данные в репозитории → захват консоли AWS → атакующий удалил S3 + EC2 + RDS → компания *буквально закрылась* за 12 часов. Хрестоматия: не коммитьте учётные данные.
+* 🚗 **Uber (2016)** — ключи AWS захардкожены в приватном репозитории GitHub → утащили записи 57 млн пользователей → мировое на $148 млн. Приватный ≠ безопасный.
+* 🏭 **2024 SAP Concur** — внутренний state Terraform в незашифрованном бакете S3 годами сливал PII сотрудников.
+* 🐍 **2025 SnakeKeylogger / Codefinger** — атакующие нашли слитые токены Pulumi Cloud в публичных репозиториях, перечислили бакеты S3 и вымогали выкуп через SSE-C.
+* 📉 **Knight Capital (2012, до IaC)** — ручной выкат на 7 серверов из 8, на восьмом остался старый код → минус $440 млн за 45 минут. Руками = drift = катастрофа.
 
-> 💡 **If you can't `git clone && terraform apply` from scratch, it's not IaC — it's a haunted spreadsheet of clicks.**
+> 💡 **Правила со слайда 22 остановили бы каждый из этих случаев.** За правила уже заплатили живыми деньгами.
 
 ---
 
-## 📍 Slide 25 – 🧠 The Mindset Shift
+## 📍 Slide 24 – 🎯 Главное
 
-| 😰 Old | 🚀 IaC-native |
+1. 🏗️ **Инфраструктура как код = облако живёт в Git** — воспроизводимо, одноразово, согласованно, видно
+2. 🐄 **Скот, не питомцы** — имя сервера — роль и номер, не кличка
+3. 🔄 **Читайте `plan`** — каждый раз, особенно перед apply в проде
+4. 📦 **Удалённый state с блокировкой и шифрованием с первого дня** — в любой команде
+5. 🌍 **Terraform/OpenTofu** — большие экосистемы и декларативная простота; **Pulumi** — команды, которые живут в коде, и сложная логика
+6. 🌱 **OpenTofu есть, потому что лицензия важна** — знайте историю, выбирайте сами
+7. 🔐 **Секретов в коде нет. State не в Git. Для CI — OIDC.** Три правила, без торга.
+
+> 💡 **Если с нуля не проходит `git clone && terraform apply`, это не IaC, а проклятая таблица кликов.**
+
+---
+
+## 📍 Slide 25 – 🧠 Сдвиг мышления
+
+| 😰 Раньше | 🚀 Как в IaC |
 |--------|--------------|
-| 🙅 "SSH and fix it" | 📝 "Change the code, plan, apply" |
-| 🚫 "Don't touch web-03" | 💪 "Destroy web-03 and let TF rebuild it" |
-| 👉 "Who set this up?" | 📜 `git blame` answers it |
-| 😨 "Manual is faster" | ⚡ "Manual is faster *once*. IaC is faster forever." |
-| 💻 "Works on my cloud" | 🌍 "Works in any account that runs the code" |
-| 🤷 "We'll document it later" | 📝 "The code IS the documentation" |
+| 🙅 «Зайду по SSH и починю» | 📝 «Меняю код, plan, apply» |
+| 🚫 «Не трогай web-03» | 💪 «Снеси web-03, TF соберёт заново» |
+| 👉 «Кто это поднял?» | 📜 ответит `git blame` |
+| 😨 «Руками быстрее» | ⚡ «Руками быстрее *один раз*. IaC быстрее всегда.» |
+| 💻 «Работает в моём облаке» | 🌍 «Работает в любом аккаунте, где гоняют этот код» |
+| 🤷 «Потом задокументируем» | 📝 «Код И ЕСТЬ документация» |
 
-> ❓ Which column describes the team you want to work on?
+> ❓ В какой колонке команда, в которой вы хотите работать?
 
 ---
 
-## 📍 Slide 26 – 🚀 What Comes Next
+## 📍 Slide 26 – 🚀 Что дальше
 
-**📚 Next lecture: *Configuration Management with Ansible.*** Terraform builds the VM; Ansible configures what runs *inside* it. The two complete each other.
+**📚 Следующая лекция: *Управление конфигурацией с Ansible.*** Terraform поднимает VM; Ansible настраивает то, что работает *внутри*. Они дополняют друг друга.
 
-* 🔧 Idempotent playbooks over SSH
-* 📦 Roles, inventories, and Ansible Galaxy
-* 🤖 Provisioning Docker on the VMs you'll create in Lab 4
+* 🔧 Идемпотентные playbook по SSH
+* 📦 Роли, inventory и Ansible Galaxy
+* 🤖 Поставить Docker на VM, которые поднимете в Lab 4
 
-**🔬 Lab 4 this week:** create a cloud VM with both Terraform *and* Pulumi, compare the experience, and (bonus) wire `terraform plan` into a GitHub Actions PR check. Keep the VM running — **Lab 5 will SSH into it**.
+**🔬 Lab 4 на этой неделе:** поднимите облачную VM и на Terraform, *и* на Pulumi, сравните ощущения и (бонус) встройте `terraform plan` в проверку PR в GitHub Actions. VM не гасите — **Lab 5 зайдёт на неё по SSH**.
 
 ```mermaid
 flowchart LR
-  Lab4[🏗️ Lab 4: TF + Pulumi VM] --> Lab5[🔧 Lab 5: Ansible configures it]
-  Lab5 --> Lab9[☸️ Lab 9: K8s on similar VMs]
-  Lab9 --> Future[🚀 Labs 13+: GitOps on top]
+  Lab4[🏗️ Lab 4: TF + Pulumi VM] --> Lab5[🔧 Lab 5: Ansible настраивает VM]
+  Lab5 --> Lab9[☸️ Lab 9: K8s на похожих VM]
+  Lab9 --> Future[🚀 Labs 13+: GitOps сверху]
 ```
 
-**👋 See you in Lecture 5.**
+**👋 До встречи на Lecture 5.**
 
-> 🐄 From snowflakes to cattle — one `terraform apply` at a time.
+> 🐄 От снежинок к скоту — по одному `terraform apply`.
 
 ---
 
-## 📚 Resources & Further Reading
+## 📚 Материалы и что почитать дальше
 
-**📕 Books:**
-* *Terraform: Up & Running* — Yevgeniy Brikman, O'Reilly (3rd ed., 2022; 4th ed. covers OpenTofu, late 2025)
-* *Infrastructure as Code* — Kief Morris, O'Reilly (2nd ed., 2020). The reference text.
+**📕 Книги:**
+* *Terraform: Up & Running* — Yevgeniy Brikman, O'Reilly (3-е изд., 2022; 4-е изд. уже с OpenTofu, конец 2025)
+* *Infrastructure as Code* — Kief Morris, O'Reilly (2-е изд., 2020). Главная книга по теме.
 * *Pulumi: Up & Running* — Adam Gordon Bell, O'Reilly (2024).
-* *The Phoenix Project* — Kim, Behr, Spafford. Still the best dramatization of the problems IaC solves.
+* *The Phoenix Project* — Kim, Behr, Spafford. До сих пор лучше всех разыгрывает проблемы, которые закрывает IaC.
 
-**🔗 Links:**
-* 🌐 [developer.hashicorp.com/terraform](https://developer.hashicorp.com/terraform) — official Terraform docs (1.10)
-* 🌐 [opentofu.org](https://opentofu.org) — OpenTofu docs and migration guide
-* 🌐 [pulumi.com/docs](https://www.pulumi.com/docs/) — official Pulumi docs (3.140)
-* 🌐 [registry.terraform.io](https://registry.terraform.io/) — providers + community modules (works for OpenTofu too)
-* 🌐 [github.com/aquasecurity/tfsec](https://github.com/aquasecurity/tfsec) — IaC security scanner
+**🔗 Ссылки:**
+* 🌐 [developer.hashicorp.com/terraform](https://developer.hashicorp.com/terraform) — официальная документация Terraform (1.10)
+* 🌐 [opentofu.org](https://opentofu.org) — документация OpenTofu и гайд по переезду
+* 🌐 [pulumi.com/docs](https://www.pulumi.com/docs/) — официальная документация Pulumi (3.140)
+* 🌐 [registry.terraform.io](https://registry.terraform.io/) — провайдеры и модули сообщества (годится и для OpenTofu)
+* 🌐 [github.com/aquasecurity/tfsec](https://github.com/aquasecurity/tfsec) — сканер безопасности для IaC
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 4–6 leaderboard window.
+**🎓 Квиз:** квиз после лекции идёт в окно таблицы лидеров за недели 4–6.

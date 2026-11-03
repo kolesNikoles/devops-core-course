@@ -1,73 +1,73 @@
-# 📌 Lecture 9 — Kubernetes Fundamentals: Container Orchestration
+# 📌 Lecture 9 — Основы Kubernetes: оркестрация контейнеров
 
-## 📍 Slide 1 – ☸️ Welcome to Kubernetes
+## 📍 Слайд 1 – ☸️ Добро пожаловать в Kubernetes
 
-* 🌍 **Lectures 2 and 7-8 gave you a Docker image, logs, and metrics.** Now we orchestrate.
-* 🚢 **Kubernetes (K8s)** = the de-facto container orchestrator, born at Google in 2014, runs your image at scale, self-heals, rolls forward and back
-* 🎯 This lecture: the mental model + just enough API to deploy your Lab 2 image as a real *cloud-native* workload
-* 🔗 **Tie-in to Lab 9:** you'll spin up a local cluster with **k3d** (k3s-in-Docker), deploy two pods (your Python service + a provided Go echo plumbing service), and meet them through `Service` and kube-DNS
+* 🌍 **Lectures 2 и 7-8 дали вам образ Docker, логи и метрики.** Теперь оркестрируем.
+* 🚢 **Kubernetes (K8s)** = де-факто оркестратор контейнеров, родился в Google в 2014, запускает образ в масштабе, сам себя чинит, катит вперёд и откатывает назад
+* 🎯 Эта лекция: модель в голове и ровно столько API, чтобы выкатить образ из Lab 2 как настоящую *cloud-native* нагрузку
+* 🔗 **Связка с Lab 9:** поднимете локальный кластер на **k3d** (k3s-in-Docker), задеплоите два Pod (ваш Python-сервис и готовый Go echo из plumbing) и познакомитесь с ними через `Service` и kube-DNS
 
 ```mermaid
 flowchart LR
-  Docker[🐳 Docker image] -->|kubectl apply| K8s[☸️ Kubernetes cluster]
+  Docker[🐳 образ Docker] -->|kubectl apply| K8s[☸️ кластер Kubernetes]
   K8s --> Pods[🟢 Pods]
-  Pods -->|Service + DNS| Talk[🔗 Talk to each other]
-  K8s -->|self-heals| Pods
+  Pods -->|Service + DNS| Talk[🔗 говорят друг с другом]
+  K8s -->|сам чинится| Pods
 ```
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Слайд 2 – 🎯 Результаты
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Explain why orchestration exists and what problems Compose can't solve |
-| 2 | 🏗️ Read & write `Pod`, `Deployment`, `ReplicaSet`, `Service`, `Namespace` manifests |
-| 3 | 🛠️ Drive a cluster with `kubectl`: `get`, `describe`, `logs`, `exec`, `apply`, `port-forward` |
-| 4 | 🔗 Understand label/selector binding — the glue of every K8s resource |
-| 5 | 🌐 Reason about kube-DNS and inter-service networking (the *whole point* of running 2 pods) |
-| 6 | 🩺 Configure liveness, readiness, and startup probes |
+| 1 | 🧠 Объяснить, зачем нужна оркестрация и какие задачи Compose не закрывает |
+| 2 | 🏗️ Читать и писать манифесты `Pod`, `Deployment`, `ReplicaSet`, `Service`, `Namespace` |
+| 3 | 🛠️ Рулить кластером через `kubectl`: `get`, `describe`, `logs`, `exec`, `apply`, `port-forward` |
+| 4 | 🔗 Понять связку label/selector (метка и селектор) — клей каждого ресурса K8s |
+| 5 | 🌐 Понимать kube-DNS и сеть между сервисами (*весь смысл* двух Pod) |
+| 6 | 🩺 Настроить пробы liveness, readiness и startup |
 
-**Tech stack pinned for May 2026:** Kubernetes **1.36** "Haru" (released Apr 22 2026), **kubectl 1.36**, **k3d 5.7+** (k3s-in-Docker — the course's standard local cluster), manifests in plain YAML (Helm comes next lecture).
-
----
-
-## 📍 Slide 3 – ❓ Why Compose Stops Being Enough
-
-You've shipped a single Python service (Labs 1-2), wired it through CI (Lab 3), provisioned a VM (Lab 4), configured it (Labs 5-6), and watched its logs + metrics (Labs 7-8). One service, one host, `docker compose up`. Why is that not the end of the story?
-
-* 💀 **No self-healing.** If the host dies, your service dies. Restart? You do it.
-* 📈 **No horizontal scaling.** Add traffic, add a second instance? You manually run a second `docker run` and put nginx in front.
-* 🔄 **No rolling updates.** Deploying = stop / start. There is downtime.
-* 🌐 **No service discovery.** Two services on two hosts need IP-and-port glue you maintain by hand.
-* 🛡️ **No resource isolation across tenants.** Compose is "one project per directory" not "ten teams in a cluster".
-
-Kubernetes solves all five — but at the cost of a steeper learning curve.
-
-> 🔥 **Reality check:** for a single small service, Compose is *still* the right answer. K8s is for when you have ≥ 3 services, multiple environments, or you need self-healing at 3am.
+**Стек зафиксирован на май 2026:** Kubernetes **1.36** "Haru" (вышел 22 апреля 2026), **kubectl 1.36**, **k3d 5.7+** (k3s-in-Docker — стандартный локальный кластер курса), манифесты в обычном YAML (Helm — следующая лекция).
 
 ---
 
-## 📍 Slide 4 – 📜 A Brief History
+## 📍 Слайд 3 – ❓ Почему Compose перестаёт хватать
 
-* 📅 **2003** — Google launches **Borg** internally. Most engineering staff use it daily; nobody outside Google knows it exists.
-* 📅 **2014 (June)** — Google open-sources Kubernetes as the spiritual successor to Borg. Joe Beda, Brendan Burns, Craig McLuckie are the original team.
-* 📅 **2015** — **Kubernetes 1.0** announced. CNCF (Cloud Native Computing Foundation) founded with K8s as its seed project.
-* 📅 **2016-2017** — *"Kubernetes the Hard Way"* (Kelsey Hightower) becomes required reading. Helm, ArgoCD, Istio appear.
-* 📅 **2018** — CNCF graduates Kubernetes; managed offerings (EKS, GKE, AKS) mature.
-* 📅 **2020** — K8s deprecates Docker as a runtime (uses **containerd** directly). Your *images* still work — they're OCI.
-* 📅 **2024-2025** — Sidecar containers go GA (1.29 → 1.33). Pod security admission replaces PodSecurityPolicy (gone for good).
-* 📅 **2026 (Apr 22)** — Kubernetes **1.36 "Haru"** — 70 enhancements: 18 graduating to Stable, 25 entering Beta, 25 new Alpha. Focus areas: security hardening, AI/ML workload support, API scalability.
+Вы выкатили один Python-сервис (Labs 1-2), прогнали его через CI (Lab 3), подняли VM (Lab 4), настроили её (Labs 5-6) и смотрели логи и метрики (Labs 7-8). Один сервис, один хост, `docker compose up`. Почему на этом история не кончается?
 
-> 📖 *Kubernetes Up & Running* (Burns, Beda, Hightower) — the standard intro book. The 3rd edition (2022) is still accurate at the API level for 1.36.
+* 💀 **Самовосстановления нет.** Умер хост — умер сервис. Рестарт? Это вы.
+* 📈 **Горизонтального масштабирования нет.** Вырос трафик, нужна вторая копия? Второй `docker run` руками и nginx перед ними.
+* 🔄 **Rolling update нет.** Выкладка = stop / start. Есть простой.
+* 🌐 **Service discovery нет** (сервисы не находят друг друга по имени). Двум сервисам на двух хостах нужна склейка из IP и порта, её ведёте вы.
+* 🛡️ **Изоляции ресурсов между тенантами нет.** Compose — это «один проект на каталог», а не «десять команд в кластере».
+
+Kubernetes закрывает все пять. Кривая обучения при этом круче.
+
+> 🔥 **Трезвый взгляд:** для одного маленького сервиса Compose *по-прежнему* правильный ответ. K8s — когда сервисов ≥ 3, окружений несколько или самовосстановление нужно в 3 часа ночи.
 
 ---
 
-## 📍 Slide 5 – 🏗️ Architecture: Control Plane + Nodes
+## 📍 Слайд 4 – 📜 Коротко об истории
+
+* 📅 **2003** — Google запускает **Borg** внутри. Большинство инженеров пользуются им каждый день. Снаружи Google о нём не знает никто.
+* 📅 **2014 (июнь)** — Google открывает исходники Kubernetes, идейного наследника Borg. Joe Beda, Brendan Burns, Craig McLuckie — исходная команда.
+* 📅 **2015** — анонс **Kubernetes 1.0**. Основали CNCF (Cloud Native Computing Foundation), первый проект — K8s.
+* 📅 **2016-2017** — *"Kubernetes the Hard Way"* (Kelsey Hightower) становится обязательным чтением. Появляются Helm, ArgoCD, Istio.
+* 📅 **2018** — CNCF даёт Kubernetes статус graduated. Управляемые сервисы (EKS, GKE, AKS) взрослеют.
+* 📅 **2020** — K8s снимает Docker с роли runtime (ходит в **containerd** напрямую). Ваши *образы* по-прежнему работают: это OCI.
+* 📅 **2024-2025** — Sidecar-контейнеры выходят в GA (1.29 → 1.33). Pod security admission заменяет PodSecurityPolicy (того больше нет).
+* 📅 **2026 (22 апреля)** — Kubernetes **1.36 "Haru"** — 70 доработок: 18 выходят в Stable, 25 входят в Beta, 25 новых Alpha. Фокус: укрепление безопасности, поддержка нагрузок AI/ML, масштабируемость API.
+
+> 📖 *Kubernetes Up & Running* (Burns, Beda, Hightower) — стандартная книга для входа в тему. 3-е издание (2022) на уровне API для 1.36 всё ещё точное.
+
+---
+
+## 📍 Слайд 5 – 🏗️ Архитектура: плоскость управления и ноды
 
 ```mermaid
 flowchart TB
-  subgraph "Control Plane"
+  subgraph "Плоскость управления"
     API[🚪 kube-apiserver]
     ETCD[(💾 etcd)]
     SCHED[📋 scheduler]
@@ -78,13 +78,13 @@ flowchart TB
     CTRL --> API
     CLOUD --> API
   end
-  subgraph "Worker Node 1"
+  subgraph "Рабочая нода 1"
     KUBELET1[🧠 kubelet]
     PROXY1[🌐 kube-proxy]
     RT1[📦 containerd]
     KUBELET1 --> RT1
   end
-  subgraph "Worker Node 2"
+  subgraph "Рабочая нода 2"
     KUBELET2[🧠 kubelet]
     PROXY2[🌐 kube-proxy]
     RT2[📦 containerd]
@@ -94,43 +94,43 @@ flowchart TB
   API <--> KUBELET2
 ```
 
-* 🚪 **kube-apiserver** — the only component clients (and other plane components) talk to. RESTful gRPC over HTTP.
-* 💾 **etcd** — the source of truth. Every Pod, every Secret, every label lives here. (Plan your DR around it.)
-* 📋 **scheduler** — picks which node a pending Pod should run on.
-* 🎛️ **controller-manager** — runs reconciliation loops (ReplicaSet controller, Node controller, etc.). The "make reality match desired state" engine.
-* 🧠 **kubelet** — the node agent. Talks to the runtime (containerd), reports node + pod status back to API.
-* 🌐 **kube-proxy** — programs iptables/IPVS/nftables rules so `Service` virtual IPs route to live pods.
+* 🚪 **kube-apiserver** — единственный компонент, с которым говорят клиенты (и остальные компоненты control plane). RESTful gRPC поверх HTTP.
+* 💾 **etcd** — источник правды. Здесь каждый Pod, каждый Secret, каждая метка. (DR планируйте вокруг него.)
+* 📋 **scheduler** — выбирает ноду для Pod в Pending.
+* 🎛️ **controller-manager** — крутит циклы сверки (reconciliation): контроллер ReplicaSet, контроллер Node и т.д. Движок «подгони реальность под желаемое состояние».
+* 🧠 **kubelet** — агент ноды. Говорит с runtime (containerd) и отдаёт в API статус ноды и Pod.
+* 🌐 **kube-proxy** — прописывает правила iptables/IPVS/nftables, чтобы виртуальные IP `Service` вели на живые Pod.
 
-> 🤔 **Think:** what happens if etcd loses quorum? *(Answer: cluster freezes. No new pods, no deletions. Existing ones keep running.)*
+> 🤔 **Подумайте:** что, если etcd потеряет кворум? *(Ответ: кластер замирает. Новых Pod нет, удалений нет. Уже запущенные продолжают работать.)*
 
 ---
 
-## 📍 Slide 6 – 🎯 The Declarative Model
+## 📍 Слайд 6 – 🎯 Декларативная модель
 
-You don't tell Kubernetes *what to do*; you tell it *what you want*. The control plane figures out the rest by reconciling **desired state** (your YAML) against **observed state** (what's actually running).
+Вы не говорите Kubernetes, *что делать*. Вы говорите, *чего хотите*. Control plane добирает остальное: сверяет **желаемое состояние** (ваш YAML) с **наблюдаемым состоянием** (что реально запущено).
 
 ```mermaid
 flowchart LR
-  YAML[📄 Your YAML<br/>desired state] -->|kubectl apply| API[🚪 API]
+  YAML[📄 Ваш YAML<br/>желаемое состояние] -->|kubectl apply| API[🚪 API]
   API --> ETCD[(💾 etcd)]
-  CTRL[🎛️ Controllers] -.->|watch| ETCD
-  CTRL -->|create/delete pods| KUBELET[🧠 kubelet]
-  KUBELET --> RT[📦 runtime]
-  RT -.->|status| ETCD
-  ETCD -->|reconcile| CTRL
+  CTRL[🎛️ Контроллеры] -.->|watch| ETCD
+  CTRL -->|создать/удалить Pod| KUBELET[🧠 kubelet]
+  KUBELET --> RT[📦 рантайм]
+  RT -.->|статус| ETCD
+  ETCD -->|сверка| CTRL
 ```
 
-* ✏️ You **edit** YAML and `kubectl apply`. Done.
-* 🔁 Controllers continuously close the gap between desired and observed.
-* 🛡️ Kill a pod manually? The ReplicaSet controller spawns another within seconds.
+* ✏️ Вы **правите** YAML и делаете `kubectl apply`. Всё.
+* 🔁 Контроллеры непрерывно закрывают разрыв между желаемым и наблюдаемым.
+* 🛡️ Убили Pod руками? Контроллер ReplicaSet поднимет другой за секунды.
 
-> 📚 **This is the same paradigm as Terraform** (Lec 4) — declarative IaC, with a reconciliation loop *built into the platform itself*.
+> 📚 **Та же модель, что у Terraform** (Lec 4): декларативный IaC, а цикл сверки *зашит в саму платформу*.
 
 ---
 
-## 📍 Slide 7 – 🟢 Pod — The Atom of K8s
+## 📍 Слайд 7 – 🟢 Pod — атом K8s
 
-A **Pod** is one or more containers that share the same network namespace and storage volumes — scheduled together, lifecycle-managed together.
+**Pod** — один или несколько контейнеров с общим сетевым namespace и общими томами. Их планируют вместе, жизненный цикл тоже общий.
 
 ```yaml
 apiVersion: v1
@@ -147,19 +147,19 @@ spec:
         - containerPort: 8080
 ```
 
-Key facts:
-* 🆔 Each pod gets its own IP — accessible by other pods in the cluster
-* 💥 Pods are **mortal**. They die, they get rescheduled, IPs change. *Never* rely on a pod's IP from outside it.
-* 📦 Multi-container pods exist for the **sidecar pattern** (logging agent, proxy, init helper)
-* 🏷️ **Labels** are how every other resource finds this pod
+Факты:
+* 🆔 У каждого Pod свой IP. Другие Pod кластера до него достучатся.
+* 💥 Pod **смертны**. Умирают, их планируют заново, IP меняются. *Никогда* не опирайтесь на IP Pod снаружи.
+* 📦 Несколько контейнеров в одном Pod — паттерн **sidecar** (агент логов, прокси, init-помощник).
+* 🏷️ **Метки** (labels) — так любой другой ресурс находит этот Pod.
 
-> ⚠️ **Anti-pattern:** running a Pod directly. You'll lose it on the first node reboot. Always wrap with a workload controller (Deployment / StatefulSet / DaemonSet / Job).
+> ⚠️ **Антипаттерн:** запускать Pod напрямую. Первая перезагрузка ноды — и его нет. Всегда оборачивайте контроллером (Deployment / StatefulSet / DaemonSet / Job).
 
 ---
 
-## 📍 Slide 8 – 🎁 Deployment + ReplicaSet — How You Actually Run Things
+## 📍 Слайд 8 – 🎁 Deployment и ReplicaSet — как это реально запускают
 
-A **Deployment** declares *N pods of a given template*. It manages a **ReplicaSet** under the hood (you almost never touch ReplicaSets directly).
+**Deployment** объявляет *N Pod по заданному шаблону*. Под капотом он ведёт **ReplicaSet** (напрямую ReplicaSet почти не трогают).
 
 ```yaml
 apiVersion: apps/v1
@@ -185,17 +185,17 @@ spec:
             limits:   {cpu: 500m, memory: 256Mi}
 ```
 
-* 🔄 `kubectl set image deployment/hello web=…:v1.0.1` → **rolling update** (default: 25% maxUnavailable, 25% maxSurge)
-* ⏪ `kubectl rollout undo deployment/hello` → roll back to the previous ReplicaSet
-* 📈 `kubectl scale deployment/hello --replicas=10` → scale up
+* 🔄 `kubectl set image deployment/hello web=…:v1.0.1` → **rolling update** (по умолчанию: 25% maxUnavailable, 25% maxSurge)
+* ⏪ `kubectl rollout undo deployment/hello` → откат к предыдущему ReplicaSet
+* 📈 `kubectl scale deployment/hello --replicas=10` → больше реплик
 
-> 🔥 **Hot take:** every "modern" stateless workload in K8s is a Deployment + Service. Master that pair and you understand 70% of cluster operations.
+> 🔥 **Резкий тезис:** любая «современная» stateless-нагрузка в K8s — это Deployment + Service. Освойте эту пару — и поймёте 70% операций в кластере.
 
 ---
 
-## 📍 Slide 9 – 🌐 Service — Stable Address for a Moving Target
+## 📍 Слайд 9 – 🌐 Service — стабильный адрес у движущейся цели
 
-Pods come and go; their IPs change. A **Service** is a stable virtual IP + DNS name that load-balances across all pods matching its selector.
+Pod приходят и уходят, IP меняются. **Service** — стабильный виртуальный IP и DNS-имя. Он балансирует нагрузку по всем Pod, которые попали в селектор.
 
 ```yaml
 apiVersion: v1
@@ -211,52 +211,52 @@ spec:
       targetPort: 8080
 ```
 
-| Type | Where it's reachable | When to use |
+| Тип | Откуда доступен | Когда брать |
 |------|---------------------|-------------|
-| **ClusterIP** | Inside the cluster only | Inter-service traffic (default) |
-| **NodePort** | Every node's IP:30000-32767 | Dev / quick external access |
-| **LoadBalancer** | Cloud provider provisions an external LB | Production external traffic on managed K8s |
-| **ExternalName** | DNS CNAME to an external host | Migration / legacy proxying |
+| **ClusterIP** | Только внутри кластера | Трафик между сервисами (по умолчанию) |
+| **NodePort** | IP каждой ноды:30000-32767 | Dev и быстрый доступ снаружи |
+| **LoadBalancer** | Облачный провайдер поднимает внешний LB | Внешний прод-трафик на управляемом K8s |
+| **ExternalName** | DNS CNAME на внешний хост | Миграция и прокси на легаси |
 
-* 🌐 Inside the cluster, the DNS name `hello.default.svc.cluster.local` (short: `hello`) resolves to the ClusterIP
-* ⚖️ `kube-proxy` programs iptables/IPVS rules; traffic is round-robin'd across healthy pods
-* 🚪 For HTTP ingress from outside, use `Ingress` or `Gateway API` (touched in Lab 9 bonus + Lab 13)
+* 🌐 Внутри кластера имя `hello.default.svc.cluster.local` (коротко: `hello`) резолвится в ClusterIP
+* ⚖️ `kube-proxy` прописывает правила iptables/IPVS. Трафик идёт round-robin по здоровым Pod
+* 🚪 Для HTTP снаружи берите `Ingress` или `Gateway API` (бонус Lab 9 и Lab 13)
 
 ---
 
-## 📍 Slide 10 – 🔗 Why Two Pods Suddenly Makes Sense
+## 📍 Слайд 10 – 🔗 Почему два Pod вдруг имеют смысл
 
-Up through Lab 8 you ran **one** service. `Service` and kube-DNS felt like overkill — "why a stable IP for one thing?"
+До Lab 8 у вас был **один** сервис. `Service` и kube-DNS казались лишними: «зачем стабильный IP одной штуке?»
 
-**Lab 9 introduces a SECOND service** (a small Go "echo" companion, shipped by the course as plumbing in `app_go_echo/`). Now the picture changes:
+**Lab 9 добавляет ВТОРОЙ сервис** (маленький Go-компаньон «echo», курс поставляет его как plumbing в `app_go_echo/`). Картина другая:
 
 ```mermaid
 flowchart LR
-  User[👤 User] -->|NodePort| WebSvc[🟢 Service: web]
-  WebSvc --> WebPod[🐍 web pod<br/>Lab 2 Python image]
+  User[👤 Пользователь] -->|NodePort| WebSvc[🟢 Service: web]
+  WebSvc --> WebPod[🐍 Pod web<br/>образ Python из Lab 2]
   WebPod -->|GET http://echo:80/ping| EchoSvc[🟢 Service: echo]
-  EchoSvc --> EchoPod1[🦫 echo pod]
-  EchoSvc --> EchoPod2[🦫 echo pod]
+  EchoSvc --> EchoPod1[🦫 Pod echo]
+  EchoSvc --> EchoPod2[🦫 Pod echo]
 ```
 
-Suddenly:
-* 🌐 **kube-DNS does real work** — `echo` resolves to a load-balanced ClusterIP
-* ⚖️ **Service load-balances** across two `echo` pods — kill one, traffic keeps flowing
-* 🏷️ **Labels matter** — `app=echo` is how `Service: echo` finds its targets, regardless of which node they land on
-* 🩺 **Probes start earning their keep** — the `web` pod's readiness probe might fail if `echo` is down (depending on how you wire it)
+И вдруг:
+* 🌐 **kube-DNS делает настоящую работу** — `echo` резолвится в ClusterIP с балансировкой
+* ⚖️ **Service балансирует** по двум Pod `echo`. Убейте один — трафик идёт дальше
+* 🏷️ **Метки решают** — по `app=echo` сервис `Service: echo` находит цели, на какой бы ноде они ни сели
+* 🩺 **Пробы начинают отрабатывать себя** — readiness-проба Pod `web` может упасть, если `echo` лежит (зависит от того, как свяжете)
 
-> 🔗 **This is the pedagogical core of Lab 9.** The 2nd service isn't busywork — it's the smallest topology in which "the K8s networking model" stops being abstract.
+> 🔗 **В этом учебный смысл Lab 9.** Второй сервис не для галочки. Это самая маленькая топология, где «сетевая модель K8s» перестаёт быть абстракцией.
 
 ---
 
-## 📍 Slide 11 – 🏷️ Labels & Selectors — The Glue
+## 📍 Слайд 11 – 🏷️ Метки и селекторы — клей
 
-Labels are key/value tags on any K8s object. Selectors query objects by their labels. **Almost every controller works by selector**:
+Метки — пары ключ/значение на любом объекте K8s. Селекторы ищут объекты по меткам. **Почти каждый контроллер работает через селектор**:
 
-* 🎁 `Deployment.spec.selector` → finds the pods it owns
-* 🌐 `Service.spec.selector` → finds the pods it routes to
-* 🛡️ `NetworkPolicy.podSelector` → finds the pods it firewalls
-* 📊 `ServiceMonitor.spec.selector` → finds the services to scrape (Lab 16)
+* 🎁 `Deployment.spec.selector` → ищет Pod, которыми владеет
+* 🌐 `Service.spec.selector` → ищет Pod, куда шлёт трафик
+* 🛡️ `NetworkPolicy.podSelector` → ищет Pod, которые фильтрует
+* 📊 `ServiceMonitor.spec.selector` → ищет сервисы для scrape (Lab 16)
 
 ```yaml
 metadata:
@@ -273,13 +273,13 @@ kubectl get pods -l app=hello,env=prod         # 🎯 AND selector
 kubectl get pods -l 'tier in (frontend,api)'   # 🔀 set-based selector
 ```
 
-> 🔥 **Convention:** use `app.kubernetes.io/name`, `app.kubernetes.io/version`, `app.kubernetes.io/managed-by` — the "recommended labels" namespace. Helm and ArgoCD set these automatically.
+> 🔥 **Соглашение:** берите `app.kubernetes.io/name`, `app.kubernetes.io/version`, `app.kubernetes.io/managed-by` — пространство рекомендуемых меток. Helm и ArgoCD ставят их сами.
 
 ---
 
-## 📍 Slide 12 – 🛠️ kubectl — The Survival Toolkit
+## 📍 Слайд 12 – 🛠️ kubectl — набор на каждый день
 
-You will run these every day. Memorize them.
+Это команды на каждый день. Выучите наизусть.
 
 ```bash
 kubectl get pods,svc,deploy -A              # 🔍 list everything across all namespaces
@@ -296,13 +296,13 @@ kubectl rollout undo deploy/hello           # ⏪ revert to previous ReplicaSet
 kubectl top pod                             # 📊 live CPU/mem (needs metrics-server)
 ```
 
-> 🔧 **Setup tip:** `alias k=kubectl` and `kubectl completion bash` (or zsh). Run `kubectl explain pod.spec.containers` for inline schema docs.
+> 🔧 **Совет по настройке:** `alias k=kubectl` и `kubectl completion bash` (или zsh). Схема прямо в терминале: `kubectl explain pod.spec.containers`.
 
 ---
 
-## 📍 Slide 13 – 💻 Local Clusters with k3d
+## 📍 Слайд 13 – 💻 Локальные кластеры на k3d
 
-Production K8s runs on managed services (EKS, GKE, AKS). For learning and CI you need a cluster on your laptop. **This course standardizes on k3d** — it wraps **k3s** (Rancher's lightweight, CNCF-certified Kubernetes) inside Docker containers.
+Прод-K8s живёт на управляемых сервисах (EKS, GKE, AKS). Для учёбы и CI нужен кластер на ноутбуке. **На курсе стандарт — k3d**: он заворачивает **k3s** (лёгкий Kubernetes от Rancher, с сертификатом CNCF) в контейнеры Docker.
 
 ```bash
 k3d cluster create devops \
@@ -311,19 +311,19 @@ k3d cluster create devops \
   -p "8080:80@loadbalancer" -p "8443:443@loadbalancer"
 ```
 
-Why k3d over the alternatives:
-* ⚡ **Fastest + lightest** — a cluster comes up in seconds; far smaller footprint than minikube's VM
-* 🧱 **Free multi-node** — `--agents N` adds worker containers, so pod scheduling across nodes is observable
-* 🔋 **Batteries included** — built-in **Traefik** ingress and **klipper** LoadBalancer mean `Ingress` and `type: LoadBalancer` work with no extra install
-* 🔁 **Throwaway** — `k3d cluster delete devops` and start fresh
+Почему k3d, а не остальные:
+* ⚡ **Быстрее и легче всех.** Кластер поднимается за секунды. По размеру куда меньше, чем VM minikube.
+* 🧱 **Multi-node бесплатно.** `--agents N` добавляет worker-контейнеры, и видно, как Pod садятся на разные ноды.
+* 🔋 **Из коробки.** Встроенные ingress **Traefik** и LoadBalancer **klipper**: `Ingress` и `type: LoadBalancer` работают без отдельной установки.
+* 🔁 **Одноразовый.** `k3d cluster delete devops` — и с чистого листа.
 
-> 💡 **Tradeoff to know:** k3d runs k3s, which trims some legacy APIs and ships **Traefik** (not ingress-nginx) plus klipper-lb. For everything in this course those differences are invisible; the one place it shows up is `ingressClassName: traefik`. Don't use Docker Desktop's bundled K8s — it lags upstream.
+> 💡 **Компромисс:** k3d гоняет k3s. Тот срезает часть старых API и везёт **Traefik** (не ingress-nginx) плюс klipper-lb. В этом курсе разницы не видно. Вылезает она только в `ingressClassName: traefik`. Встроенный K8s из Docker Desktop не берите: он отстаёт от upstream.
 
 ---
 
-## 📍 Slide 14 – 📦 Namespaces — Multi-Tenancy Within a Cluster
+## 📍 Слайд 14 – 📦 Namespace — мультитенантность внутри кластера
 
-A **Namespace** scopes most resources (pods, services, configmaps, secrets, deployments). It's how you carve a cluster up across teams or environments.
+**Namespace** ограничивает область большинства ресурсов (Pod, Service, ConfigMap, Secret, Deployment). Так кластер делят между командами и окружениями.
 
 ```bash
 kubectl create namespace dev
@@ -332,19 +332,19 @@ kubectl get pods -n dev                     # 🔍 list pods in dev
 kubectl config set-context --current --namespace=dev   # 🎯 stick to dev
 ```
 
-Default namespaces every cluster has:
-* `default` — where stuff lands if you don't say
-* `kube-system` — control plane components (don't touch)
-* `kube-public` — world-readable; mostly cluster info
-* `kube-node-lease` — node heartbeats
+Они есть в каждом кластере:
+* `default` — сюда падает всё, если не сказали, куда
+* `kube-system` — компоненты control plane (не трогать)
+* `kube-public` — читают все; в основном сведения о кластере
+* `kube-node-lease` — heartbeat нод
 
-> 🚫 **Anti-pattern:** running everything in `default`. Always pick a namespace per app or environment.
+> 🚫 **Антипаттерн:** держать всё в `default`. На приложение или окружение — свой namespace.
 
 ---
 
-## 📍 Slide 15 – ⚖️ Resource Requests, Limits, and QoS
+## 📍 Слайд 15 – ⚖️ Requests, Limits и QoS
 
-Every container declares **requests** (the scheduler reserves this much) and **limits** (the kernel kills it if it goes over).
+Каждый контейнер объявляет **requests** (столько scheduler резервирует) и **limits** (за этим краем ядро убивает процесс).
 
 ```yaml
 resources:
@@ -356,19 +356,19 @@ resources:
     memory: 256Mi   # memory is *killed* (OOMKill) past this
 ```
 
-| Class | Requests vs Limits | Eviction priority |
+| Класс | Requests и Limits | Приоритет вытеснения |
 |-------|--------------------|--------------------|
-| **Guaranteed** | requests == limits, all containers | last to evict |
-| **Burstable** | requests < limits | middle |
-| **BestEffort** | no requests or limits | first to evict |
+| **Guaranteed** | requests == limits, все контейнеры | вытесняют последним |
+| **Burstable** | requests < limits | посередине |
+| **BestEffort** | нет ни requests, ни limits | вытесняют первым |
 
-> ⚠️ **Production rule:** always set requests for CPU and memory; set memory limits aggressively, set CPU limits *only* when noisy-neighbor is hurting other workloads. CPU throttling is a frequent silent latency killer.
+> ⚠️ **Правило для прода:** всегда ставьте requests на CPU и память. Лимит памяти ставьте жёстко, лимит CPU — *только* когда шумный сосед мешает чужим нагрузкам. Троттлинг CPU часто тихо убивает латентность.
 
 ---
 
-## 📍 Slide 16 – 🩺 Probes: liveness, readiness, startup
+## 📍 Слайд 16 – 🩺 Пробы: liveness, readiness, startup
 
-K8s checks your pod's health through three probes. **They are not interchangeable.**
+K8s проверяет здоровье Pod тремя пробами. **Они не заменяют друг друга.**
 
 ```yaml
 livenessProbe:    # 💀 if this fails, restart the container
@@ -384,121 +384,121 @@ startupProbe:     # 🐢 for slow-starting apps; disables the other two until it
   periodSeconds: 10
 ```
 
-* 💀 **Liveness** = "should I be killed and restarted?" — for deadlocks, not transient errors
-* 🚦 **Readiness** = "should traffic come to me right now?" — for warmup, dependency outages
-* 🐢 **Startup** (since 1.16, GA in 1.20) = "give me a long initial window without flapping"
+* 💀 **Liveness** = «меня убить и перезапустить?» Дедлоки, не короткие сбои.
+* 🚦 **Readiness** = «трафик ко мне прямо сейчас?» Прогрев и падение зависимостей.
+* 🐢 **Startup** (с 1.16, GA в 1.20) = «дай длинное окно на старт, без флапа»
 
-> 🔥 **Common mistake:** using `livenessProbe: /` against the app's main HTTP root. If your app slows down under load, K8s restarts it, making things worse. Liveness should check a *cheap, in-process* signal.
-
----
-
-## 📍 Slide 17 – ✨ What's New in Kubernetes 1.36 "Haru"
-
-Released April 22 2026. Highlights worth knowing:
-
-* 🛡️ **Pod Security Admission (PSA)** matures further — the replacement for the long-deprecated PodSecurityPolicy
-* 🤖 **AI/ML workload support** — Device Resource Allocation API, better GPU sharing primitives (alpha → beta)
-* 📈 **API scalability** — improvements to apiserver caching reduce control-plane load on large clusters
-* 🧱 **Sidecar containers** (`restartPolicy: Always` on init containers) — GA since 1.33; standard in observability stacks (Alloy, Istio)
-* 🚫 **Gone for good:** several legacy `v1beta1` APIs continue retiring
-* 📦 **Image volumes** (alpha) — mount an OCI image as a read-only volume. Useful for ML models.
-
-The N-2 support policy means clusters running **1.34, 1.35, 1.36** are in standard support. **1.33 entered extended support** as of April 2026.
-
-> 📚 **Source:** [Kubernetes 1.36 release blog](https://kubernetes.io/blog/2026/04/22/kubernetes-v1-36-release/).
+> 🔥 **Частая ошибка:** `livenessProbe: /` на основной HTTP-корень. Приложение тормозит под нагрузкой, K8s его перезапускает, становится хуже. Liveness — это проверка *дешёвого сигнала внутри процесса*.
 
 ---
 
-## 📍 Slide 18 – ☁️ Production: Managed vs Self-Hosted
+## 📍 Слайд 17 – ✨ Что нового в Kubernetes 1.36 "Haru"
 
-| Approach | Examples | When |
+Вышел 22 апреля 2026. Что стоит помнить:
+
+* 🛡️ **Pod Security Admission (PSA)** взрослеет дальше. Это замена давно снятому PodSecurityPolicy.
+* 🤖 **Нагрузки AI/ML.** Device Resource Allocation API, более удобные примитивы, чтобы делить GPU (alpha → beta).
+* 📈 **Масштабируемость API.** Кэш apiserver лучше, на больших кластерах нагрузка на control plane падает.
+* 🧱 **Sidecar-контейнеры** (`restartPolicy: Always` на init-контейнерах). GA с 1.33. Стандарт в стеках наблюдаемости (Alloy, Istio).
+* 🚫 **Ушло насовсем:** несколько старых API `v1beta1` продолжают уходить.
+* 📦 **Image volumes** (alpha): OCI-образ монтируется как том только для чтения. Удобно для ML-моделей.
+
+Политика N-2: кластеры на **1.34, 1.35, 1.36** в обычной поддержке. **1.33 ушёл в расширенную поддержку** с апреля 2026.
+
+> 📚 **Источник:** [блог о релизе Kubernetes 1.36](https://kubernetes.io/blog/2026/04/22/kubernetes-v1-36-release/).
+
+---
+
+## 📍 Слайд 18 – ☁️ Прод: управляемый или свой
+
+| Подход | Примеры | Когда |
 |----------|----------|------|
-| ☁️ **Managed** | EKS (AWS), GKE (Google), AKS (Azure), DOKS, OKE | 99% of teams — you don't run the control plane |
-| 🪛 **Self-hosted on VMs** | kubeadm + Ansible, kops, RKE2, Talos | Air-gapped, regulated, cost-driven, or strong K8s expertise on staff |
-| 🚫 **DIY from scratch** | "Kubernetes the Hard Way" (Hightower) | Educational only — never run this in prod |
+| ☁️ **Управляемый** | EKS (AWS), GKE (Google), AKS (Azure), DOKS, OKE | 99% команд: control plane ведёте не вы |
+| 🪛 **Свой, на VM** | kubeadm + Ansible, kops, RKE2, Talos | Air-gapped, регуляторика, цена или сильная экспертиза K8s в штате |
+| 🚫 **С нуля, своими руками** | "Kubernetes the Hard Way" (Hightower) | Только учёба. В проде так не запускают |
 
-**Cost realism (May 2026):** an empty 3-node managed cluster (control plane + 3× small workers) lands around **$200-300/month** on AWS or GCP for entry-tier. That cost climbs fast with autoscaling and persistent volumes.
+**Реалистичная цена (май 2026):** пустой управляемый кластер на 3 ноды (control plane и 3× маленьких worker) выходит примерно в **$200-300/месяц** на AWS или GCP, входной тариф. С автоскейлингом и постоянными томами цена растёт быстро.
 
-> 🔥 **Hot take:** unless your CIO has a specific reason, use a managed cluster. The control plane is the messy bit; let the cloud run it.
-
----
-
-## 📍 Slide 19 – 🌍 Kubernetes in the Wild
-
-* 🎬 **Netflix** — was actually a Mesos shop until ~2019; now ~1000 microservices on K8s
-* 💬 **GitHub** — Actions runners are ephemeral K8s pods; ~100M pod-runs/month
-* 🏦 **Goldman Sachs** — internal "Marquee" trading platform runs on K8s across thousands of clusters
-* 🇨🇳 **Alibaba** — operates K8s clusters with **>10,000 nodes** each; submitted scalability patches upstream
-* 🛰️ **SpaceX** — Starlink ground station services run on K8s
-
-> 📊 **CNCF Annual Survey 2024:** 96% of organizations are using or evaluating Kubernetes. The container orchestration war ended; K8s won.
+> 🔥 **Резкий тезис:** если у CIO нет конкретной причины, берите управляемый кластер. Control plane — самая грязная часть. Отдайте её облаку.
 
 ---
 
-## 📍 Slide 20 – 🎯 Key Takeaways
+## 📍 Слайд 19 – 🌍 Kubernetes вживую
 
-1. ☸️ **Kubernetes is declarative orchestration.** You describe desired state; controllers reconcile.
-2. 🟢 **Pod = smallest deployable unit; Deployment = how you actually run it; Service = how you reach it.**
-3. 🏷️ **Labels are the glue.** Every controller binds by selector.
-4. 🌐 **Service + kube-DNS is the killer feature.** It only makes sense once you have ≥ 2 services — which is exactly what Lab 9 sets up.
-5. 🩺 **Probes ≠ interchangeable.** Liveness restarts; readiness gates traffic; startup buys warmup time.
-6. ⚖️ **Always set requests; be surgical with limits.** CPU throttling is silent and painful.
-7. 🪨 **For local dev this course uses k3d** — k3s-in-Docker: fast, multi-node, batteries included.
+* 🎬 **Netflix** на самом деле до ~2019 сидел на Mesos. Сейчас ~1000 микросервисов на K8s.
+* 💬 **GitHub:** runner'ы Actions — эфемерные Pod K8s, ~100 млн запусков Pod в месяц.
+* 🏦 **Goldman Sachs:** внутренняя торговая платформа «Marquee» на K8s, тысячи кластеров.
+* 🇨🇳 **Alibaba** держит кластеры K8s по **>10,000** нод. Патчи по масштабированию ушли в upstream.
+* 🛰️ **SpaceX:** сервисы наземных станций Starlink работают на K8s.
 
-> 💡 **The pattern:** YAML → API → etcd → controllers → kubelet → containerd → your container. Every K8s mystery resolves to that chain.
+> 📊 **CNCF Annual Survey 2024:** 96% организаций используют Kubernetes или оценивают внедрение. Война оркестраторов закончилась. Победил K8s.
 
 ---
 
-## 📍 Slide 21 – 🧠 The Mindset Shift
+## 📍 Слайд 20 – 🎯 Главное
 
-| 😰 Pre-K8s | ☸️ K8s-native |
+1. ☸️ **Kubernetes — декларативная оркестрация.** Вы описываете желаемое состояние, контроллеры сверяют.
+2. 🟢 **Pod = минимальная единица выкладки. Deployment = как это реально запускают. Service = как до этого достучаться.**
+3. 🏷️ **Метки — клей.** Каждый контроллер связывается селектором.
+4. 🌐 **Service + kube-DNS — главная фича.** Смысл появляется, когда сервисов ≥ 2. Ровно это собирает Lab 9.
+5. 🩺 **Пробы не заменяют друг друга.** Liveness перезапускает. Readiness решает, пускать ли трафик. Startup покупает время на прогрев.
+6. ⚖️ **Requests ставьте всегда. С limits — точечно.** Троттлинг CPU тихий и болезненный.
+7. 🪨 **Локально курс берёт k3d** — k3s-in-Docker: быстро, multi-node, всё в комплекте.
+
+> 💡 **Цепочка:** YAML → API → etcd → контроллеры → kubelet → containerd → ваш контейнер. Любая загадка K8s сводится к ней.
+
+---
+
+## 📍 Слайд 21 – 🧠 Сдвиг в голове
+
+| 😰 До K8s | ☸️ Как в K8s |
 |---------|---------|
-| "SSH in and restart the service" | `kubectl rollout restart deployment/...` |
-| "Add an instance? edit nginx + a Compose file" | `kubectl scale deploy/... --replicas=N` |
-| "What's the prod IP?" | "DNS name is `svc.namespace`" |
-| "We need a load balancer" | "It's a `Service`" |
-| "Onboard a new dev = 3-page README" | `git clone && kubectl apply -k overlays/dev` |
-| Hand-rolled health checks via cron | Probes are first-class in the manifest |
+| «Зайти по SSH и перезапустить сервис» | `kubectl rollout restart deployment/...` |
+| «Добавить инстанс? Править nginx и файл Compose» | `kubectl scale deploy/... --replicas=N` |
+| «Какой IP у прода?» | «DNS-имя — `svc.namespace`» |
+| «Нужен балансировщик» | «Это `Service`» |
+| «Новый разработчик = README на 3 страницы» | `git clone && kubectl apply -k overlays/dev` |
+| Самодельные health-проверки по cron | Пробы — полноправная часть манифеста |
 
 ---
 
-## 📍 Slide 22 – 🚀 What Comes Next
+## 📍 Слайд 22 – 🚀 Что дальше
 
-**📚 Next lecture: *Helm Package Manager (Helm 4)*** — because writing raw YAML for every environment doesn't scale.
+**📚 Следующая лекция: *Менеджер пакетов Helm (Helm 4)*** — сырой YAML на каждое окружение не масштабируется.
 
-* 📦 Why Helm exists (DRY for K8s manifests)
-* 🧱 Chart anatomy: `Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`
-* 🎨 Go template language + Sprig functions
-* 🪝 Hooks: pre-install, post-upgrade, etc.
-* 🆕 Helm **4.1** — what changed vs Helm 3, and why we use 4 in Lab 10
+* 📦 Зачем Helm (DRY для манифестов K8s)
+* 🧱 Анатомия Helm-чарта: `Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`
+* 🎨 Шаблоны Go и функции Sprig
+* 🪝 Хуки: pre-install, post-upgrade и дальше
+* 🆕 Helm **4.1** — что изменилось по сравнению с Helm 3 и почему в Lab 10 берём 4
 
-**🔬 Lab 9 deliverables:**
-* Stand up a k3d cluster (1 server + 2 agents)
-* Deploy the Lab 2 Python image as a Deployment
-* Add the provided Go echo service (plumbing)
-* Wire both with `Service` + verify `curl http://echo:80/ping` from inside the Python pod
-* Bonus 2 pts: enable Ingress with a TLS cert (NIP.io domain or self-signed)
+**🔬 Что сдать в Lab 9:**
+* Поднимите кластер k3d (1 server + 2 agents)
+* Задеплойте образ Python из Lab 2 как Deployment
+* Добавьте готовый Go-сервис echo (plumbing)
+* Свяжите оба через `Service` и проверьте `curl http://echo:80/ping` изнутри Python-Pod
+* Бонус 2 балла: включите Ingress с TLS-сертификатом (домен NIP.io или самоподписанный)
 
 ```mermaid
 flowchart LR
-  Lab1[🐍 Lab 1 app] --> Lab2[🐳 Lab 2 image] --> Lab9[☸️ Lab 9: 2 pods on K8s]
-  Lab9 --> Lab10[📦 Lab 10: Helm chart]
+  Lab1[🐍 Lab 1 приложение] --> Lab2[🐳 Lab 2 образ] --> Lab9[☸️ Lab 9: 2 Pod на K8s]
+  Lab9 --> Lab10[📦 Lab 10: Helm-чарт]
   Lab10 --> Future[🚀 Labs 11-16]
 ```
 
-> 🌊 From single container to cluster — one manifest at a time.
+> 🌊 От одного контейнера к кластеру — по одному манифесту.
 
 ---
 
-## 📚 Resources
+## 📚 Ресурсы
 
-* 📕 *Kubernetes Up & Running* (3e, 2022) — Burns, Beda, Hightower (still accurate at the API level for 1.36)
+* 📕 *Kubernetes Up & Running* (3e, 2022) — Burns, Beda, Hightower (на уровне API для 1.36 всё ещё точно)
 * 📕 *Kubernetes in Action* (2e, 2023) — Marko Lukša (Manning)
-* 📕 *Programming Kubernetes* — Hausenblas & Schimanski (O'Reilly, 2019) — for writing controllers
-* 🎥 *Kubernetes the Hard Way* — Kelsey Hightower (free, GitHub) — install K8s yourself, once
-* 🌐 [kubernetes.io/docs](https://kubernetes.io/docs/) — official; the concepts section is excellent
-* 🌐 [Kubernetes 1.36 release notes](https://kubernetes.io/blog/2026/04/22/kubernetes-v1-36-release/)
-* 🌐 [learnk8s.io](https://learnk8s.io/) — visual, scenario-based explainers (Daniele Polencic)
-* 🌐 [CNCF Cloud Native Landscape](https://landscape.cncf.io) — every tool in the ecosystem mapped
+* 📕 *Programming Kubernetes* — Hausenblas & Schimanski (O'Reilly, 2019) — если пишете контроллеры
+* 🎥 *Kubernetes the Hard Way* — Kelsey Hightower (бесплатно, GitHub) — поставьте K8s сами, один раз
+* 🌐 [kubernetes.io/docs](https://kubernetes.io/docs/) — официальная документация, раздел concepts отличный
+* 🌐 [заметки к релизу Kubernetes 1.36](https://kubernetes.io/blog/2026/04/22/kubernetes-v1-36-release/)
+* 🌐 [learnk8s.io](https://learnk8s.io/) — наглядные разборы по сценариям (Daniele Polencic)
+* 🌐 [CNCF Cloud Native Landscape](https://landscape.cncf.io) — карта всех инструментов экосистемы
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 7-9 leaderboard window.
+**🎓 Квиз:** квиз после лекции попадает в окно таблицы лидеров за недели 7-9.

@@ -1,50 +1,50 @@
-# Lab 2 — Docker Containerization
+# Lab 2 — Контейнеризация в Docker
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
 ![topic](https://img.shields.io/badge/topic-Containerization-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Docker%2029-informational)
 
-> **Goal:** Containerize your Lab 1 service with a hand-written, multi-stage Dockerfile; scan the image; push it to a registry. By the end of this week you have *the* artifact that every later lab deploys.
-> **Deliverable:** A PR from `lab02` adding `app_python/Dockerfile`, `.dockerignore`, a `docs/LAB02.md` report, and (optionally) the Go distroless bonus under `app_go/`.
+> **Цель:** упакуйте сервис из Lab 1 в контейнер. Dockerfile пишете руками, multi-stage (сборка в несколько стадий). Просканируйте образ и сделайте push в реестр. К концу недели у вас на руках *тот* артефакт, который выкатывает каждая следующая лабораторная.
+> **Что сдаёте:** PR из `lab02`. В нём `app_python/Dockerfile`, `.dockerignore`, отчёт `docs/LAB02.md` и (по желанию) бонус distroless для Go в `app_go/`.
 
 ---
 
-## Overview
+## Обзор
 
-In Lab 1 your service "worked on your machine." This lab makes it **work everywhere**. The actual skill being graded is *writing a Dockerfile line-by-line*: which base image, in which order, as which user, with which entrypoint. The skeletons below show the **directives** but not the **values** — you fill those in and you defend the choice in `docs/LAB02.md`.
+В Lab 1 сервис «работал на вашей машине». Эта лабораторная заставляет его **работать везде**. Оценивают умение *писать Dockerfile построчно*: какой базовый образ, в каком порядке, от какого пользователя, с каким entrypoint. Каркасы ниже показывают **директивы**, а **значения** оставляют пустыми. Их подставляете вы и защищаете выбор в `docs/LAB02.md`.
 
-In this lab you will practice:
-- Writing production-ready, layer-cache-friendly Dockerfiles by hand
-- Running containers as a non-root user (defense-in-depth against container escape)
-- Multi-stage builds for small, reproducible images
-- Image vulnerability scanning with Trivy and CI-style exit-code gating
-- Tagging by SemVer/SHA and pushing to a public registry
+В этой лабораторной вы потренируетесь:
+- Писать руками production-ready Dockerfile, которые дружат с кэшем слоёв
+- Запускать контейнеры от пользователя non-root (defense-in-depth — защита в несколько слоёв — против побега из контейнера)
+- Собирать маленькие воспроизводимые образы через multi-stage
+- Сканировать образ на уязвимости Trivy и ставить гейт по коду выхода, как в CI
+- Ставить теги SemVer/SHA и делать push в публичный реестр
 
-> ⚠️ **Scope:** Compose, Kubernetes, and CI gates come later. This lab is one service, one image, one registry.
+> ⚠️ **Границы:** Compose, Kubernetes и гейты CI будут позже. Здесь один сервис, один образ, один реестр.
 
-**Tech stack (May 2026):** Docker Engine 29.x recommended (containerd image store default); **23+ also works** — BuildKit was on by default in 23 and `# syntax=docker/dockerfile:1` is honoured · `python:3.13-slim` · Trivy v0.69.3+
+**Стек (май 2026):** рекомендуется Docker Engine 29.x (хранилище образов containerd по умолчанию); **23+ тоже работает** — BuildKit включён по умолчанию с версии 23, директива `# syntax=docker/dockerfile:1` учитывается · `python:3.13-slim` · Trivy v0.69.3+
 
 ---
 
-## Project State
+## Состояние проекта
 
-**You should have from previous labs:**
-- `app_python/` — the Flask/FastAPI/Django service from Lab 1 with `GET /` and `GET /health`
-- *(optional)* `app_go/` (or other compiled-language sibling) from the Lab 1 bonus
+**Что у вас должно быть с прошлых лабораторных:**
+- `app_python/` — сервис Flask/FastAPI/Django из Lab 1 с `GET /` и `GET /health`
+- *(по желанию)* `app_go/` (или другой сосед на компилируемом языке) из бонуса Lab 1
 
-**This lab adds:**
-- `app_python/Dockerfile` — single-stage, then refactored to multi-stage
+**Эта лабораторная добавляет:**
+- `app_python/Dockerfile` — сначала одностадийный, потом переписанный в multi-stage
 - `app_python/.dockerignore`
-- `app_python/docs/LAB02.md` — your submission report
-- A published image at `ghcr.io/<you>/devops-info-service:1.0.0` (or Docker Hub equivalent)
-- *(bonus)* `app_go/Dockerfile` — multi-stage with a distroless final stage
+- `app_python/docs/LAB02.md` — отчёт для сдачи
+- Опубликованный образ `ghcr.io/<you>/devops-info-service:1.0.0` (или эквивалент на Docker Hub)
+- *(бонус)* `app_go/Dockerfile` — multi-stage с финальной стадией distroless
 
-By Lab 9 Kubernetes pulls this image; by Lab 13 ArgoCD ships new versions of it. The tag you push today is the artifact reference for the next 14 weeks.
+К Lab 9 Kubernetes тянет этот образ. К Lab 13 ArgoCD выкатывает его новые версии. Тег, который вы запушите сегодня, — ссылка на артефакт на следующие 14 недель.
 
 ---
 
-## Setup
+## Подготовка
 
 ```bash
 docker version              # Engine 29.x recommended; 23+ works (BuildKit on by default since 23); rootless OK
@@ -52,11 +52,11 @@ docker buildx version       # BuildKit is required (bundled)
 trivy --version             # v0.69.3 or newer — NOT v0.69.4 (see warning below)
 ```
 
-> ⚠️ **Trivy supply-chain warning.** Install **v0.69.3** or a later clean patch. **Never install `v0.69.4`** — that release was compromised (CVE-2026-33634, the March 2026 supply-chain attack). If you wire Trivy into GitHub Actions in Lab 3, pin `trivy-action@v0.35.0+` / `setup-trivy@v0.2.6+`.
+> ⚠️ **Предупреждение Trivy про цепочку поставки.** Ставьте **v0.69.3** или более поздний чистый патч. **Никогда не ставьте `v0.69.4`**. Этот релиз скомпрометирован (CVE-2026-33634, атака на цепочку поставки в марте 2026). Если в Lab 3 подключите Trivy к GitHub Actions, зафиксируйте `trivy-action@v0.35.0+` / `setup-trivy@v0.2.6+`.
 
-> 🌐 **Trivy DB mirror.** On rate-limited or restricted networks the default DB pull from `ghcr.io/aquasecurity/trivy-db` returns `DENIED`. If that happens, pass `--db-repository public.ecr.aws/aquasecurity/trivy-db:2` to every `trivy image` call. This is the one operational gotcha worth remembering — your campus network might bite.
+> 🌐 **Зеркало БД Trivy.** В сетях с лимитами и ограничениями обычное скачивание БД с `ghcr.io/aquasecurity/trivy-db` возвращает `DENIED`. Если так вышло, передавайте `--db-repository public.ecr.aws/aquasecurity/trivy-db:2` каждому вызову `trivy image`. Эту операционную ловушку стоит запомнить: кампусная сеть легко на ней спотыкается.
 
-Create the layout (you'll write the contents yourself):
+Создайте структуру. Содержимое напишете сами:
 
 ```
 app_python/
@@ -70,11 +70,11 @@ app_python/
 
 ---
 
-## Task 1 — Write a Production Dockerfile (3 pts)
+## Задача 1 — Production Dockerfile (3 балла)
 
-### 1.1 — The single-stage Dockerfile
+### 1.1 — Одностадийный Dockerfile
 
-`YOUR TASK`: write `app_python/Dockerfile` from the skeleton below. Every `___` is yours. There is **no fully-formed example** in this lab — by the time a Dockerfile is given to you whole, it's not learning, it's typing practice. The lecture (slides 11, 13, 14, 15) explains the *why* for every line; bring it.
+`ВАША ЗАДАЧА`: напишите `app_python/Dockerfile` по каркасу ниже. Каждый `___` заполняете вы. **Готового примера целиком в этой лабораторной нет.** Когда Dockerfile дают полностью, это уже не учёба, а перепечатка. Лекция (слайды 11, 13, 14, 15) объясняет *зачем* каждая строка. Держите её рядом.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -90,11 +90,11 @@ EXPOSE ___                # YOUR TASK: which port does your Lab 1 app listen on?
 CMD [___]                 # YOUR TASK: exec form, not shell form (PID 1 trap → SIGTERM lost)
 ```
 
-**Each blank is a rubric line.** A "good" answer matches the lecture's reasoning; a "lucky" answer that compiles but can't be defended in `docs/LAB02.md` will lose points.
+**Каждый пропуск — строка в критериях.** «Хороший» ответ совпадает с логикой лекции. Ответ, который «повезло» собрать, но который вы не защитите в `docs/LAB02.md`, потеряет баллы.
 
 ### 1.2 — `.dockerignore`
 
-`YOUR TASK`: write `app_python/.dockerignore` so `COPY . .` doesn't ship `.git/`, virtualenvs, IDE configs, `__pycache__/`, or `.env` into the image.
+`ВАША ЗАДАЧА`: напишите `app_python/.dockerignore`, чтобы `COPY . .` не утащил в образ `.git/`, виртуальные окружения, конфиги IDE, `__pycache__/` и `.env`.
 
 ```gitignore
 # YOUR TASK: list at minimum
@@ -106,38 +106,38 @@ CMD [___]                 # YOUR TASK: exec form, not shell form (PID 1 trap →
 # - Docs/tests (not needed at runtime — smaller context, faster builds)
 ```
 
-Hint: same syntax as `.gitignore`, but evaluated by the Docker build context — *not* git. A `.dockerignore` is mandatory for this task; missing it costs the entire `.dockerignore` rubric line.
+Подсказка: синтаксис как у `.gitignore`, но читает его контекст сборки Docker, *не* git. Для этой задачи `.dockerignore` обязателен. Нет файла — сгорает вся строка критериев про `.dockerignore`.
 
-### 1.3 — Proof of work
+### 1.3 — Подтверждение
 
-**Paste into `docs/LAB02.md`:**
+**Вставьте в `docs/LAB02.md`:**
 
-- The contents of your `Dockerfile` (yes, the whole file — it's short and it's the artifact being graded)
-- The contents of your `.dockerignore`
-- A one-sentence justification per `# YOUR TASK` line — *why this value*, not *what it is*
-- Output of `docker build -t devops-info-service:lab02 ./app_python` showing the final image hash (illustrative — your numbers will differ)
+- Содержимое вашего `Dockerfile` (да, файл целиком: он короткий, и оценивают именно его)
+- Содержимое `.dockerignore`
+- Одно предложение обоснования на каждую строку с комментарием `# YOUR TASK`: *почему такое значение*, а не *что это такое*
+- Вывод `docker build -t devops-info-service:lab02 ./app_python`, где виден финальный хеш образа (числа иллюстративные, у вас будут другие)
 
 <details>
-<summary>💡 Why each rule matters (read before you write)</summary>
+<summary>💡 Почему каждое правило важно (прочитайте до того, как писать)</summary>
 
-- **Pinned slim base** — `python:3.13` ≈ 1.2 GB, `python:3.13-slim` ≈ 150 MB. Smaller image = faster pulls (Lab 9 K8s autoscale), fewer packages = fewer CVEs (Task 4). `:latest` is mutable so two builds from "the same Dockerfile" can produce different images.
-- **Numeric non-root UID** — A kernel container-escape CVE (e.g. CVE-2022-0185) gives root on the host **if your process is root**. `USER 10001` neutralises it. Numeric (vs `USER appuser`) keeps working under `runAsNonRoot: true` admission policies you'll meet in Lab 9+.
-- **Layer order (deps before code)** — Each instruction is a cached layer. `COPY . . && pip install` re-installs every dependency on every 1-character code change. `COPY requirements.txt . && pip install && COPY . .` re-uses the dep layer until `requirements.txt` actually changes.
-- **`--no-cache-dir`** — pip's `~/.cache/pip` is tens of MB of wheels you never need at runtime. Layers are additive — deleting the cache in a later `RUN` does NOT remove it from the image; it just hides it behind another layer.
-- **Exec form `CMD`** — Shell form: `/bin/sh -c "python app.py"` → sh is PID 1, your app is PID 2, signals never reach you. Exec form `["python","app.py"]` → your app *is* PID 1.
-- **`.dockerignore`** — Toyota 2022: customer data leaked because `.git/` was packaged into a deployed image. Standard mitigation.
+- **Зафиксированный slim-базис** — `python:3.13` ≈ 1,2 ГБ, `python:3.13-slim` ≈ 150 МБ. Меньше образ — быстрее pull (автоскейл Kubernetes в Lab 9). Меньше пакетов — меньше CVE (задача 4). Тег `:latest` меняется, поэтому две сборки «из того же Dockerfile» могут дать разные образы.
+- **Числовой non-root UID** — CVE побега из контейнера на уровне ядра (например CVE-2022-0185) даёт root на хосте, **если ваш процесс и так root**. `USER 10001` это закрывает. Числовой UID, в отличие от `USER appuser`, проходит admission-политики `runAsNonRoot: true`. Вы встретите их в Lab 9 и дальше.
+- **Порядок слоёв (зависимости до кода)** — каждая инструкция — слой в кэше. `COPY . . && pip install` заново ставит все зависимости при любом изменении кода на один символ. `COPY requirements.txt . && pip install && COPY . .` переиспользует слой зависимостей, пока не изменится сам `requirements.txt`.
+- **`--no-cache-dir`** — каталог pip `~/.cache/pip` — это десятки МБ wheel, которые в рантайме не нужны. Слои только добавляются. Удаление кэша в следующем `RUN` не вычищает его из образа: он просто прячется за новым слоем.
+- **Exec-форма `CMD`** — shell-форма: `/bin/sh -c "python app.py"`. Тогда sh становится PID 1, приложение PID 2, сигналы до него не доходят. Exec-форма `["python","app.py"]`: приложение *и есть* PID 1.
+- **`.dockerignore`** — Toyota, 2022: данные клиентов утекли, потому что `.git/` попал в выкаченный образ. Обычная защита от этого.
 
-References: [Dockerfile best practices](https://docs.docker.com/build/building/best-practices/) · [Dockerfile reference](https://docs.docker.com/reference/dockerfile/)
+Ссылки: [Практики Dockerfile](https://docs.docker.com/build/building/best-practices/) · [Справочник Dockerfile](https://docs.docker.com/reference/dockerfile/)
 
 </details>
 
 ---
 
-## Task 2 — Build, Run, and Verify (2 pts)
+## Задача 2 — Сборка, запуск и проверка (2 балла)
 
-### 2.1 — Build, run, hit the endpoints
+### 2.1 — Соберите, запустите, дёрните эндпоинты
 
-`YOUR TASK`: build the image, run it, and prove both endpoints respond exactly like Lab 1. Capture the real CLI output.
+`ВАША ЗАДАЧА`: соберите образ, запустите его и докажите, что оба эндпоинта отвечают так же, как в Lab 1. Сохраните настоящий вывод CLI.
 
 ```bash
 # YOUR TASK: build it
@@ -151,43 +151,43 @@ curl -s http://localhost:___/ | jq .
 curl -s http://localhost:___/health | jq -c .
 ```
 
-### 2.2 — Prove the container is non-root
+### 2.2 — Докажите, что контейнер не root
 
-`YOUR TASK`: run the same image with `id -u` as the entrypoint and capture the output. **It must NOT print `0`.**
+`ВАША ЗАДАЧА`: запустите тот же образ, подставив `id -u` как entrypoint, и сохраните вывод. **Цифра `0` в выводе недопустима.**
 
 ```bash
 docker run --rm devops-info-service:lab02 id -u
 # YOUR TASK: paste the captured number into docs/LAB02.md
 ```
 
-If you see `0`, your `USER ___` is missing or above the `COPY` that overwrites it. Re-order, rebuild, re-verify.
+Если видите `0`, строка `USER ___` отсутствует или стоит выше `COPY`, который её затирает. Поменяйте порядок, пересоберите, проверьте снова.
 
-### 2.3 — Inspect the artifact
+### 2.3 — Посмотрите, из чего собран образ
 
 ```bash
 docker images devops-info-service --format '{{.Tag}}\t{{.Size}}'
 docker history devops-info-service:lab02
 ```
 
-`YOUR TASK`: read your own `docker history` output. In `docs/LAB02.md`, identify the **single largest layer** and explain in one sentence why it's that big — base image, deps, or your source code?
+`ВАША ЗАДАЧА`: прочитайте свой вывод `docker history`. В `docs/LAB02.md` найдите **один самый большой слой** и одним предложением объясните, почему он такой: базовый образ, зависимости или ваш код?
 
-### 2.4 — Proof of work
+### 2.4 — Подтверждение
 
-**Paste into `docs/LAB02.md`:**
+**Вставьте в `docs/LAB02.md`:**
 
-- Build log tail (last ~10 lines including the `=> exporting to image` step)
-- Both endpoint JSONs from real `curl` runs
-- The `id -u` line proving non-root (illustrative — `10001`, your value will differ if you picked another UID)
-- `docker images` row showing your real size (illustrative — `~130 MB` is typical for a slim-based Flask app)
-- One-sentence "biggest layer" analysis
+- Хвост лога сборки (последние ~10 строк, включая шаг `=> exporting to image`)
+- JSON обоих эндпоинтов с реальных запусков `curl`
+- Строка `id -u`, которая доказывает non-root (иллюстрация — `10001`, если выбрали другой UID, число будет другим)
+- Строка `docker images` с вашим реальным размером (иллюстрация — для Flask на slim типично `~130 MB`)
+- Разбор «самого большого слоя» в одно предложение
 
 ---
 
-## Task 3 — Multi-Stage Build (2 pts)
+## Задача 3 — Multi-stage сборка (2 балла)
 
-### 3.1 — Refactor to two stages
+### 3.1 — Перепишите в две стадии
 
-`YOUR TASK`: rewrite `app_python/Dockerfile` (or create `Dockerfile.multi`) as a multi-stage build. The **builder** stage installs deps into an isolated location; the **runtime** stage copies only what it needs and contains no `pip`, no build toolchain, no apt caches.
+`ВАША ЗАДАЧА`: перепишите `app_python/Dockerfile` (или заведите `Dockerfile.multi`) как multi-stage сборку. Стадия **builder** ставит зависимости в изолированный каталог. Стадия **runtime** копирует только нужное: без `pip`, без тулчейна сборки, без кэшей apt.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -209,7 +209,7 @@ EXPOSE ___                    # YOUR TASK: same port as Task 1
 CMD [___]                     # YOUR TASK: exec form
 ```
 
-### 3.2 — Build and compare
+### 3.2 — Соберите и сравните
 
 ```bash
 # If you replaced Dockerfile in-place:
@@ -222,37 +222,37 @@ docker build -f app_python/Dockerfile.multi -t devops-info-service:lab02-multi .
 docker images devops-info-service --format '{{.Tag}}\t{{.Size}}'
 ```
 
-`YOUR TASK`: capture both rows (`lab02` vs `lab02-multi`) and write a **one-paragraph** finding in `docs/LAB02.md`.
+`ВАША ЗАДАЧА`: сохраните обе строки (`lab02` и `lab02-multi`) и напишите в `docs/LAB02.md` **один абзац** с выводом.
 
-> ⚠️ **Honest finding you might hit:** for a **pure-Python** Flask app, the multi-stage image can be *slightly larger* (e.g. 133 vs 130 MB) than the single-stage — Flask has no compiled wheels, so there's no toolchain to discard, and the venv copy adds a few MB of metadata. **That's expected.** Document it; don't fake a size drop you didn't measure. The dramatic win comes for **compiled languages** (the Bonus) — there, multi-stage shrinks 60×.
+> ⚠️ **Честный результат, который может выйти:** у приложения на **чистом Python** (Flask) multi-stage образ бывает *чуть больше* (например 133 против 130 МБ), чем одностадийный. У Flask нет скомпилированных wheel, выбрасывать тулчейн нечего, а копия venv добавляет несколько МБ метаданных. **Так и задумано.** Запишите измерение. Не рисуйте уменьшение, которого не было. Резкий выигрыш даёт **компилируемый язык** (бонус): там multi-stage уменьшает образ в 60 раз.
 
-### 3.3 — Proof of work
+### 3.3 — Подтверждение
 
-**Paste into `docs/LAB02.md`:**
+**Вставьте в `docs/LAB02.md`:**
 
-- Your `Dockerfile.multi` contents
-- `docker images` rows showing your real `lab02` vs `lab02-multi` sizes
-- One paragraph: did multi-stage shrink the image, leave it about the same, or grow it slightly? Why? (If your answer doesn't reference compiled wheels / build toolchain, you didn't understand the lecture.)
-- `curl -s localhost:___/health` from the multi-stage container — same response as Task 2
+- Содержимое вашего `Dockerfile.multi`
+- Строки `docker images` с реальными размерами `lab02` и `lab02-multi`
+- Один абзац: multi-stage уменьшил образ, оставил примерно тем же или чуть раздул? Почему? (Если в ответе нет скомпилированных wheel и тулчейна сборки, лекцию вы не усвоили.)
+- `curl -s localhost:___/health` из multi-stage контейнера — тот же ответ, что в задаче 2
 
 <details>
-<summary>💡 Multi-stage concepts</summary>
+<summary>💡 Идеи multi-stage</summary>
 
-- **Why two stages?** Builder may need a C compiler to build a wheel (e.g. `cryptography`, `psycopg2`). Runtime never does. `COPY --from=builder` is how you discard everything the runtime doesn't need.
-- **Naming stages.** `FROM image AS builder`, then `COPY --from=builder /src /dst`. The `AS` name is the handle.
-- **Where this shines.** Compiled languages. `golang:1.25` ≈ 900 MB; multi-stage to `distroless/static` ≈ 15 MB. Same binary, 60× smaller, zero shell, zero package manager. That's the Bonus.
+- **Зачем две стадии?** Builder может нуждаться в компиляторе C, чтобы собрать wheel (например `cryptography`, `psycopg2`). Runtime — нет. `COPY --from=builder` выбрасывает всё, что runtime не нужно.
+- **Как называть стадии.** `FROM image AS builder`, затем `COPY --from=builder /src /dst`. Имя после `AS` — идентификатор стадии.
+- **Где это особенно видно.** На компилируемых языках. `golang:1.25` ≈ 900 МБ, multi-stage до `distroless/static` ≈ 15 МБ. Тот же бинарник, в 60 раз меньше, ноль shell, ноль пакетного менеджера. Это и есть бонус.
 
-Reference: [Multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
+Ссылка: [Multi-stage сборки](https://docs.docker.com/build/building/multi-stage/)
 
 </details>
 
 ---
 
-## Task 4 — Scan with Trivy (2 pts)
+## Задача 4 — Сканирование Trivy (2 балла)
 
-### 4.1 — Full scan + gated scan
+### 4.1 — Полный скан и скан с гейтом
 
-`YOUR TASK`: run two scans against your multi-stage image and capture both outputs.
+`ВАША ЗАДАЧА`: прогоните два сканирования multi-stage образа и сохраните оба вывода.
 
 ```bash
 # Full informational scan — lists every CVE by severity
@@ -264,60 +264,60 @@ trivy image --severity HIGH,CRITICAL --exit-code 1 devops-info-service:lab02-mul
 echo "exit code: $?"
 ```
 
-> 🌐 If the DB pull dies with `ghcr.io/aquasecurity/trivy-db: DENIED`, add `--db-repository public.ecr.aws/aquasecurity/trivy-db:2`. AWS hosts an anonymous mirror — Aqua publishes there explicitly because ghcr.io anonymous tokens get rate-limited.
+> 🌐 Если скачивание БД падает с `ghcr.io/aquasecurity/trivy-db: DENIED`, добавьте `--db-repository public.ecr.aws/aquasecurity/trivy-db:2`. AWS держит анонимное зеркало. Aqua публикует его туда специально: анонимные токены ghcr.io упираются в rate limit.
 
-### 4.2 — Severity table
+### 4.2 — Таблица по серьёзности
 
-`YOUR TASK`: fill in your **real** counts in `docs/LAB02.md` (the numbers below are illustrative — yours will differ depending on base-image freshness):
+`ВАША ЗАДАЧА`: впишите в `docs/LAB02.md` **свои** числа (числа ниже иллюстративные: у вас будут другие, это зависит от свежести базового образа):
 
-| Severity  | Count *(illustrative — your numbers will differ)* |
+| Серьёзность | Число *(иллюстрация — ваши числа будут другими)* |
 |-----------|--------:|
 | CRITICAL  | 2 |
 | HIGH      | 5 |
 | MEDIUM    | 33 |
 | LOW       | 63 |
 | UNKNOWN   | 5 |
-| **Total** | **108** |
+| **Итого** | **108** |
 
-### 4.3 — Explain one finding + remediate
+### 4.3 — Разберите одну находку и закройте её
 
-`YOUR TASK`: pick **one** finding (ideally a HIGH or CRITICAL — easier to defend the priority). In `docs/LAB02.md` write **at least 3 sentences** covering:
+`ВАША ЗАДАЧА`: выберите **одну** находку (лучше HIGH или CRITICAL: приоритет проще защитить). В `docs/LAB02.md` напишите **минимум три предложения**:
 
-1. The package + CVE id (e.g. `libncursesw6 6.5+20250216-2 — CVE-2025-69720`)
-2. Why it's flagged — what the upstream advisory says
-3. What you'd do — rebuild on a fresh `python:3.13-slim` (often fixes itself when Debian patches land), pin a fixed library version, switch to a smaller base (distroless has near-zero CVEs — see the Bonus), or document it as **unfixable today** (no upstream patch yet)
+1. Пакет и идентификатор CVE (например `libncursesw6 6.5+20250216-2 — CVE-2025-69720`)
+2. Почему её пометили: что говорит advisory апстрима
+3. Что сделаете: пересоберёте на свежем `python:3.13-slim` (часто проходит само, когда Debian выкладывает патч), зафиксируете исправленную версию библиотеки, перейдёте на базу меньше (у distroless CVE почти нет, см. бонус) или прямо напишете, что **сегодня это не чинится** (патча апстрима ещё нет)
 
-> 🚫 **Do NOT suppress findings via `.trivyignore`** to make the gate pass. If a CVE has no fix yet, document it explicitly. Hiding unfixed CVEs from CI is how you ship the next Log4Shell to prod.
+> 🚫 **Не глушите находки через `.trivyignore`**, лишь бы гейт стал зелёным. Если исправления у CVE ещё нет, напишите это прямо. Прятать незакрытые CVE от CI — так в прод уезжает следующий Log4Shell.
 
-### 4.4 — Proof of work
+### 4.4 — Подтверждение
 
-**Paste into `docs/LAB02.md`:**
+**Вставьте в `docs/LAB02.md`:**
 
-- Full Trivy output (or a screenshot — long, but the table at the top is the load-bearing part)
-- Your severity table with real numbers
-- The gated scan command + its exit code
-- Your one-finding explanation and remediation reasoning
+- Полный вывод Trivy (или скриншот: длинно, но таблица сверху — главная часть)
+- Ваша таблица серьёзности с реальными числами
+- Команда скана с гейтом и её код выхода
+- Разбор одной находки и что с ней делать
 
 <details>
-<summary>💡 Why scan, why gate on exit code</summary>
+<summary>💡 Зачем сканировать и зачем гейт по коду выхода</summary>
 
-- `trivy image <ref>` reports CVEs against OS packages **and** language dependencies (e.g. `requirements.txt`).
-- `--severity HIGH,CRITICAL --exit-code 1` is the "fail the pipeline" idiom — by ignoring LOW/MEDIUM you keep the gate noise-free while still catching the dangerous stuff.
-- Smaller base → fewer packages → fewer CVEs. Slim → distroless → scratch is a vulnerability-reduction ladder. The Bonus shows this concretely (Python slim ≈ 108 CVEs vs Go distroless ≈ 0).
+- `trivy image <ref>` сообщает CVE и по пакетам ОС, **и** по зависимостям языка (например `requirements.txt`).
+- `--severity HIGH,CRITICAL --exit-code 1` — идиома «завалить pipeline» (pipeline — цепочка автоматической сборки и выкладки). LOW и MEDIUM вы отсекаете, чтобы гейт не шумел, а опасное всё равно ловите.
+- Меньше база — меньше пакетов — меньше CVE. Slim, потом distroless, потом scratch: так убывает поверхность уязвимостей. Бонус показывает это на числах (Python slim ≈ 108 CVE, Go distroless ≈ 0).
 
-Reference: [Trivy docs](https://trivy.dev/) · [Trivy `image` command](https://trivy.dev/latest/docs/target/container_image/)
+Ссылки: [Документация Trivy](https://trivy.dev/) · [Команда Trivy `image`](https://trivy.dev/latest/docs/target/container_image/)
 
 </details>
 
 ---
 
-## Task 5 — Push to a Registry & Document (1 pt)
+## Задача 5 — Push в реестр и документация (1 балл)
 
-### 5.1 — Tag + push
+### 5.1 — Тег и push
 
-`YOUR TASK`: publish your image to **GHCR** (recommended — free for public, integrates with the Actions you'll write in Lab 3) or Docker Hub.
+`ВАША ЗАДАЧА`: опубликуйте образ в **GHCR** (так лучше: для публичных пакетов бесплатно и стыкуется с Actions, которые вы напишете в Lab 3) или в Docker Hub.
 
-For **GHCR** (recommended): create a Personal Access Token (classic) with the `write:packages` scope, then:
+Для **GHCR** (рекомендуется): заведите Personal Access Token (classic) со scope `write:packages`, затем:
 
 ```bash
 # Put your token in a shell variable FIRST — do NOT paste the token onto the docker login
@@ -329,20 +329,20 @@ docker tag devops-info-service:lab02-multi ghcr.io/<github-username>/devops-info
 docker push ghcr.io/<github-username>/devops-info-service:___                                  # YOUR TASK: same tag
 ```
 
-> 🤖 **In CI (Lab 3), don't use a PAT.** GitHub Actions provides an ephemeral `GITHUB_TOKEN` per run that has `write:packages` for the repo's own GHCR namespace. The Lab 3 docker job uses
-> `password: ${{ secrets.GITHUB_TOKEN }}` — no long-lived PAT to leak. PATs are only for *your laptop today*.
+> 🤖 **В CI (Lab 3) PAT не нужен.** GitHub Actions на каждый запуск выдаёт эфемерный `GITHUB_TOKEN`. У него есть `write:packages` на пространство GHCR этого репозитория. Docker-job в Lab 3 берёт
+> `password: ${{ secrets.GITHUB_TOKEN }}`. Долгоживущий PAT, который можно утечь, там не нужен. PAT — только для *ноутбука сегодня*.
 
-> 📢 **GHCR packages are PRIVATE by default after first push.** The Acceptance Criteria below require *publicly pullable* — after `docker push` succeeds the first time, go to **your GitHub profile → Packages → `devops-info-service` → Package settings (right side) → Change visibility → Public**. Confirm by typing the package name. Without this step the `docker pull` from a clean cache below will work only because your login is still cached; a grader running `docker pull` without your token will get `401 Unauthorized`.
+> 📢 **После первого push пакеты GHCR по умолчанию PRIVATE.** Критерии приёмки ниже требуют, чтобы образ *тянулся публично*. Когда первый `docker push` прошёл, откройте **свой профиль GitHub → Packages → `devops-info-service` → Package settings (справа) → Change visibility → Public**. Подтвердите, введя имя пакета. Без этого шага `docker pull` из чистого кэша ниже пройдёт только потому, что логин ещё закэширован. Проверяющий запустит `docker pull` без вашего токена и получит `401 Unauthorized`.
 
-`YOUR TASK`: pick a tagging strategy and put the real tag in both blanks above. **Not `:latest`** — see slide 20. Pick one:
+`ВАША ЗАДАЧА`: выберите стратегию тегов и подставьте настоящий тег в оба пропуска выше. **Не `:latest`**. Смотрите слайд 20. Один вариант из таблицы:
 
-| Strategy   | Example       | When to use |
+| Стратегия | Пример | Когда брать |
 |------------|---------------|-------------|
-| SemVer     | `1.0.0`       | A real release of the service |
-| Git SHA    | `git-3a7f29c` | CI builds; always unique |
-| CalVer     | `2026.05.0`   | Time-driven release cadence |
+| SemVer     | `1.0.0`       | Настоящий релиз сервиса |
+| Git SHA    | `git-3a7f29c` | Сборки в CI, тег всегда уникален |
+| CalVer     | `2026.05.0`   | Релизы по календарю |
 
-Verify it's actually pullable from a **truly clean state** — `docker logout` first so cached credentials don't mask a private-package mistake:
+Проверьте, что образ и правда тянется из **по-настоящему чистого состояния**. Сначала `docker logout`, чтобы закэшированный логин не спрятал приватный пакет:
 
 ```bash
 docker logout ghcr.io                                            # forget the PAT so we test the public path
@@ -350,44 +350,44 @@ docker rmi  ghcr.io/<github-username>/devops-info-service:___   # YOUR TASK: you
 docker pull ghcr.io/<github-username>/devops-info-service:___   # YOUR TASK: must succeed anonymously (package must be Public)
 ```
 
-If `docker pull` returns `unauthorized` after `docker logout`, your package is still private — flip its visibility to Public per the note above, then re-pull.
+Если после `docker logout` команда `docker pull` отвечает `unauthorized`, пакет всё ещё приватный. Переключите видимость на Public, как в заметке выше, и стяните образ ещё раз.
 
-### 5.2 — Update `app_python/README.md`
+### 5.2 — Допишите `app_python/README.md`
 
-`YOUR TASK`: add a **Docker** section to your Lab 1 README with three subsections:
+`ВАША ЗАДАЧА`: добавьте в README из Lab 1 раздел **Docker** из трёх подразделов:
 
-1. **Build** — your `docker build` command
-2. **Run** — your `docker run` command (host:container port mapping)
-3. **Pull from registry** — the public pull command using your real registry URL
+1. **Сборка** — ваша команда `docker build`
+2. **Запуск** — ваша команда `docker run` (проброс портов хост:контейнер)
+3. **Pull из реестра** — публичная команда pull с вашим настоящим URL реестра
 
-No need to paste the Dockerfile contents into the README — link to the file in the repo instead.
+Содержимое Dockerfile в README вставлять не нужно. Поставьте ссылку на файл в репозитории.
 
-### 5.3 — `app_python/docs/LAB02.md` — submission report
+### 5.3 — `app_python/docs/LAB02.md`, отчёт для сдачи
 
-Required sections (in order):
+Обязательные разделы, строго в этом порядке:
 
-1. **Dockerfile decisions** — your Task 1 file + a *why* line per `YOUR TASK`
-2. **Multi-stage results** — single-stage vs multi-stage size with real numbers and a one-line takeaway (including the honest "no change because pure Python" answer if that's what you measured)
-3. **Trivy scan** — severity table with real counts, one finding explained, remediation reasoning, gated-scan exit code
-4. **Build / run / push evidence** — the captured outputs from Tasks 2 and 5, including the public registry URL
-5. **Challenges & Solutions** — at least one real one (the `slim has no curl` healthcheck trap, or the Trivy DB mirror, are both fair game — pick what you actually hit)
+1. **Решения по Dockerfile** — файл из задачи 1 и строка *зачем* на каждый `# YOUR TASK`
+2. **Итог multi-stage** — размеры одностадийного и multi-stage с вашими числами и вывод в одну строку (включая честное «без изменений, потому что чистый Python», если измерили именно это)
+3. **Скан Trivy** — таблица серьёзности с реальными числами, одна разобранная находка, что с ней делать, код выхода скана с гейтом
+4. **Сборка, запуск, push** — сохранённые выводы из задач 2 и 5, включая публичный URL реестра
+5. **Трудности и решения** — хотя бы одна настоящая. Ловушка HEALTHCHECK «в slim нет curl» и зеркало БД Trivy оба считаются. Берите то, на что реально наткнулись.
 
-### 5.4 — Proof of work
+### 5.4 — Подтверждение
 
-**Paste into `docs/LAB02.md`:**
+**Вставьте в `docs/LAB02.md`:**
 
-- `docker push` output showing the digest
-- `docker pull` output from the clean state (proves the image is public and pullable)
-- The registry URL (e.g. `https://github.com/<you>/devops-info-service/pkgs/container/devops-info-service`)
-- The Docker section of your updated `README.md` (or a link to it in the PR)
+- Вывод `docker push`, где виден digest
+- Вывод `docker pull` из чистого состояния (образ публичный, его можно стянуть)
+- URL реестра (например `https://github.com/<you>/devops-info-service/pkgs/container/devops-info-service`)
+- Раздел Docker в обновлённом `README.md` (или ссылка на него в PR)
 
 ---
 
-## Bonus Task — Distroless Multi-Stage (Go) (2 pts)
+## Бонус — multi-stage на distroless (Go) (2 балла)
 
-Re-containerize your Lab 1 bonus app (Go recommended) as a multi-stage build with a **distroless or `scratch`** final stage. This is where the lecture's "60× smaller, zero CVEs" payoff actually shows up.
+Снова упакуйте бонусное приложение из Lab 1 (лучше Go) в multi-stage сборку. Финальная стадия — **distroless или `scratch`**. Именно здесь обещание лекции «в 60 раз меньше, ноль CVE» становится видно.
 
-`YOUR TASK`: fill the skeleton. Less hand-holding than the main tasks — by now you've written two Dockerfiles.
+`ВАША ЗАДАЧА`: заполните каркас. За руку здесь ведут меньше, чем в основных задачах: два Dockerfile вы уже написали.
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -410,30 +410,30 @@ EXPOSE ___                    # YOUR TASK: same port as Lab 1
 ENTRYPOINT [___]              # YOUR TASK: exec form — single static binary, no shell needed
 ```
 
-### Bonus requirements
+### Требования бонуса
 
-- Multi-stage Dockerfile in `app_go/` with a distroless or `scratch` final stage
-- Statically-linked binary — explain in `app_go/docs/LAB02.md` *why* static linking is what makes distroless/scratch viable (no libc at runtime)
-- Working containerized app — both `/` and `/health` respond
-- Trivy scan of the distroless image — compare its finding count to the Python multi-stage image and explain *why* it's so much lower (no shell, no package manager, near-zero attack surface)
-- Size + CVE comparison documented (the lecture predicts ~15 MB / ~0 CVEs — capture your real numbers)
+- Multi-stage Dockerfile в `app_go/`, финальная стадия distroless или `scratch`
+- Статически слинкованный бинарник. В `app_go/docs/LAB02.md` объясните, *почему* статическая линковка делает distroless и scratch возможными (в рантайме нет libc)
+- Приложение в контейнере работает: отвечают и `/`, и `/health`
+- Скан Trivy distroless-образа. Сравните число находок с Python multi-stage и объясните, *почему* их сильно меньше (нет shell, нет пакетного менеджера, поверхность атаки почти нулевая)
+- Размер и число CVE записаны (лекция обещает ~15 МБ / ~0 CVE; фиксируйте свои числа)
 
-**Expected payoff** *(illustrative — your numbers will differ)*: Python slim ≈ **130 MB / ~100 CVEs** → Go distroless ≈ **8 MB / 0 CVEs**.
+**Ожидаемый выигрыш** *(иллюстрация — ваши числа будут другими)*: Python slim ≈ **130 МБ / ~100 CVE** → Go distroless ≈ **8 МБ / 0 CVE**.
 
 <details>
-<summary>💡 Distroless vs scratch — when each fits</summary>
+<summary>💡 Distroless и scratch: когда что брать</summary>
 
-- **`gcr.io/distroless/static-debian12`** — empty userspace except CA certs + `/etc/passwd` (a `nonroot` user) + `tzdata`. Recommended default for Go.
-- **`scratch`** — empty. ~0 CVEs because there's nothing in the image. Works only for fully static binaries. You'd add CA certs manually if your binary calls HTTPS.
-- **Trade-off** — no shell means no `docker exec ... sh` for debugging in production. That's a *feature* under attack and an *annoyance* during dev. Keep a `*-debug` distroless variant around if you need it locally.
+- **`gcr.io/distroless/static-debian12`** — пустое пользовательское пространство, кроме CA-сертификатов, `/etc/passwd` (пользователь `nonroot`) и `tzdata`. Для Go это разумный дефолт.
+- **`scratch`** — пусто. CVE около нуля, потому что в образе ничего нет. Работает только у полностью статических бинарников. Если бинарник ходит по HTTPS, CA-сертификаты добавляете сами.
+- **Компромисс** — без shell нельзя сделать `docker exec ... sh` и отлаживаться в проде. Под атакой это *полезное свойство*, при разработке — *раздражение*. Если нужно локально, держите рядом вариант distroless `*-debug`.
 
-Reference: [distroless](https://github.com/GoogleContainerTools/distroless) · [Multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
+Ссылки: [distroless](https://github.com/GoogleContainerTools/distroless) · [Multi-stage сборки](https://docs.docker.com/build/building/multi-stage/)
 
 </details>
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab02
@@ -443,12 +443,12 @@ git commit -m "feat(lab02): containerize devops info service (multi-stage + triv
 git push -u origin lab02
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab02` → `course-repo:master` *(reviewed)*
-- `your-fork:lab02` → `your-fork:master` *(merges into your own main when done)*
+- `your-fork:lab02` → `course-repo:master` *(на ревью)*
+- `your-fork:lab02` → `your-fork:master` *(сольётся в ваш main, когда закончите)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 — Dockerfile + .dockerignore written by hand
@@ -461,135 +461,135 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 — Dockerfile (3 pts)
-- ✅ `app_python/Dockerfile` written from the skeleton (every `___` resolved)
-- ✅ Pinned slim base (not `latest`, not the full image)
-- ✅ `WORKDIR` set explicitly
-- ✅ **Numeric** non-root `USER` (uid ≥ 10000)
-- ✅ Dependencies installed before app code (cache-friendly order); `--no-cache-dir`
-- ✅ `CMD` in exec form (JSON array)
-- ✅ `app_python/.dockerignore` present with VCS / venv / cache / IDE exclusions
+### Задача 1 — Dockerfile (3 балла)
+- ✅ `app_python/Dockerfile` написан по каркасу (каждый `___` заполнен)
+- ✅ Зафиксированный slim-базис (не `latest` и не полный образ)
+- ✅ `WORKDIR` задан явно
+- ✅ **Числовой** non-root `USER` (uid ≥ 10000)
+- ✅ Зависимости ставятся до кода приложения (порядок дружит с кэшем); есть `--no-cache-dir`
+- ✅ `CMD` в exec-форме (JSON-массив)
+- ✅ Есть `app_python/.dockerignore` с исключениями VCS, venv, кэша и IDE
 
-### Task 2 — Build & Run (2 pts)
-- ✅ Image builds clean
-- ✅ `GET /` and `GET /health` return the same JSON as Lab 1
-- ✅ `docker run ... id -u` prints a non-zero UID
-- ✅ `docker images` size + "biggest layer" one-liner in docs
+### Задача 2 — Сборка и запуск (2 балла)
+- ✅ Образ собирается чисто
+- ✅ `GET /` и `GET /health` отдают тот же JSON, что в Lab 1
+- ✅ `docker run ... id -u` печатает ненулевой UID
+- ✅ В документации есть размер из `docker images` и одна строка про «самый большой слой»
 
-### Task 3 — Multi-stage (2 pts)
-- ✅ Two stages with `COPY --from=builder`
-- ✅ No build toolchain / pip cache in the final image
-- ✅ Real size numbers in docs — including the **honest** explanation if multi-stage didn't shrink it for your pure-Python app
+### Задача 3 — Multi-stage (2 балла)
+- ✅ Две стадии и `COPY --from=builder`
+- ✅ В финальном образе нет тулчейна сборки и кэша pip
+- ✅ В документации реальные размеры, включая **честное** объяснение, если multi-stage не уменьшил образ чистого Python-приложения
 
-### Task 4 — Trivy (2 pts)
-- ✅ Full scan + gated `--severity HIGH,CRITICAL --exit-code 1` both run
-- ✅ Severity counts with real numbers
-- ✅ One finding explained with remediation reasoning
-- ✅ No findings hidden via `.trivyignore`
+### Задача 4 — Trivy (2 балла)
+- ✅ Прогнаны и полный скан, и гейт `--severity HIGH,CRITICAL --exit-code 1`
+- ✅ Числа по серьёзности ваши, не из примера
+- ✅ Одна находка разобрана, с планом исправления
+- ✅ Ничего не спрятано через `.trivyignore`
 
-### Task 5 — Registry & Docs (1 pt)
-- ✅ Image pushed and **publicly pullable** (`docker rmi && docker pull` from clean works)
-- ✅ Real version tag (SemVer or SHA), not only `:latest`
-- ✅ `README.md` Docker section
-- ✅ `docs/LAB02.md` complete (all 5 sections, real evidence, registry URL)
+### Задача 5 — Реестр и документация (1 балл)
+- ✅ Образ запушен и **публично тянется** (`docker rmi && docker pull` с чистого состояния проходит)
+- ✅ Настоящий тег версии (SemVer или SHA), а не один только `:latest`
+- ✅ В `README.md` есть раздел Docker
+- ✅ `docs/LAB02.md` полный: все 5 разделов, реальные доказательства, URL реестра
 
-### Bonus (2 pts)
-- ✅ Multi-stage Go Dockerfile, distroless or `scratch` final stage
-- ✅ Statically-linked binary; both endpoints work
-- ✅ Trivy scan of distroless image with finding-count comparison
-- ✅ `app_go/docs/LAB02.md` with size metrics, static-linking explanation, security analysis
+### Бонус (2 балла)
+- ✅ Multi-stage Dockerfile для Go, финальная стадия distroless или `scratch`
+- ✅ Статически слинкованный бинарник; оба эндпоинта отвечают
+- ✅ Скан Trivy distroless-образа и сравнение числа находок
+- ✅ В `app_go/docs/LAB02.md` есть размеры, объяснение статической линковки и разбор безопасности
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задача | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — Dockerfile  | **3** | Pinned slim base, numeric non-root, cache-friendly layers, exec-form `CMD`, `.dockerignore` |
-| **Task 2** — Build & Run | **2** | Builds clean; both endpoints match Lab 1; non-root verified |
-| **Task 3** — Multi-stage | **2** | Two stages, no toolchain in final image, documented size reality (even if it's "no change, here's why") |
-| **Task 4** — Trivy       | **2** | Full + gated scan, real counts, one explained finding, nothing hidden |
-| **Task 5** — Registry    | **1** | Publicly pullable, real version tag, complete `LAB02.md` + README Docker section |
-| **Bonus** — Distroless Go | **2** | Distroless/scratch multi-stage with size + CVE comparison |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задача 1** — Dockerfile  | **3** | Зафиксированный slim-базис, числовой non-root, слои дружат с кэшем, `CMD` в exec-форме, `.dockerignore` |
+| **Задача 2** — Сборка и запуск | **2** | Собирается чисто; оба эндпоинта совпадают с Lab 1; non-root проверен |
+| **Задача 3** — Multi-stage | **2** | Две стадии, в финальном образе нет тулчейна, размер записан как есть (даже если «без изменений, и вот почему») |
+| **Задача 4** — Trivy       | **2** | Полный скан и скан с гейтом, реальные числа, одна разобранная находка, ничего не спрятано |
+| **Задача 5** — Реестр    | **1** | Публично тянется, настоящий тег версии, полный `LAB02.md` и раздел Docker в README |
+| **Бонус** — Distroless Go | **2** | Multi-stage на distroless или scratch, сравнение размера и CVE |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
-**Grading guidance:**
-- **10/10** — Small, secure, reproducible image; multi-stage discipline; scan understood; clean push; reasoning in docs goes beyond "the lecture said to."
-- **8–9/10** — Working multi-stage image as non-root, scanned and pushed, defends most choices.
-- **6–7/10** — Container works and runs as non-root, but single-stage only or shallow scan/analysis.
-- **<6/10** — Runs as root, no `.dockerignore`, no scan, or copy-paste Dockerfile the student can't explain.
+**Как оценивают:**
+- **10/10** — образ маленький, безопасный, воспроизводимый; есть дисциплина multi-stage; скан понят; push чистый; в документации рассуждение идёт дальше «так сказали на лекции».
+- **8–9/10** — рабочий multi-stage образ от non-root, просканирован и запушен, большинство решений защищено.
+- **6–7/10** — контейнер работает и запущен не от root, но сборка только одностадийная или скан с разбором поверхностные.
+- **<6/10** — запуск от root, нет `.dockerignore`, нет скана, или Dockerfile скопирован и объяснить его нельзя.
 
 ---
 
-## Resources
+## Материалы
 
 <details>
-<summary>📚 Docker Documentation</summary>
+<summary>📚 Документация Docker</summary>
 
-- [Dockerfile Best Practices](https://docs.docker.com/build/building/best-practices/)
-- [Dockerfile Reference](https://docs.docker.com/reference/dockerfile/)
-- [Multi-Stage Builds](https://docs.docker.com/build/building/multi-stage/)
+- [Практики Dockerfile](https://docs.docker.com/build/building/best-practices/)
+- [Справочник Dockerfile](https://docs.docker.com/reference/dockerfile/)
+- [Multi-stage сборки](https://docs.docker.com/build/building/multi-stage/)
 - [`.dockerignore`](https://docs.docker.com/reference/dockerfile/#dockerignore-file)
-- [Docker Engine 29 release notes](https://docs.docker.com/engine/release-notes/)
-- [containerd image store](https://docs.docker.com/engine/storage/containerd/)
+- [Заметки к релизу Docker Engine 29](https://docs.docker.com/engine/release-notes/)
+- [Хранилище образов containerd](https://docs.docker.com/engine/storage/containerd/)
 
 </details>
 
 <details>
-<summary>🔒 Security & Scanning</summary>
+<summary>🔒 Безопасность и сканирование</summary>
 
-- [Trivy docs](https://trivy.dev/) · [Trivy `image` scanning](https://trivy.dev/latest/docs/target/container_image/)
+- [Документация Trivy](https://trivy.dev/) · [Сканирование Trivy `image`](https://trivy.dev/latest/docs/target/container_image/)
 - [Distroless](https://github.com/GoogleContainerTools/distroless)
-- [Why non-root containers](https://docs.docker.com/build/building/best-practices/#user)
+- [Зачем контейнеры non-root](https://docs.docker.com/build/building/best-practices/#user)
 - [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker)
 - *Container Security* — Liz Rice (O'Reilly, 2020)
 
 </details>
 
 <details>
-<summary>🛠️ Dev tools worth knowing</summary>
+<summary>🛠️ Инструменты, которые стоит знать</summary>
 
-- [Hadolint](https://github.com/hadolint/hadolint) — Dockerfile linter
-- [Dive](https://github.com/wagoodman/dive) — explore image layers interactively
+- [Hadolint](https://github.com/hadolint/hadolint) — линтер Dockerfile
+- [Dive](https://github.com/wagoodman/dive) — интерактивный разбор слоёв образа
 - [GHCR](https://docs.github.com/packages/working-with-a-github-packages-registry/working-with-the-container-registry) · [Docker Hub](https://hub.docker.com/)
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
+<summary>⚠️ Типичные ловушки (с реальных прогонов)</summary>
 
-- **`COPY . .` before `pip install`** — kills the layer cache. A one-character code change re-installs every dependency. The single most common mistake in this lab — fix it by copying `requirements.txt` first and `pip install`-ing before the rest of the source. (Lecture slide 14.)
-- **`USER appuser` (non-numeric) under `runAsNonRoot: true`** — works in Docker, fails the Lab 9 K8s admission policy because it can't verify the UID without parsing `/etc/passwd`. Always use a **numeric** `USER 10001`.
-- **Trivy DB `ghcr.io ... DENIED`** — campus / restricted networks rate-limit the anonymous ghcr.io token. Use `--db-repository public.ecr.aws/aquasecurity/trivy-db:2` — Aqua publishes there explicitly for this case.
-- **`python:3.13-slim` has no `curl` and no `wget`** — your HEALTHCHECK breaks silently. Either use `python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/health")'` or `apt-get install curl` (and accept the extra CVEs). Don't add the line and assume it works.
-- **Trivy `v0.69.4` is malicious** — CVE-2026-33634 supply-chain compromise (March 2026). Pin `v0.69.3` or a later clean patch. In CI: `trivy-action@v0.35.0+`.
-- **BuildKit not enabled** — older Docker Engines (<23) ignore `# syntax=docker/dockerfile:1` and skip `COPY --from=builder` features. Docker 29 has BuildKit on by default; if your build fails on `RUN --mount=type=cache` syntax, you're on an ancient Docker.
-- **`.dockerignore` missing** — your `COPY . .` ships `.git/`, `.venv/`, IDE configs, and **`.env` with secrets** into the image. Layers are forever — once the secret is in the image, even deleting it in a later layer doesn't remove it.
-- **`COPY secrets.env / && rm secrets.env`** — does NOT remove the secret. It's still in the earlier layer, visible via `docker history` and `docker save | tar -xvf`. Treat every layer as immutable.
-- **Multi-stage marginally LARGER for pure Python** — Flask has no compiled wheels, so the builder stage has nothing to discard, and the venv copy adds ~3 MB. This is **expected and correct** — document it, don't hide it. The big multi-stage win is compiled languages (Bonus task).
-- **Image cache stale after `apt-get update`** — if you `RUN apt-get update && apt-get install foo` in two separate layers, the `update` is cached forever while `install` re-runs against a stale package list. Always combine them in one `RUN`. Same lesson, different package manager: don't split related work across layers.
-- **Container hostname is the container ID, not your laptop** — `socket.gethostname()` inside the container returns something like `a3f29c8b1d04`. That's correct behaviour (Lab 1 footnote), not a bug. You're seeing the PID/UTS namespace at work.
-- **`docker run` as root by default** — even if your Dockerfile has `USER 10001`, `docker run --user root` overrides it. The Dockerfile sets the *default*; runtime can override. In Lab 9, Kubernetes PSA / Pod Security policies enforce this from the orchestrator side.
+- **`COPY . .` до `pip install`** — убивает кэш слоёв. Изменение кода на один символ заново ставит все зависимости. Самая частая ошибка этой лабораторной. Лечится так: сначала копируете `requirements.txt` и ставите зависимости, и только потом остальной код. (Слайд 14 лекции.)
+- **`USER appuser` (не число) при `runAsNonRoot: true`** — в Docker такой `USER` работает. Admission-политика Kubernetes в Lab 9 его не пропустит: без разбора `/etc/passwd` UID не проверить. Всегда ставьте **числовой** `USER 10001`.
+- **БД Trivy, `ghcr.io ... DENIED`** — кампус и закрытые сети режут rate limit анонимного токена ghcr.io. Ставьте `--db-repository public.ecr.aws/aquasecurity/trivy-db:2`. Aqua выкладывает зеркало туда специально для этого случая.
+- **В `python:3.13-slim` нет ни `curl`, ни `wget`** — HEALTHCHECK ломается молча. Либо `python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/health")'`, либо `apt-get install curl` (и лишние CVE впридачу). Не добавляйте строку в надежде, что она заработает.
+- **Trivy `v0.69.4` вредоносный** — компрометация цепочки поставки, CVE-2026-33634 (март 2026). Фиксируйте `v0.69.3` или более поздний чистый патч. В CI: `trivy-action@v0.35.0+`.
+- **BuildKit выключен** — старые Docker Engine (ниже 23) игнорируют `# syntax=docker/dockerfile:1` и не умеют возможности `COPY --from=builder`. В Docker 29 BuildKit включён по умолчанию. Если сборка падает на синтаксисе `RUN --mount=type=cache`, Docker у вас старый.
+- **Нет `.dockerignore`** — `COPY . .` кладёт в образ `.git/`, `.venv/`, конфиги IDE и **`.env` с секретами**. Слои не забывают: секрет, попавший в образ, остаётся там, даже если удалить файл в следующем слое.
+- **`COPY secrets.env / && rm secrets.env`** — так секрет не удалить. Он лежит в предыдущем слое, его видно через `docker history` и `docker save | tar -xvf`. Каждый слой считайте неизменяемым.
+- **Для чистого Python multi-stage чуть БОЛЬШЕ** — у Flask нет скомпилированных wheel, стадии builder нечего выбрасывать, а копия venv добавляет ~3 МБ. Так и должно быть, это правильно. Запишите измерение, не прячьте его. Большой выигрыш multi-stage — у компилируемых языков (бонус).
+- **Кэш образа протухает после `apt-get update`** — если разнести `RUN apt-get update && apt-get install foo` на два слоя, `update` закэшируется навсегда, а `install` пойдёт по старому списку пакетов. Всегда держите их в одном `RUN`. Тот же урок для любого пакетного менеджера: связанную работу не разносите по слоям.
+- **Hostname контейнера — это его ID, а не имя ноутбука** — `socket.gethostname()` внутри контейнера вернёт что-то вроде `a3f29c8b1d04`. Так и задумано (сноска в Lab 1). Вы видите пространства имён PID и UTS.
+- **`docker run` по умолчанию идёт от root** — даже при `USER 10001` в Dockerfile флаг `docker run --user root` его перекрывает. Dockerfile задаёт *значение по умолчанию*, рантайм может его сменить. В Lab 9 политики Kubernetes PSA и Pod Security навязывают это уже со стороны оркестратора.
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-The image you build this week follows your service through the rest of the course:
+Образ, который вы соберёте на этой неделе, идёт за сервисом до конца курса:
 
-| Lab | What it adds |
+| Lab | Что добавляется |
 |---:|---|
-| 3  | CI: pytest + ruff + image build + Trivy gate on every PR |
-| 7  | Structured JSON logs via Alloy → Loki |
-| 8  | `/metrics` endpoint + Prometheus instrumentation |
-| 9  | Deploy to k3d Kubernetes using the `/health` probe |
-| 10 | Helm 4 chart packaging this image |
-| 13 | ArgoCD GitOps shipping new tags automatically |
+| 3  | CI: pytest, ruff, сборка образа и гейт Trivy на каждый PR |
+| 7  | Структурированные JSON-логи: Alloy → Loki |
+| 8  | Эндпоинт `/metrics` и инструментация Prometheus |
+| 9  | Выкат в Kubernetes на k3d, probe на `/health` |
+| 10 | Упаковка этого образа в чарт Helm 4 |
+| 13 | GitOps на ArgoCD: новые теги уезжают сами |
 
 ---
 
-**Hot take:** a good Dockerfile is small, secure, and reproducible. Two out of three is a bug. Run as non-root, scan every image, never deploy `:latest`. Everything else in this course is a variation on those three rules.
+**Жёстко:** хороший Dockerfile маленький, безопасный и воспроизводимый. Если на месте только два из трёх, это баг. Запускайтесь не от root, сканируйте каждый образ, не выкатывайте `:latest`. Всё остальное в курсе — вариации этих трёх правил.

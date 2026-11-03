@@ -1,139 +1,139 @@
-# 📌 Lecture 13 — GitOps with ArgoCD: Git as the Source of Truth
+# 📌 Lecture 13 — GitOps с ArgoCD: Git как источник истины
 
-## 📍 Slide 1 – 🚀 Welcome to GitOps
+## 📍 Слайд 1 – 🚀 Добро пожаловать в GitOps
 
-* 🌍 **Lectures 9-12 left you with a real cluster** running a Helm-packaged Python service plus a Go echo sidecar, with secrets in OpenBao and persistent state on PVCs. Deployment is still you typing `helm upgrade` from a laptop.
-* 🤖 **GitOps** moves that "laptop" *inside* the cluster: an agent watches Git, pulls the desired state, and reconciles continuously. No more out-of-band `kubectl` from human hands.
-* 🎯 This lecture: the GitOps mental model + **ArgoCD 3.4** (May 2026) architecture, Application + ApplicationSet CRDs, sync policies, the App-of-Apps pattern, and why this only becomes interesting once you have **three** services.
-* 🔗 **Tie-in to Lab 13:** install ArgoCD via Helm, declare Application manifests for `app-python`, `app-go-echo`, **and a third `app-go-health` plumbing service**, and let an `ApplicationSet` generate dev + prod copies from one template.
+* 🌍 **Lectures 9-12 оставили вам живой кластер:** Python-сервис в Helm-чарте и Go echo sidecar, секреты в OpenBao, постоянное состояние на PVC. Deployment по-прежнему делаете вы: `helm upgrade` с ноутбука.
+* 🤖 **GitOps** переносит этот «ноутбук» *внутрь* кластера: агент смотрит Git, забирает желаемое состояние и непрерывно сверяет с ним кластер. Руками, через `kubectl` в обход, в кластер больше никто не лезет.
+* 🎯 Эта лекция: модель GitOps и архитектура **ArgoCD 3.4** (май 2026), CRD Application и ApplicationSet, политики sync, паттерн App-of-Apps и почему всё это интересно, только когда сервисов **три**.
+* 🔗 **Связка с Lab 13:** поставьте ArgoCD через Helm, опишите манифесты Application для `app-python`, `app-go-echo` **и третьего служебного сервиса `app-go-health`**, и пусть `ApplicationSet` из одного шаблона породит копии для dev и prod.
 
 ```mermaid
 flowchart LR
-  Dev[👨‍💻 Developer] -->|git push| Repo[📝 Git]
-  Repo -->|pull every 3m| Argo[🤖 ArgoCD in cluster]
-  Argo -->|reconcile| K8s[☸️ Kubernetes]
-  K8s -->|status| Argo
+  Dev[👨‍💻 Разработчик] -->|git push| Repo[📝 Git]
+  Repo -->|pull каждые 3 мин| Argo[🤖 ArgoCD в кластере]
+  Argo -->|сверка| K8s[☸️ Kubernetes]
+  K8s -->|статус| Argo
 ```
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Слайд 2 – 🎯 Чему научитесь
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 📜 Name the **four OpenGitOps principles** and explain why each matters |
-| 2 | 🔁 Contrast **push vs pull** deployment models on credential surface, drift, audit |
-| 3 | 🏗️ Sketch the **ArgoCD 3.4 architecture**: argocd-server, application-controller, repo-server, redis, Dex |
-| 4 | 📝 Read & write an **Application** CRD with `source`, `destination`, `syncPolicy` |
-| 5 | 🌳 Compose deployments with the **App-of-Apps pattern** and **ApplicationSet** generators |
-| 6 | 🛡️ Reason about **sync waves, hooks, self-heal, prune**, and when manual sync wins |
+| 1 | 📜 Назвать **четыре принципа OpenGitOps** и объяснить, зачем каждый |
+| 2 | 🔁 Сравнить модели выкладки **push и pull** по месту учётных данных, drift (расхождение кластера с Git) и аудиту |
+| 3 | 🏗️ Набросать **архитектуру ArgoCD 3.4**: argocd-server, application-controller, repo-server, redis, Dex |
+| 4 | 📝 Читать и писать CRD **Application** с `source`, `destination`, `syncPolicy` |
+| 5 | 🌳 Собирать выкладки паттерном **App-of-Apps** и генераторами **ApplicationSet** |
+| 6 | 🛡️ Понимать **sync waves, хуки, self-heal, prune** и когда ручной sync выигрывает |
 
-**Tech stack pinned for May 2026:** **ArgoCD 3.4.x** (GA early May 2026; **2.x is EOL since November 2025 with the 3.2 release**), Kubernetes **1.36** "Haru", a single GitOps repo on GitHub, deployments driven from your Lab 10 Helm chart.
-
----
-
-## 📍 Slide 3 – ❓ Why Pull Beats Push
-
-You shipped Lab 12 with a CI workflow that runs `helm upgrade` against the cluster. It works. So why move?
-
-* 🔑 **Credentials.** CI needs a kubeconfig with cluster-admin to apply. That kubeconfig lives in GitHub secrets, on developer laptops, in scripts. Every leak is a cluster compromise.
-* 🌊 **Drift.** Someone `kubectl edit`s a Deployment at 3am to "fix" a prod incident. The Helm chart in Git no longer matches reality. Next `helm upgrade` silently overwrites the fix.
-* 🕵️ **Audit.** "Who scaled the prod ingress to 12 replicas?" — the answer lives in shell history, not Git.
-* 🚑 **Recovery.** Cluster gone? With push CI/CD you re-run pipelines; with GitOps you `helm install argo-cd && kubectl apply -f root.yaml` and the cluster rebuilds itself.
-
-> 🔥 **Hot take:** GitOps is not a tool, it's an *inversion of control*. The cluster reaches out to Git; nothing reaches into the cluster.
+**Стек зафиксирован на май 2026:** **ArgoCD 3.4.x** (GA в начале мая 2026; **2.x в EOL с ноября 2025, с релиза 3.2**), Kubernetes **1.36** "Haru", один GitOps-репозиторий на GitHub, выкладки идут из Helm-чарта Lab 10.
 
 ---
 
-## 📍 Slide 4 – 📜 The Four OpenGitOps Principles
+## 📍 Слайд 3 – ❓ Почему pull лучше push
 
-The CNCF **OpenGitOps** working group ratified four principles (v1.0.0). Memorize them — every GitOps tool implements these or it isn't GitOps.
+В Lab 12 CI-workflow уже гоняет `helm upgrade` в кластер. Работает. Зачем переезжать?
 
-1. 📝 **Declarative** — the desired state is described in declarative form (YAML, HCL, …), never imperative commands.
-2. 🔒 **Versioned and Immutable** — that desired state is stored with full history; you can always check out commit `abc123` and know what was deployed.
-3. 🤖 **Pulled Automatically** — software agents *inside* the target system pull the desired state. Nobody pushes from outside.
-4. ♾️ **Continuously Reconciled** — agents compare actual to desired and automatically act to converge them. Forever.
+* 🔑 **Учётные данные.** CI нужен kubeconfig с cluster-admin, чтобы применять манифесты. Этот kubeconfig живёт в секретах GitHub, на ноутбуках, в скриптах. Любая утечка — компрометация кластера.
+* 🌊 **Drift.** Кто-то в три ночи делает `kubectl edit` у Deployment, чтобы «починить» прод. Чарт в Git больше не совпадает с кластером. Следующий `helm upgrade` молча затирает починку.
+* 🕵️ **Аудит.** «Кто поднял прод-Ingress до 12 реплик?» — ответ в истории shell, не в Git.
+* 🚑 **Восстановление.** Кластер пропал? В push CI/CD вы заново гоняете pipeline (цепочка автоматической сборки и выкладки); в GitOps достаточно `helm install argo-cd && kubectl apply -f root.yaml`, и кластер собирает себя сам.
 
-> 💡 **Litmus test:** if you removed the agent, would the cluster drift from Git? If yes, you have GitOps. If no (because nothing was reconciling), you just had "YAML in Git".
+> 🔥 **Жёстко:** GitOps — не инструмент, а *инверсия управления*. Кластер сам тянется к Git; снаружи в кластер никто не ходит.
 
 ---
 
-## 📍 Slide 5 – 🔄 Push vs Pull, Side by Side
+## 📍 Слайд 4 – 📜 Четыре принципа OpenGitOps
+
+Рабочая группа CNCF **OpenGitOps** утвердила четыре принципа (v1.0.0). Выучите их. Инструмент без этих четырёх — не GitOps.
+
+1. 📝 **Декларативность** — желаемое состояние описано декларативно (YAML, HCL, …), без императивных команд.
+2. 🔒 **Версии и неизменяемость** — состояние хранится с полной историей; всегда можно взять коммит `abc123` и знать, что именно было выкачено.
+3. 🤖 **Автоматический pull** — агенты *внутри* целевой системы сами забирают желаемое состояние. Снаружи никто не делает push.
+4. ♾️ **Непрерывная сверка** — агенты сравнивают фактическое с желаемым и сами сводят их. Постоянно.
+
+> 💡 **Проверка:** уберите агента — кластер разъедется с Git? Если да, у вас GitOps. Если нет (сверять было некому), у вас был просто «YAML в Git».
+
+---
+
+## 📍 Слайд 5 – 🔄 Push и pull рядом
 
 ```mermaid
 flowchart LR
-  subgraph Push["🔄 Push Model (classic CI/CD)"]
+  subgraph Push["🔄 Модель push (классический CI/CD)"]
     direction LR
     G1[📝 Git] --> CI1[🔧 CI runner]
-    CI1 -->|kubeconfig + apply| K1[☸️ Cluster]
+    CI1 -->|kubeconfig + apply| K1[☸️ Кластер]
   end
-  subgraph Pull["🚀 Pull Model (GitOps)"]
+  subgraph Pull["🚀 Модель pull (GitOps)"]
     direction LR
-    G2[📝 Git] -.->|polled / webhook| A2[🤖 Agent in cluster]
-    A2 -->|apply locally| K2[☸️ Cluster]
+    G2[📝 Git] -.->|опрос / webhook| A2[🤖 Агент в кластере]
+    A2 -->|apply локально| K2[☸️ Кластер]
   end
 ```
 
-| Aspect | 🔄 Push CI/CD | 🚀 Pull GitOps |
+| Аспект | 🔄 Push CI/CD | 🚀 Pull GitOps |
 |--------|--------------|----------------|
-| Cluster credentials | Live in CI secrets | Stay inside the cluster |
-| Drift detection | None — CI runs and forgets | Continuous, every 3 minutes |
-| Audit trail | CI logs (rotated) | `git log` (immutable) |
-| Disaster recovery | Re-run pipeline against new cluster | Install agent, point at Git |
-| What blocks deploy | CI runner availability | Git availability |
+| Учётные данные кластера | Живут в секретах CI | Остаются внутри кластера |
+| Обнаружение drift | Нет: CI отработал и забыл | Непрерывно, каждые 3 минуты |
+| След аудита | Логи CI (их ротируют) | `git log` (неизменяемый) |
+| Аварийное восстановление | Заново прогнать pipeline на новом кластере | Поставить агента и указать на Git |
+| Что блокирует выкладку | Доступность CI runner | Доступность Git |
 
 ---
 
-## 📍 Slide 6 – 🛠️ The GitOps Tools Landscape
+## 📍 Слайд 6 – 🛠️ Инструменты GitOps
 
-| Tool | Lineage | Sweet spot |
+| Инструмент | Происхождение | Сильная сторона |
 |------|---------|-----------|
-| **ArgoCD** | CNCF graduated (Intuit, 2018) | UI-first, declarative `Application` CRD, sync waves |
-| **Flux CD v2** | CNCF graduated (Weaveworks, 2020) | CLI-first, controller-per-resource (Kustomization, HelmRelease, GitRepository) |
-| **Rancher Fleet** | SUSE/Rancher | Massive multi-cluster fleets (edge, retail) |
-| **Codefresh GitOps** | Octopus (commercial) | ArgoCD under the hood + dashboards, drift, multi-team RBAC |
-| **Jenkins X** | CD Foundation | If you must keep Jenkins |
+| **ArgoCD** | CNCF graduated (Intuit, 2018) | Сначала UI, декларативный CRD `Application`, sync waves |
+| **Flux CD v2** | CNCF graduated (Weaveworks, 2020) | Сначала CLI, контроллер на ресурс (Kustomization, HelmRelease, GitRepository) |
+| **Rancher Fleet** | SUSE/Rancher | Огромные флоты кластеров (edge, ритейл) |
+| **Codefresh GitOps** | Octopus (коммерческий) | ArgoCD под капотом, плюс дашборды, drift, RBAC на много команд |
+| **Jenkins X** | CD Foundation | Если Jenkins нельзя бросить |
 
-The course uses **ArgoCD** because (a) it's the most-adopted GitOps tool, (b) the UI makes drift visible to non-Kubernetes humans, and (c) the `Application` + `ApplicationSet` CRDs map cleanly onto multi-environment + multi-service teaching.
+Курс берёт **ArgoCD**, потому что (a) это самый распространённый инструмент GitOps, (b) UI показывает drift людям вне Kubernetes, (c) CRD `Application` и `ApplicationSet` хорошо садятся на схему «много окружений и много сервисов».
 
-> 🔥 **Honest take:** Flux is genuinely good — lighter, more Unix-y, no UI to keep alive. Pick it for a homelab. ArgoCD wins in enterprises because dashboards are how non-engineers tell that deploys worked.
+> 🔥 **Честно:** Flux правда хорош — легче, ближе к Unix, нет UI, который надо держать живым. Для homelab берите его. В компаниях выигрывает ArgoCD: по дашборду человек вне инженерии видит, что выкладка прошла.
 
 ---
 
-## 📍 Slide 7 – 🏗️ ArgoCD Architecture
+## 📍 Слайд 7 – 🏗️ Архитектура ArgoCD
 
 ```mermaid
 flowchart TD
-  subgraph cluster["☸️ Kubernetes cluster (argocd namespace)"]
+  subgraph cluster["☸️ Кластер Kubernetes (namespace argocd)"]
     API[🌐 argocd-server<br/>UI · gRPC · REST · webhook]
-    Ctrl[🔄 application-controller<br/>StatefulSet · the reconciler]
-    Repo[📦 repo-server<br/>clones Git · renders Helm/Kustomize]
-    Redis[(⚡ redis<br/>manifest + cluster cache)]
-    Dex[🔐 dex-server<br/>OIDC broker · optional]
-    AS[♾️ applicationset-controller<br/>generates Apps from templates]
+    Ctrl[🔄 application-controller<br/>StatefulSet · сверка]
+    Repo[📦 repo-server<br/>клонирует Git · рендерит Helm/Kustomize]
+    Redis[(⚡ redis<br/>кэш манифестов и кластера)]
+    Dex[🔐 dex-server<br/>OIDC-брокер · по желанию]
+    AS[♾️ applicationset-controller<br/>порождает App из шаблонов]
   end
-  User[👨‍💻 User] -->|UI / CLI / API| API
+  User[👨‍💻 Пользователь] -->|UI / CLI / API| API
   API <--> Redis
   Ctrl <--> Repo
   Ctrl <--> Redis
-  Repo --> Git[📝 Git repo]
+  Repo --> Git[📝 репозиторий Git]
   Ctrl --> Kube[K8s API]
   AS --> Ctrl
   API -.->|SSO| Dex
 ```
 
-* 🌐 **argocd-server** — UI + gRPC/REST API; what humans and CI talk to. Stateless, horizontally scalable.
-* 🔄 **application-controller** — the heart. Reconciles every `Application` CR against the cluster. StatefulSet for sharding across many clusters.
-* 📦 **repo-server** — clones Git, runs `helm template` / `kustomize build`, returns rendered manifests to the controller. Stateless, cache-heavy.
-* ⚡ **redis** — caches manifests, cluster state, Git revisions. Lose it and reconciliation gets slow, not wrong.
-* 🔐 **dex-server** — OIDC broker for GitHub/Google/Okta SSO. Optional; you can use local users for labs.
-* ♾️ **applicationset-controller** — turns one template + a generator into many `Application` CRs.
+* 🌐 **argocd-server** — UI и API gRPC/REST; с ним говорят люди и CI. Без состояния, масштабируется горизонтально.
+* 🔄 **application-controller** — сердце. Сверяет каждый CR `Application` с кластером. StatefulSet, чтобы шардировать работу на много кластеров.
+* 📦 **repo-server** — клонирует Git, запускает `helm template` / `kustomize build`, отдаёт контроллеру готовые манифесты. Без состояния, тяжёлый по кэшу.
+* ⚡ **redis** — кэш манифестов, состояния кластера и ревизий Git. Пропадёт — сверка замедлится, результат останется верным.
+* 🔐 **dex-server** — OIDC-брокер для SSO GitHub, Google и Okta. Необязателен; в лабораторных хватит локальных пользователей.
+* ♾️ **applicationset-controller** — из одного шаблона и генератора делает много CR `Application`.
 
 ---
 
-## 📍 Slide 8 – 📝 The Application CRD
+## 📍 Слайд 8 – 📝 CRD Application
 
-The atomic unit of ArgoCD is one `Application` — a pointer to "this folder in this repo at this revision goes into this namespace on this cluster".
+Атомарная единица ArgoCD — один `Application`. Это указатель: «эта папка, этот репозиторий, эта ревизия → этот namespace на этом кластере».
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -163,38 +163,38 @@ spec:
       - CreateNamespace=true
 ```
 
-Key concepts:
-* 📌 **`targetRevision: main`** vs **a SHA**: branch tracks moving HEAD (fine for dev), SHA pins exactly (use for prod releases).
-* 🗑️ **`finalizers:`** without this, deleting the `Application` leaves K8s resources orphaned.
-* 🔄 **`automated`** turns on auto-sync; *omitting it* makes the app **manual-sync** (click the button or `argocd app sync`).
+Ключи:
+* 📌 **`targetRevision: main`** и **SHA**: ветка следит за движущимся HEAD (нормально для dev), SHA фиксирует ревизию точно (так делают прод-релизы).
+* 🗑️ Без **`finalizers:`** удаление `Application` оставляет ресурсы Kubernetes сиротами.
+* 🔄 Блок **`automated`** включает авто-sync. *Если его нет*, приложение на ручном sync: кнопка в UI или `argocd app sync`.
 
 ---
 
-## 📍 Slide 9 – 🔄 Sync, Health, and Operation States
+## 📍 Слайд 9 – 🔄 Состояния sync, health и операции
 
-Every `Application` tracks two orthogonal states, plus a transient operation.
+У каждого `Application` два независимых состояния и ещё короткая операция.
 
-| Sync state | Meaning |
+| Состояние sync | Смысл |
 |------------|---------|
-| 🟢 **Synced** | Live cluster matches the rendered manifests |
-| 🟡 **OutOfSync** | Drift between Git and cluster (good — you can see it!) |
-| ❓ **Unknown** | Repo unreachable or controller hasn't checked yet |
+| 🟢 **Synced** | Живой кластер совпадает с отрисованными манифестами |
+| 🟡 **OutOfSync** | Git и кластер разъехались (это полезно: расхождение видно) |
+| ❓ **Unknown** | Репозиторий недоступен, или контроллер ещё не проверял |
 
-| Health state | Meaning |
+| Состояние health | Смысл |
 |--------------|---------|
-| 💚 **Healthy** | All resources report ready (Deployment available, Pod running, etc.) |
-| 🔵 **Progressing** | Rollout in flight, give it a minute |
-| 🔴 **Degraded** | Something failed (CrashLoopBackOff, schema error) |
-| ⚪ **Suspended** | Hooks paused or app paused |
-| 🚫 **Missing** | Resource not in cluster |
+| 💚 **Healthy** | Все ресурсы готовы (Deployment available, Pod running и так далее) |
+| 🔵 **Progressing** | Выкладка идёт, дайте минуту |
+| 🔴 **Degraded** | Что-то сломалось (CrashLoopBackOff, ошибка схемы) |
+| ⚪ **Suspended** | Хуки на паузе или приложение на паузе |
+| 🚫 **Missing** | Ресурса в кластере нет |
 
-> 💡 An app can be **Synced + Degraded** (Git correctly says "deploy this broken Pod") or **OutOfSync + Healthy** (cluster runs fine but doesn't match Git). Both states are diagnostic.
+> 💡 Приложение бывает **Synced + Degraded** (Git честно говорит «выкати этот сломанный Pod») и **OutOfSync + Healthy** (кластер жив, но с Git не совпадает). Оба состояния — уже диагноз.
 
-ArgoCD 3.4 added an **Operation Status** filter alongside Sync and Health, so the UI now shows "what's actively syncing right now" — useful during incident response.
+В ArgoCD 3.4 рядом с Sync и Health появился фильтр **Operation Status**. UI показывает, что синкается прямо сейчас. На инциденте это как раз то, что нужно.
 
 ---
 
-## 📍 Slide 10 – 🎚️ Sync Policies: Manual, Auto, Self-Heal, Prune
+## 📍 Слайд 10 – 🎚️ Политики sync: ручной режим, авто, self-heal, prune
 
 ```yaml
 syncPolicy:
@@ -215,19 +215,19 @@ syncPolicy:
       maxDuration: 3m
 ```
 
-* 🔄 **No `automated:` block → manual sync.** The UI shows a big "SYNC" button. Standard for prod.
-* 🤖 **`automated:` → auto-sync** on every Git change *and* every periodic reconcile (default 3 min).
-* 💚 **`selfHeal: true`** — revert manual cluster edits back to Git state. Disable if a controller owns the resource (e.g., HPA writing `replicas`).
-* 🗑️ **`prune: true`** — delete resources that were *removed* from Git. Without it, deleting a file in Git leaves an orphan running.
-* ⚙️ **`ServerSideApply=true`** uses K8s server-side apply (avoids the "last-applied-configuration" annotation problem and plays nice with HPA/VPA).
+* 🔄 **Нет блока `automated:` — ручной sync.** В UI большая кнопка «SYNC». Для прода это норма.
+* 🤖 **`automated:` — авто-sync** на каждое изменение Git *и* на каждую периодическую сверку (по умолчанию 3 минуты).
+* 💚 **`selfHeal: true`** возвращает ручные правки в кластере к состоянию из Git. Выключите, если ресурсом владеет другой контроллер (HPA пишет `replicas`).
+* 🗑️ **`prune: true`** удаляет ресурсы, которые из Git *убрали*. Без этого удалённый файл оставляет в кластере сироту.
+* ⚙️ **`ServerSideApply=true`** включает server-side apply Kubernetes: нет проблемы с аннотацией last-applied-configuration, и это уживается с HPA/VPA.
 
-> ⚠️ **Sane default for prod:** manual sync, `prune: false`, `selfHeal: false`. Humans review every change. Dev environments turn everything on.
+> ⚠️ **Здравый дефолт для прода:** ручной sync, `prune: false`, `selfHeal: false`. Каждое изменение смотрит человек. В dev включайте всё.
 
 ---
 
-## 📍 Slide 11 – 🌊 Sync Waves and Hooks
+## 📍 Слайд 11 – 🌊 Sync waves и хуки
 
-Some resources must come up *before* others — CRDs before custom resources, namespaces before everything, DB migrations before the app.
+Часть ресурсов должна подняться *раньше* других. CRD раньше custom resource, namespace раньше всего, миграции БД раньше приложения.
 
 ```yaml
 metadata:
@@ -239,22 +239,22 @@ metadata:
 
 ```mermaid
 flowchart LR
-  PreSync[🪝 PreSync hooks] --> W0[wave -1: CRDs]
-  W0 --> W1[wave 0: namespaces, ConfigMaps]
-  W1 --> W2[wave 1: Deployments]
-  W2 --> W3[wave 2: Services, Ingress]
-  W3 --> Post[🪝 PostSync hooks]
+  PreSync[🪝 хуки PreSync] --> W0[волна -1: CRDs]
+  W0 --> W1[волна 0: namespaces, ConfigMaps]
+  W1 --> W2[волна 1: Deployments]
+  W2 --> W3[волна 2: Services, Ingress]
+  W3 --> Post[🪝 хуки PostSync]
 ```
 
-* 🪝 **Hooks** are arbitrary K8s resources (typically Jobs) that run at lifecycle points. Classic use: a `pre-sync` Job that runs `flyway migrate` before the new app pods start.
-* 🌊 **Waves** order Sync-phase resources. The controller applies everything at wave `N`, waits for health, then proceeds to `N+1`.
-* 🧹 **`hook-delete-policy`** keeps the cluster tidy — `HookSucceeded` deletes the Job once it finishes green.
+* 🪝 **Хуки** — любые ресурсы Kubernetes (обычно Job), которые бегут в точках жизненного цикла. Классика: Job на `pre-sync`, который гоняет `flyway migrate`, пока новые Pod приложения ещё не стартовали.
+* 🌊 **Волны** задают порядок ресурсов в фазе Sync. Контроллер применяет всё на волне `N`, ждёт health и только потом идёт на `N+1`.
+* 🧹 **`hook-delete-policy`** не даёт кластеру зарасти: `HookSucceeded` удаляет Job, как только тот закончился зелёным.
 
 ---
 
-## 📍 Slide 12 – 🌳 The App-of-Apps Pattern
+## 📍 Слайд 12 – 🌳 Паттерн App-of-Apps
 
-Bootstrap problem: ArgoCD manages your apps via `Application` CRs in the `argocd` namespace. But who manages *those* `Application` CRs? Answer: another `Application`.
+Проблема старта: приложениями ArgoCD управляет через CR `Application` в namespace `argocd`. Кто управляет *этими* CR? Другой `Application`.
 
 ```
 gitops-repo/
@@ -285,17 +285,17 @@ spec:
     automated: { prune: true, selfHeal: true }
 ```
 
-One `kubectl apply -f root.yaml` and ArgoCD discovers and syncs every child `Application`. The cluster is now self-managing — recovery = reinstall ArgoCD + reapply `root.yaml`.
+Один `kubectl apply -f root.yaml` — и ArgoCD находит каждый дочерний `Application` и синкает его. Дальше кластер ведёт себя сам: восстановление = заново поставить ArgoCD и снова применить `root.yaml`.
 
 ---
 
-## 📍 Slide 13 – 🧬 The 3-Service ArgoCD Topology
+## 📍 Слайд 13 – 🧬 Топология ArgoCD на три сервиса
 
 ```mermaid
 flowchart TD
-  Git[📝 GitHub repo<br/>k8s/charts + apps/]
+  Git[📝 репозиторий GitHub<br/>k8s/charts + apps/]
   Git --> Root[🌱 root Application<br/>App-of-Apps]
-  Root --> AS[♾️ ApplicationSet<br/>List generator: dev, prod]
+  Root --> AS[♾️ ApplicationSet<br/>генератор List: dev, prod]
 
   AS --> AP_D[🐍 app-python-dev]
   AS --> AG_D[🦫 app-go-echo-dev]
@@ -308,15 +308,15 @@ flowchart TD
   AP_P & AG_P & AH_P --> NSprod[☸️ namespace: prod]
 ```
 
-* 🐍 **app-python** — your Lab 2 → Lab 10 service (FastAPI).
-* 🦫 **app-go-echo** — Lab 9's plumbing companion (Go HTTP echo).
-* 💚 **app-go-health** — **new in Lab 13** — a tiny Go health/static service shipped as plumbing. It exists *specifically* so that ApplicationSet and App-of-Apps stop being toy patterns.
+* 🐍 **app-python** — сервис из Lab 2 → Lab 10 (FastAPI).
+* 🦫 **app-go-echo** — служебный напарник из Lab 9 (Go HTTP echo).
+* 💚 **app-go-health** — **новый в Lab 13**. Крошечный Go-сервис health/static из plumbing. Он нужен *именно* затем, чтобы ApplicationSet и App-of-Apps перестали быть игрушечными схемами.
 
-> 💡 **Pedagogical point:** ApplicationSet with one service is just `kubectl apply` with extra steps. With **two** services in **two** environments it starts to earn its keep. With **three services × two environments = six Applications** generated from one 30-line template, the value is obvious. Hence Lab 13 introduces `app-go-health`.
+> 💡 **Зачем это:** ApplicationSet на одном сервисе — тот же `kubectl apply`, только длиннее. На **двух** сервисах в **двух** окружениях он начинает окупаться. **Три сервиса × два окружения = шесть Application** из одного шаблона на 30 строк, и польза уже очевидна. Поэтому Lab 13 вводит `app-go-health`.
 
 ---
 
-## 📍 Slide 14 – ♾️ ApplicationSet: One Template, Many Apps
+## 📍 Слайд 14 – ♾️ ApplicationSet: один шаблон, много приложений
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -356,32 +356,32 @@ spec:
         syncOptions: [CreateNamespace=true]
 ```
 
-The **matrix** generator cross-joins two **list** generators → 3 services × 2 envs = **6 `Application` CRs** materialized automatically. Add a fourth service? One line in the first list.
+Генератор **matrix** скрещивает два генератора **list**: 3 сервиса × 2 окружения = **6 CR `Application`**, и они появляются сами. Четвёртый сервис — одна строка в первом списке.
 
 ---
 
-## 📍 Slide 15 – 🧰 The Other ApplicationSet Generators
+## 📍 Слайд 15 – 🧰 Остальные генераторы ApplicationSet
 
-| Generator | What it iterates over | Use when |
+| Генератор | По чему идёт | Когда брать |
 |-----------|----------------------|----------|
-| **List** | Inline literals | Small, stable set (dev/staging/prod) |
-| **Cluster** | All clusters registered with ArgoCD | Multi-cluster fleet rollouts |
-| **Git (Directory)** | Folders under a path in a repo | One folder per app — auto-discover new apps |
-| **Git (File)** | YAML/JSON files at a path | One config file per tenant |
-| **Matrix** | Cross-join of two generators | Apps × environments, services × clusters |
-| **Merge** | Inner-join + override | Layer cluster-specific overrides onto a base list |
-| **SCM Provider** | Repos in a GitHub/GitLab org | Org-wide GitOps for many service repos |
-| **Pull Request** | Open PRs in a repo | Ephemeral preview environments per PR |
-| **Cluster Decision** | A CRD that picks clusters | External logic decides where apps land |
-| **Plugin** | An HTTP service you write | Anything the above can't express |
+| **List** | Литералы прямо в манифесте | Маленький стабильный набор (dev/staging/prod) |
+| **Cluster** | Все кластеры, зарегистрированные в ArgoCD | Выкладка на флот кластеров |
+| **Git (Directory)** | Папки под путём в репозитории | Папка на приложение: новые находятся сами |
+| **Git (File)** | Файлы YAML/JSON по пути | Один файл конфига на тенанта |
+| **Matrix** | Скрещивание двух генераторов | Приложения × окружения, сервисы × кластеры |
+| **Merge** | Inner join и переопределение | Оверрайды конкретного кластера поверх базового списка |
+| **SCM Provider** | Репозитории организации GitHub/GitLab | GitOps на всю организацию, много репозиториев сервисов |
+| **Pull Request** | Открытые PR в репозитории | Эфемерное preview-окружение на каждый PR |
+| **Cluster Decision** | CRD, который выбирает кластеры | Куда сажать приложение, решает внешняя логика |
+| **Plugin** | HTTP-сервис, который пишете вы | Всё, что строками выше не выразить |
 
-> 💡 **Lab 13 uses List + Matrix.** Bonus: try the Git Directory generator pointed at `k8s/charts/` — adding a new chart folder automatically creates an Application.
+> 💡 **В Lab 13 — List и Matrix.** Бонус: направьте генератор Git Directory на `k8s/charts/`. Новая папка чарта сама создаёт Application.
 
 ---
 
-## 📍 Slide 16 – 🔐 RBAC and AppProjects
+## 📍 Слайд 16 – 🔐 RBAC и AppProject
 
-Out of the box, every `Application` lands in the `default` project, which can deploy anywhere. In production, you carve up access with **AppProject** CRs.
+Из коробки каждый `Application` попадает в проект `default`, а тот может выкатывать куда угодно. В проде доступ режут CR **AppProject**.
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -408,163 +408,163 @@ spec:
       groups: [innodevops:payments]
 ```
 
-The user-facing **argocd-rbac-cm** ConfigMap maps OIDC groups → roles → permissions. Pattern: one project per team, no `default` use in prod, OIDC groups for human role bindings.
+Пользовательский ConfigMap **argocd-rbac-cm** связывает группы OIDC, роли и права. Схема: один проект на команду, в проде без `default`, живые роли — через группы OIDC.
 
 ---
 
-## 📍 Slide 17 – 🔒 Secrets in a GitOps World
+## 📍 Слайд 17 – 🔒 Секреты в мире GitOps
 
-GitOps demands "everything in Git" — but plaintext secrets in Git are an immediate breach. Three production-grade answers:
+GitOps хочет «всё в Git». Секрет открытым текстом в Git — это сразу компрометация. Три рабочих ответа:
 
-| Pattern | How it works | Tradeoff |
+| Паттерн | Как устроено | Компромисс |
 |---------|--------------|----------|
-| **Sealed Secrets** (Bitnami) | Controller in cluster has a keypair; you `kubeseal` a `Secret` into a `SealedSecret` (cipher in YAML); controller decrypts on apply | Per-cluster key — re-seal on rotation |
-| **External Secrets Operator + OpenBao** | Git holds only an `ExternalSecret` *reference*; ESO pulls the actual value from OpenBao/Vault/SSM at sync time | Operational dependency on the secret store |
-| **SOPS + KMS / age** | Files encrypted in Git with `sops`; ArgoCD plugin (`argocd-vault-plugin`, `helm-secrets`) decrypts at render time | Plugin install + key management |
+| **Sealed Secrets** (Bitnami) | У контроллера в кластере пара ключей; `kubeseal` превращает `Secret` в `SealedSecret` (шифр лежит в YAML); при apply контроллер расшифровывает | Ключ свой у каждого кластера: на ротации запечатывать заново |
+| **External Secrets Operator + OpenBao** | В Git только *ссылка* `ExternalSecret`; в момент sync ESO забирает значение из OpenBao, Vault или SSM | В эксплуатации вы зависите от хранилища секретов |
+| **SOPS + KMS / age** | Файлы в Git зашифрованы через `sops`; плагин ArgoCD (`argocd-vault-plugin`, `helm-secrets`) расшифровывает на рендере | Надо поставить плагин и вести ключи |
 
-Your **Lab 11** already wired OpenBao + ESO — that's the pattern Lab 13 keeps using. The `Secret` resources never appear in Git; only `ExternalSecret` references do.
+**Lab 11** уже связал OpenBao и ESO. Lab 13 живёт на том же паттерне. Ресурсов `Secret` в Git нет, только ссылки `ExternalSecret`.
 
-> 🔥 **Never** put plaintext secrets in the GitOps repo, even private. Git history is forever.
+> 🔥 **Никогда** не кладите секреты открытым текстом в GitOps-репозиторий, даже в приватный. История Git вечна.
 
 ---
 
-## 📍 Slide 18 – 🌐 Multi-Cluster GitOps
+## 📍 Слайд 18 – 🌐 GitOps на много кластеров
 
-ArgoCD running in **one** "control plane" cluster can manage **many** workload clusters.
+ArgoCD в **одном** кластере control plane может вести **много** рабочих кластеров.
 
 ```mermaid
 flowchart LR
-  Git[📝 Git] --> Argo[🤖 ArgoCD<br/>control-plane cluster]
-  Argo -->|kubeconfig in Secret| C1[☸️ dev cluster]
-  Argo -->|kubeconfig in Secret| C2[☸️ staging cluster]
-  Argo -->|kubeconfig in Secret| C3[☸️ prod cluster]
-  Argo -->|kubeconfig in Secret| C4[☸️ edge cluster]
+  Git[📝 Git] --> Argo[🤖 ArgoCD<br/>кластер control plane]
+  Argo -->|kubeconfig в Secret| C1[☸️ кластер dev]
+  Argo -->|kubeconfig в Secret| C2[☸️ кластер staging]
+  Argo -->|kubeconfig в Secret| C3[☸️ кластер prod]
+  Argo -->|kubeconfig в Secret| C4[☸️ кластер edge]
 ```
 
-* 🔑 Each target cluster is registered with `argocd cluster add <context>`, which creates a `Secret` with its kubeconfig in the `argocd` namespace.
-* ♾️ The **Cluster generator** in an ApplicationSet pairs this with one template → "deploy this app to every cluster labelled `tier=edge`".
-* ⏸️ **ArgoCD 3.4 added Pause Reconciliation per cluster** — flip a toggle to freeze a misbehaving cluster mid-incident without touching others.
+* 🔑 Целевой кластер регистрируют через `argocd cluster add <context>`. В namespace `argocd` появляется `Secret` с его kubeconfig.
+* ♾️ Генератор **Cluster** в ApplicationSet стыкует это с одним шаблоном: «выкати приложение на каждый кластер с меткой `tier=edge`».
+* ⏸️ **В ArgoCD 3.4 сверку можно поставить на паузу по одному кластеру.** Тумблер замораживает один больной кластер посреди инцидента, остальные живут как жили.
 
-> 💡 **Hub-and-spoke vs federated:** the hub model is simpler; for >50 clusters or strict network isolation, consider **Argo CD Argocd in each cluster** + a higher-level fleet controller (Fleet, Cluster API).
+> 💡 **Хаб со спицами и федерация:** хаб проще. Кластеров больше 50 или сеть жёстко режется — ставьте **Argo CD в каждый кластер** и контроллер флота уровнем выше (Fleet, Cluster API).
 
 ---
 
-## 📍 Slide 19 – 🩺 Observing ArgoCD Itself
+## 📍 Слайд 19 – 🩺 Наблюдаем сам ArgoCD
 
-ArgoCD ships Prometheus metrics out of the box (your Lab 8 stack scrapes them).
+Метрики Prometheus у ArgoCD есть сразу. Стек из Lab 8 их скрейпит.
 
-| Metric | Watch for |
+| Метрика | На что смотреть |
 |--------|-----------|
-| `argocd_app_info{sync_status="OutOfSync"}` | Persistent drift |
-| `argocd_app_info{health_status="Degraded"}` | Broken apps |
-| `argocd_app_sync_total{phase="Failed"}` | Failing syncs |
-| `argocd_app_reconcile_bucket` | Reconcile latency histogram |
-| `argocd_cluster_api_resource_objects` | Object count growth (scaling signal) |
-| `argocd_redis_request_total` | Cache load |
+| `argocd_app_info{sync_status="OutOfSync"}` | Затяжной drift |
+| `argocd_app_info{health_status="Degraded"}` | Сломанные приложения |
+| `argocd_app_sync_total{phase="Failed"}` | Падающие sync |
+| `argocd_app_reconcile_bucket` | Гистограмма задержки сверки |
+| `argocd_cluster_api_resource_objects` | Рост числа объектов (пора масштабировать) |
+| `argocd_redis_request_total` | Нагрузка на кэш |
 
-Wire these into your Lab 8 Grafana stack and alert on **Degraded > 5 minutes** and **OutOfSync > 30 minutes** (auto-sync clusters should never sit OutOfSync that long; if they do, something is wedged).
+Заведите их в Grafana из Lab 8. Алерты: **Degraded дольше 5 минут** и **OutOfSync дольше 30 минут**. При авто-sync приложение не должно столько сидеть в OutOfSync. Если сидит, что-то заклинило.
 
 ---
 
-## 📍 Slide 20 – 🚨 Disaster Recovery: Git Is Your Backup
+## 📍 Слайд 20 – 🚨 Аварийное восстановление: бэкап — это Git
 
-The clean GitOps recovery story:
+Чистая история восстановления в GitOps:
 
 ```mermaid
 flowchart LR
-  Dead[💀 Cluster gone] --> New[🆕 Fresh cluster]
+  Dead[💀 Кластер пропал] --> New[🆕 Новый кластер]
   New -->|helm install argo-cd| Argo[🤖 ArgoCD]
   Argo -->|kubectl apply -f root.yaml| Root[🌱 App-of-Apps]
-  Root --> All[♾️ All apps reconciled]
-  All --> Back[✅ Back online]
+  Root --> All[♾️ Все приложения сверены]
+  All --> Back[✅ Снова в строю]
 ```
 
-1. 🆕 Provision a new cluster (Terraform / kubeadm / kOps).
+1. 🆕 Поднимите новый кластер (Terraform / kubeadm / kOps).
 2. 📦 `helm install argo-cd argo/argo-cd -n argocd --create-namespace`.
 3. 🌱 `kubectl apply -f apps/root.yaml`.
-4. ☕ Wait. Everything else is in Git.
+4. ☕ Ждите. Всё остальное уже в Git.
 
-> ⚠️ **What's *not* recovered:** stateful data (PVCs, databases). GitOps restores **configuration**, not **state**. Pair with PV snapshots / Velero / database backups. This is the same lesson Labs 11 (secrets) and 12 (PVCs) hammered.
-
----
-
-## 📍 Slide 21 – 🧰 Anti-Patterns and Common Bugs
-
-1. ❌ **`kubectl apply` to a GitOps-managed namespace** — self-heal reverts it in 3 minutes and you wasted everyone's afternoon debugging. Make the change in Git.
-2. ❌ **`prune: true` on first install** — if your `path:` is wrong, ArgoCD happily deletes everything it doesn't see. Start with `prune: false`, verify, then turn it on.
-3. ❌ **Pointing `targetRevision` at `HEAD`** for prod — silent rollouts on every commit to `main`. Use a tag or `release/*` branch.
-4. ❌ **Storing plaintext `Secret` YAML in Git** — even in a private repo. Use Sealed Secrets / ESO / SOPS.
-5. ❌ **One giant `Application` for "everything"** — you lose per-app sync, per-app status, per-app RBAC. One Application per (service × env).
-6. ❌ **Mixing repo concerns** — keep **app code** and **GitOps manifests** in *different* repos (or at least different paths). CI builds the image; GitOps repo references the new tag.
-7. ❌ **Forgetting the finalizer** — orphan resources on `kubectl delete app` are how rogue Pods survive in production for a year.
-8. ❌ **selfHeal on resources with HPA** — the HPA writes `spec.replicas`, ArgoCD reverts it, fight ensues. Use `ignoreDifferences:` on `/spec/replicas`.
+> ⚠️ **Что *не* вернётся:** данные с состоянием (PVC, базы). GitOps возвращает **конфигурацию**, не **состояние**. Рядом нужны снимки PV, Velero или бэкапы баз. Тот же урок, который вбили Labs 11 (секреты) и 12 (PVC).
 
 ---
 
-## 📍 Slide 22 – 🌍 GitOps in the Wild
+## 📍 Слайд 21 – 🧰 Антипаттерны и частые баги
 
-* 🏢 **Intuit** open-sourced ArgoCD in 2018 to manage ~2,000 microservices; they run hundreds of deploys/day off Git.
-* 🛒 **BlackRock, Adobe, Tesla, Red Hat OpenShift GitOps** all ship ArgoCD in production at large scale.
-* 📊 **CNCF Annual Survey 2024:** GitOps adoption is the #1-growing K8s practice; **ArgoCD** is the dominant tool in survey responses.
-* 🏷️ **Argo project graduated CNCF** in December 2022 — same maturity tier as Kubernetes, Prometheus, Envoy.
-* 🚀 **ArgoCD 3.4** (early May 2026) doubled down on Day-2 ops: pause-per-cluster, richer UI filters, K8s version stored as Major.Minor.Patch, OpenTelemetry tracing through the OIDC flow.
-
-> 📊 **One number:** Codefresh's 2024 "State of GitOps" survey put **ArgoCD at ~70% of GitOps deployments**, Flux at ~25%, the rest in the long tail.
-
----
-
-## 📍 Slide 23 – 🎯 Key Takeaways
-
-1. 📜 **GitOps = the four OpenGitOps principles** — declarative, versioned, pulled, continuously reconciled. Everything else is implementation detail.
-2. 🚀 **Pull beats push** on credential surface, drift detection, and disaster recovery.
-3. 🏗️ **ArgoCD = 5 components** — argocd-server, application-controller, repo-server, redis, dex (+ applicationset-controller). Memorize their jobs.
-4. 📝 **Application CRD** is the atomic unit; **App-of-Apps** bootstraps the whole cluster from one seed.
-5. ♾️ **ApplicationSet** with Matrix(List × List) generates N services × M environments from one template — the lab pattern.
-6. 🎚️ **Sync policy = manual for prod, automated+selfHeal+prune for dev** is a sane default.
-7. 🌊 **Sync waves + hooks** order DB migrations before app pods and cleanup jobs after.
-8. 🔒 **Secrets stay out of Git** — Sealed Secrets / ESO + OpenBao / SOPS. Forever.
-
-> 💬 *"Operations by Pull Request."* — Kelsey Hightower
+1. ❌ **`kubectl apply` в namespace, которым владеет GitOps.** Self-heal откатит правку за 3 минуты, и день уйдёт на отладку. Меняйте в Git.
+2. ❌ **`prune: true` на первой установке.** Кривой `path:` — и ArgoCD радостно удалит всё, чего не видит. Начните с `prune: false`, проверьте, потом включайте.
+3. ❌ **`targetRevision` смотрит на `HEAD` в проде.** Каждый коммит в `main` тихо выкатывается. Берите тег или ветку `release/*`.
+4. ❌ **YAML `Secret` открытым текстом в Git.** Даже в приватном репозитории. Sealed Secrets, ESO или SOPS.
+5. ❌ **Один огромный `Application` на «всё».** Пропадают sync, статус и RBAC на приложение. Один Application на пару (сервис × окружение).
+6. ❌ **Смешивать роли репозитория.** **Код приложения** и **манифесты GitOps** держите в *разных* репозиториях (или хотя бы в разных путях). CI собирает образ, GitOps-репозиторий ссылается на новый тег.
+7. ❌ **Забыли finalizer.** После `kubectl delete app` остаются сироты. Так бесхозные Pod живут в проде по году.
+8. ❌ **selfHeal на ресурсах с HPA.** HPA пишет `spec.replicas`, ArgoCD откатывает, начинается драка. Поставьте `ignoreDifferences:` на `/spec/replicas`.
 
 ---
 
-## 📍 Slide 24 – 🚀 What Comes Next
+## 📍 Слайд 22 – 🌍 GitOps вживую
 
-**📚 Next lecture: *Progressive Delivery with Argo Rollouts*** — because once GitOps deploys instantly on merge, the next question is *"how do we deploy **carefully**?"* Canary, blue-green, automated analysis.
+* 🏢 **Intuit** открыл исходники ArgoCD в 2018, чтобы вести ~2000 микросервисов. Сотни выкладок в день идут из Git.
+* 🛒 **BlackRock, Adobe, Tesla, Red Hat OpenShift GitOps** крутят ArgoCD в большом проде.
+* 📊 **CNCF Annual Survey 2024:** GitOps — самая быстрорастущая практика Kubernetes. В ответах лидирует **ArgoCD**.
+* 🏷️ **Проект Argo получил статус CNCF Graduated** в декабре 2022. Та же ступень зрелости, что у Kubernetes, Prometheus и Envoy.
+* 🚀 **ArgoCD 3.4** (начало мая 2026) делает ставку на Day-2: пауза сверки на один кластер, богаче фильтры UI, версия Kubernetes как Major.Minor.Patch, трассировка OpenTelemetry через поток OIDC.
 
-* 🐤 **Canary deployments** — 10% → 50% → 100%, gated by Prometheus queries
-* 🔵 **Blue-green** — two full stacks, instant switch, instant rollback
-* 📊 **AnalysisTemplate** — metric-driven promotion / rollback
-* 🔄 **Argo Rollouts** vs Flagger — the two contenders
+> 📊 **Одна цифра:** опрос Codefresh «State of GitOps» за 2024 ставит **ArgoCD примерно на 70% GitOps-выкладок**, Flux примерно на 25%, остальное — длинный хвост.
 
-**🔬 Lab 13 deliverables:**
-* Install ArgoCD 3.4 via Helm in your cluster
-* Add a **third service** — `app-go-health` (plumbing files shipped in `app_go_health/`)
-* Declare an `Application` for each of the **three** services, in **two** environments (dev + prod) — six Applications total
-* Replace the six with one **ApplicationSet** using a Matrix(List, List) generator
-* Wrap the lot in an **App-of-Apps** root Application
-* Auto-sync dev with selfHeal + prune; keep prod **manual**
-* Bonus 2.5 pts: switch to the Git Directory generator that auto-discovers new charts under `k8s/charts/*`
+---
+
+## 📍 Слайд 23 – 🎯 Главное
+
+1. 📜 **GitOps = четыре принципа OpenGitOps:** декларативно, с версиями, через pull, непрерывная сверка. Всё остальное — детали реализации.
+2. 🚀 **Pull лучше push** по месту учётных данных, по обнаружению drift и по аварийному восстановлению.
+3. 🏗️ **ArgoCD — это 5 компонентов:** argocd-server, application-controller, repo-server, redis, dex (и ещё applicationset-controller). Запомните, кто что делает.
+4. 📝 **CRD Application** — атомарная единица. **App-of-Apps** поднимает весь кластер из одного корневого манифеста.
+5. ♾️ **ApplicationSet** с Matrix(List × List) порождает N сервисов × M окружений из одного шаблона. Это паттерн лабораторной.
+6. 🎚️ **Политика sync: ручная для прода, automated + selfHeal + prune для dev.** Здравый дефолт.
+7. 🌊 **Sync waves и хуки** ставят миграции БД раньше Pod приложения, а задания очистки — после.
+8. 🔒 **Секреты в Git не живут.** Sealed Secrets, ESO + OpenBao, SOPS. Навсегда.
+
+> 💬 *"Operations by Pull Request."* (эксплуатация через pull request) — Kelsey Hightower
+
+---
+
+## 📍 Слайд 24 – 🚀 Что дальше
+
+**📚 Следующая лекция: *Постепенная выкладка с Argo Rollouts*.** GitOps выкатывает сразу на merge, и следующий вопрос — *«как выкатывать **осторожно**?»* Canary, blue-green, анализ без человека.
+
+* 🐤 **Canary** — 10% → 50% → 100%, ворота из запросов Prometheus
+* 🔵 **Blue-green** — два полных стека, мгновенное переключение, мгновенный откат
+* 📊 **AnalysisTemplate** — продвижение и откат по метрикам
+* 🔄 **Argo Rollouts** и Flagger — два претендента
+
+**🔬 Что сдать в Lab 13:**
+* Поставить ArgoCD 3.4 через Helm в свой кластер
+* Добавить **третий сервис** — `app-go-health` (файлы plumbing лежат в `app_go_health/`)
+* Описать `Application` на каждый из **трёх** сервисов в **двух** окружениях (dev и prod) — всего шесть Application
+* Заменить шесть одним **ApplicationSet** с генератором Matrix(List, List)
+* Обернуть всё корневым Application в паттерне **App-of-Apps**
+* Авто-sync для dev, с selfHeal и prune; prod оставить **ручным**
+* Бонус 2.5 балла: перейти на генератор Git Directory, который сам находит новые чарты под `k8s/charts/*`
 
 ```mermaid
 flowchart LR
-  Lab10[📦 Lab 10: Helm chart] --> Lab13[🤖 Lab 13: ArgoCD<br/>+ 3rd service]
-  Lab13 --> Lab14[🚀 Lab 14: Argo Rollouts<br/>progressive delivery]
+  Lab10[📦 Lab 10: Helm-чарт] --> Lab13[🤖 Lab 13: ArgoCD<br/>+ 3-й сервис]
+  Lab13 --> Lab14[🚀 Lab 14: Argo Rollouts<br/>постепенная выкладка]
 ```
 
-> 🌊 From "I deployed it" to "Git deployed it" — one merge at a time.
+> 🌊 От «это выкатил я» к «это выкатил Git» — по одному merge за раз.
 
 ---
 
-## 📚 Resources
+## 📚 Материалы
 
-* 📕 *GitOps and Kubernetes* — Yuen, Matyushentsev, Ekenstam, Suen (Manning, 2021) — canonical book on the pattern
-* 📕 *The Path to GitOps* — Christian Hernandez (Red Hat e-book, 2024) — short, practitioner-focused
-* 🌐 [argo-cd.readthedocs.io](https://argo-cd.readthedocs.io/en/stable/) — official ArgoCD docs
-* 🌐 [opengitops.dev](https://opengitops.dev/) — the four principles, ratified
-* 🌐 [github.com/argoproj/argo-cd](https://github.com/argoproj/argo-cd) — source + releases
-* 🌐 [fluxcd.io](https://fluxcd.io/) — the other CNCF GitOps tool worth knowing
-* 🌐 [Codefresh "State of GitOps" survey](https://codefresh.io/) — annual adoption numbers
-* 🎙️ KubeCon 2023 keynote — *"GitOps at Intuit"* (Hong Wang) — origin story of ArgoCD at scale
+* 📕 *GitOps and Kubernetes* — Yuen, Matyushentsev, Ekenstam, Suen (Manning, 2021) — каноническая книга про паттерн
+* 📕 *The Path to GitOps* — Christian Hernandez (электронная книга Red Hat, 2024) — короткая, для практика
+* 🌐 [argo-cd.readthedocs.io](https://argo-cd.readthedocs.io/en/stable/) — официальная документация ArgoCD
+* 🌐 [opengitops.dev](https://opengitops.dev/) — четыре принципа, уже утверждённые
+* 🌐 [github.com/argoproj/argo-cd](https://github.com/argoproj/argo-cd) — исходники и релизы
+* 🌐 [fluxcd.io](https://fluxcd.io/) — второй инструмент GitOps в CNCF, который стоит знать
+* 🌐 [опрос Codefresh «State of GitOps»](https://codefresh.io/) — ежегодные цифры внедрения
+* 🎙️ Доклад KubeCon 2023 — *"GitOps at Intuit"* (Hong Wang) — как ArgoCD вырос до большого масштаба
 
-**🎓 Quiz:** Post-lecture quiz feeds the weeks 13-16 leaderboard window.
+**🎓 Квиз:** квиз после лекции попадает в окно таблицы лидеров за недели 13-16.

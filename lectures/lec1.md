@@ -1,304 +1,304 @@
-# 📌 Lecture 1 — Introduction to DevOps: From Chaos to Flow
+# 📌 Lecture 1 — Введение в DevOps: от хаоса к потоку
 
-## 📍 Slide 1 – 🚀 Welcome to DevOps
+## 📍 Слайд 1 – 🚀 Добро пожаловать в DevOps
 
-* 🌍 **Software is eating the world** — but shipping it reliably is hard
-* 😰 Teams struggle with slow releases, broken deploys, and finger-pointing
-* 🌉 **DevOps bridges the gap** between **building** and **running** software
-* 🎯 This course: practical skills to deliver software the way modern teams actually do
+* 🌍 **Software is eating the world** (софт пожирает мир) — но надёжно выкатывать его трудно
+* 😰 Команды буксуют: медленные релизы, сломанные деплои, поиск виноватых
+* 🌉 **DevOps закрывает разрыв** между **разработкой** и **эксплуатацией** софта
+* 🎯 Этот курс: практические навыки выкатывать софт так, как это делают современные команды
 
 ```mermaid
 flowchart LR
-  Chaos[😱 Chaos] -->|DevOps| Flow[🌊 Flow]
-  Flow --> Value[💎 Deliver Value Faster]
+  Chaos[😱 Хаос] -->|DevOps| Flow[🌊 Поток]
+  Flow --> Value[💎 Быстрее доставлять ценность]
 ```
 
-> 📚 **Frame for the semester:** every lab in this course traces back to a problem that DevOps solves. Today we name the problems; over the next 16 weeks you build the solutions yourself.
+> 📚 **Рамка семестра:** каждая лаба курса про проблему, которую закрывает DevOps. Сегодня называем проблемы; следующие 16 недель вы собираете решения сами.
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Слайд 2 – 🎯 Чему научитесь
 
-* ✅ Define DevOps and its core principles (CAMS, Three Ways)
-* ✅ Recognize pre-DevOps anti-patterns in real teams
-* ✅ Map DevOps practices (CI/CD, IaC, observability) to the problems they fix
-* ✅ Read DORA metrics and tell elite teams from low performers
-* ✅ Navigate the DevOps lifecycle and locate this course's labs inside it
+* ✅ Сформулировать DevOps и базовые принципы (CAMS, Three Ways)
+* ✅ Узнавать антипаттерны до DevOps в живых командах
+* ✅ Сопоставить практики DevOps (CI/CD, IaC, наблюдаемость) с проблемами, которые они закрывают
+* ✅ Читать метрики DORA и отличать elite от low performers
+* ✅ Пройти по циклу DevOps и найти на нём лабы курса
 
-**🎓 By the end of this lecture:**
+**🎓 К концу лекции:**
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Define DevOps in your own words |
-| 2 | 🔍 Recognize the silos, fear, and toil that DevOps formed to fight |
-| 3 | 🛠️ Match each DevOps practice to the failure mode it addresses |
-| 4 | 🗺️ Place every course lab on the DevOps lifecycle |
+| 1 | 🧠 Сформулировать DevOps своими словами |
+| 2 | 🔍 Узнать силосы, страх и toil (ручная работа, которая не заканчивается) — то, с чем DevOps и борется |
+| 3 | 🛠️ Сопоставить каждую практику DevOps со сбоем, который она закрывает |
+| 4 | 🗺️ Разложить каждую лабу курса по циклу DevOps |
 
 ---
 
-## 📍 Slide 3 – 📜 A Brief History
+## 📍 Слайд 3 – 📜 Короткая история
 
-* 📅 **2009** — Patrick Debois organizes **DevOpsDays** in Ghent, Belgium. The term *"DevOps"* is coined.
-* 📅 **2009** — John Allspaw & Paul Hammond present *"10+ Deploys per Day"* at Velocity — the cultural manifesto.
-* 📅 **2011** — Werner Vogels (Amazon CTO) reports Amazon deploys to production **every 11.7 seconds** at peak.
-* 📅 **2013** — **Docker** open-sourced. Containers become mainstream.
-* 📅 **2014** — **Kubernetes** announced by Google. Container orchestration takes off.
-* 📅 **2016** — **The DevOps Handbook** published (Kim, Humble, Debois, Willis).
-* 📅 **2018** — Nicole Forsgren's *Accelerate* publishes the four DORA metrics.
-* 📅 **2024** — DORA *State of DevOps* reports **19% elite + 22% high performers** (41% combined; final report with this taxonomy).
-* 📅 **2025** — DORA retires the Elite/High/Medium/Low ladder; replaces it with **seven team archetypes** that combine delivery performance with human factors (burnout, friction, perceived value).
+* 📅 **2009** — Patrick Debois собирает **DevOpsDays** в Генте, Бельгия. Так появляется слово *"DevOps"*.
+* 📅 **2009** — John Allspaw и Paul Hammond показывают *"10+ Deploys per Day"* на Velocity. Это культурный манифест.
+* 📅 **2011** — Werner Vogels (CTO Amazon): на пике Amazon выкатывает в прод **каждые 11.7 секунды**.
+* 📅 **2013** — **Docker** открывает исходники. Контейнеры становятся мейнстримом.
+* 📅 **2014** — Google анонсирует **Kubernetes**. Оркестрация контейнеров взлетает.
+* 📅 **2016** — выходит **The DevOps Handbook** (Kim, Humble, Debois, Willis).
+* 📅 **2018** — в *Accelerate* Nicole Forsgren публикует четыре метрики DORA.
+* 📅 **2024** — отчёт DORA *State of DevOps*: **19% elite + 22% high performers** (вместе 41%; последний отчёт с этой классификацией).
+* 📅 **2025** — DORA убирает лестницу Elite/High/Medium/Low. Вместо неё **семь архетипов команд**: скорость поставки плюс люди (выгорание, трение, ощущаемая ценность).
 
-> 🤔 **Notice:** DevOps started as a *culture* movement, not a tool announcement.
-
----
-
-## 📍 Slide 4 – ❓ The Big Question
-
-* 📊 **70%+** of large-scale IT projects experience significant cost or schedule overruns (McKinsey)
-* ⏱️ Pre-DevOps lead time from commit to production: **weeks to months**
-* 💥 The biggest source of outages is **changes** — deploys, config edits, dependency bumps
-
-> 💬 *"It worked on my machine."* — Every developer, ever
-
-**🤔 Discussion:**
-* Why is software delivery so hard?
-* Why do teams fear deployments?
-* What would "good" look like for your team?
+> 🤔 **Заметьте:** DevOps начался как движение про культуру, не как анонс инструмента.
 
 ---
 
-## 📍 Slide 5 – 🔥 Section 1: The Problem Before DevOps
+## 📍 Слайд 4 – ❓ Главный вопрос
 
-* 👨‍💻 **Development** and ⚙️ **Operations** were separate teams with opposing goals
-* 🚀 Dev wanted: **ship features fast** (rewarded for velocity)
-* 🛡️ Ops wanted: **keep systems stable** (rewarded for uptime)
-* 💥 Result: **structural conflict, blame, and slow delivery**
+* 📊 **70%+** крупных IT-проектов сильно выбиваются из бюджета или сроков (McKinsey)
+* ⏱️ Lead time от коммита до прода до DevOps: **недели или месяцы**
+* 💥 Главный источник аварий — **изменения**: деплои, правки конфига, обновления зависимостей
+
+> 💬 *«У меня на машине работало.»* — каждый разработчик, всегда
+
+**🤔 Обсуждение:**
+* Почему поставка софта так трудна?
+* Почему команды боятся деплоев?
+* Как для вашей команды выглядит «хорошо»?
+
+---
+
+## 📍 Слайд 5 – 🔥 Раздел 1: проблема до DevOps
+
+* 👨‍💻 **Разработка** и ⚙️ **эксплуатация** были разными командами с противоположными целями
+* 🚀 Dev хотели: **быстро выкатывать фичи** (мерили скоростью)
+* 🛡️ Ops хотели: **держать системы стабильными** (мерили аптаймом)
+* 💥 Итог: **конфликт ролей, обвинения и медленная поставка**
 
 ```mermaid
 flowchart LR
-  Dev[👨‍💻 Dev Team] -->|🎯 New Features| Goal1[Ship Fast]
-  Ops[⚙️ Ops Team] -->|🛡️ Stability| Goal2[Don't Break]
-  Goal1 -.->|❌ Misaligned incentives| Goal2
+  Dev[👨‍💻 Команда Dev] -->|🎯 Новые фичи| Goal1[Выкатывать быстро]
+  Ops[⚙️ Команда Ops] -->|🛡️ Стабильность| Goal2[Не ломать]
+  Goal1 -.->|❌ Стимулы врозь| Goal2
 ```
 
-> 📖 *The Phoenix Project* (Kim, Behr, Spafford, 2013) dramatizes this exact conflict — required reading for this course.
+> 📖 *The Phoenix Project* (Kim, Behr, Spafford, 2013; рус. «Проект „Феникс“») показывает ровно этот конфликт. На курсе это обязательное чтение.
 
 ---
 
-## 📍 Slide 6 – 🧱 The Wall of Confusion
+## 📍 Слайд 6 – 🧱 Стена непонимания
 
-* 🧱 **The Wall** = invisible barrier between Dev and Ops
-* 📦 Dev "throws code over the wall"; Ops catches the blame when it breaks
-* 🔄 Ops rejects changes to avoid risk; Dev routes around Ops
+* 🧱 **Стена** = невидимый барьер между Dev и Ops
+* 📦 Dev «перебрасывает код через стену»; когда всё ломается, виноваты Ops
+* 🔄 Ops отклоняет изменения, чтобы не рисковать; Dev обходит Ops стороной
 
 ```mermaid
 flowchart LR
-  Dev[👨‍💻 Dev Team] -->|📦 Throws code over| Wall[🧱 Wall of Confusion]
-  Wall -->|🔥 Catches blame| Ops[⚙️ Ops Team]
-  Ops -->|❌ Rejects changes| Dev
+  Dev[👨‍💻 Команда Dev] -->|📦 Перебрасывает код| Wall[🧱 Стена непонимания]
+  Wall -->|🔥 Ловит вину| Ops[⚙️ Команда Ops]
+  Ops -->|❌ Отклоняет изменения| Dev
 ```
 
-> 🤔 **Think:** in your last student project, who would have been "Dev" and who "Ops"?
+> 🤔 **Подумайте:** в вашем последнем учебном проекте кто был бы «Dev», а кто «Ops»?
 
 ---
 
-## 📍 Slide 7 – 😱 Manual Release Hell
+## 📍 Слайд 7 – 😱 Ад ручных релизов
 
-* 📅 Deployments are rare events (monthly or quarterly)
-* 🎰 Each release = **high-risk, all-hands-on-deck**
-* 📋 Manual checklists, weekend work, no rollback plan
-* 💀 One mistake = hours of recovery, frustrated users
+* 📅 Деплои — редкие события (раз в месяц или квартал)
+* 🎰 Каждый релиз = **высокий риск, общий аврал**
+* 📋 Ручные чеклисты, работа в выходные, нет плана отката
+* 💀 Одна ошибка = часы восстановления и злые пользователи
 
 ```mermaid
 flowchart TD
-  Code[✅ Code Complete] --> Wait[📅 Wait for Release Window]
-  Wait --> Manual[📋 Manual Deploy Steps]
-  Manual --> Pray[🙏 Pray It Works]
-  Pray -->|💥 Failure| Blame[👉 Blame Game]
-  Pray -->|😮‍💨 Success| Relief[Temporary Relief]
+  Code[✅ Код готов] --> Wait[📅 Ждём окно релиза]
+  Wait --> Manual[📋 Ручные шаги выкладки]
+  Manual --> Pray[🙏 Лишь бы взлетело]
+  Pray -->|💥 Провал| Blame[👉 Поиск виноватых]
+  Pray -->|😮‍💨 Успех| Relief[Временное облегчение]
 ```
 
-**📊 Pre-DevOps numbers (Accelerate, 2018):**
-* 🐢 Lead time for changes: **months** (low performers)
-* 📉 Change failure rate: **40–60%** for low performers
-* ⏱️ Recovery from incident: **a week or more**
+**📊 Цифры до DevOps (Accelerate, 2018):**
+* 🐢 Lead time изменений: **месяцы** (low performers)
+* 📉 Доля неудачных изменений: **40–60%** у low performers
+* ⏱️ Восстановление после инцидента: **неделя и больше**
 
 ---
 
-## 📍 Slide 8 – 😨 Fear and Blame Culture
+## 📍 Слайд 8 – 😨 Культура страха и обвинений
 
-* 🌙 Incident happens at 2am — first question is *"Who did this?"*
-* 🙈 Engineers hide mistakes; nobody deploys on Friday
-* 💀 Innovation freezes; the safest move is to do nothing
+* 🌙 Инцидент в 2 часа ночи — первый вопрос: *«Кто это сделал?»*
+* 🙈 Инженеры прячут ошибки; в пятницу никто не деплоит
+* 💀 Инновации замирают; самый безопасный ход — ничего не делать
 
-> ⚠️ **Fear kills velocity.**
+> ⚠️ **Страх убивает скорость.**
 
-**Symptoms of a blame culture:**
-* 🔇 People afraid to speak up in postmortems
-* 📝 Excessive documentation written defensively
-* 🐌 Slow decision-making, escalations on everything
-* 🚪 High turnover among senior engineers
+**Симптомы культуры обвинений:**
+* 🔇 На постмортемах люди боятся говорить
+* 📝 Документацию пишут, чтобы прикрыться
+* 🐌 Решения принимают медленно, всё эскалируют
+* 🚪 Сильные инженеры уходят
 
-> 📖 *"Without blameless postmortems, organisations never learn from incidents."* — Google SRE Book (Beyer et al.)
+> 📖 *«Без постмортемов, где не ищут виноватых, организации не учатся на инцидентах.»* — Google SRE Book (Beyer et al.)
 
 ---
 
-## 📍 Slide 9 – 💸 The Cost of Chaos
+## 📍 Слайд 9 – 💸 Цена хаоса
 
-| 🔥 Problem | 💥 Impact |
+| 🔥 Проблема | 💥 Цена |
 |------------|-----------|
-| 🐢 Slow releases | Lost market opportunity, competitors ship first |
-| 📋 Manual processes | Human error, burnout, on-call fatigue |
-| 👉 Blame culture | Senior talent leaves, knowledge bleeds |
-| 🙈 No observability | Firefighting mode, MTTR in hours not minutes |
+| 🐢 Медленные релизы | Упущенный рынок, конкуренты выкатывают первыми |
+| 📋 Ручные процессы | Ошибки людей, выгорание, усталость от дежурств |
+| 👉 Культура обвинений | Сильные уходят, знание утекает |
+| 🙈 Нет наблюдаемости | Режим пожаротушения, MTTR в часах, не в минутах |
 
-**📈 Concrete examples:**
-* 🏢 **Amazon pre-DevOps (early 2000s):** monolithic deploys took **weeks**
-* 🚀 **Amazon today:** ~50 million deploys/year across services (Werner Vogels, re:Invent)
-* 💰 **IBM Cost of a Data Breach:** peaked at **$4.88M (2024)**, then **dropped to $4.44M in 2025** as AI-assisted detection cut containment time; **U.S. average hit a record $10.22M** in 2025
+**📈 Конкретные примеры:**
+* 🏢 **Amazon до DevOps (начало 2000-х):** монолитные деплои занимали **недели**
+* 🚀 **Amazon сегодня:** ~50 миллионов деплоев в год по сервисам (Werner Vogels, re:Invent)
+* 💰 **IBM Cost of a Data Breach:** пик **$4.88M (2024)**, затем **падение до $4.44M в 2025**: детекция с ИИ сократила время локализации; **средний ущерб в США поставил рекорд $10.22M** в 2025
 
-> 🔥 **Hot take:** every hour of downtime is paid for. The question is whether *you* or *your users* pay.
+> 🔥 **Жёстко:** каждый час простоя кто-то оплачивает. Вопрос в том, платите *вы* или *ваши пользователи*.
 
 ---
 
-## 📍 Slide 10 – 💡 Section 2: What DevOps Really Is
+## 📍 Слайд 10 – 💡 Раздел 2: что такое DevOps на самом деле
 
-* 🤝 **DevOps** = development + operations working as **one team**
-* 🌱 A **culture** of collaboration and shared responsibility
-* 🔧 A set of **practices** for fast, reliable delivery
-* 🚫 NOT just tools, NOT a job title, NOT a separate team
+* 🤝 **DevOps** = разработка + эксплуатация как **одна команда**
+* 🌱 **Культура** сотрудничества и общей ответственности
+* 🔧 Набор **практик** быстрой и надёжной поставки
+* 🚫 Это НЕ просто инструменты, НЕ должность и НЕ отдельная команда
 
 ```mermaid
 flowchart LR
-  Dev[👨‍💻 Development] -->|🤝| DevOps[🚀 DevOps]
-  Ops[⚙️ Operations] -->|🤝| DevOps
-  DevOps --> Value[💎 Fast, Reliable Value]
+  Dev[👨‍💻 Разработка] -->|🤝| DevOps[🚀 DevOps]
+  Ops[⚙️ Эксплуатация] -->|🤝| DevOps
+  DevOps --> Value[💎 Быстрая надёжная ценность]
 ```
 
-**📖 Working definition (Humble & Farley, *Continuous Delivery*, 2010):**
-> DevOps is a set of practices that combines software development and IT operations to shorten the development lifecycle while delivering features, fixes, and updates frequently in close alignment with business objectives.
+**📖 Рабочее определение (Humble & Farley, *Continuous Delivery*, 2010):**
+> DevOps — набор практик, который соединяет разработку и IT-эксплуатацию, чтобы укоротить цикл разработки и часто выкатывать фичи, фиксы и обновления в ногу с целями бизнеса.
 
 ---
 
-## 📍 Slide 11 – 🚫 What DevOps is NOT
+## 📍 Слайд 11 – 🚫 Что DevOps — это НЕ
 
-| ❌ Myth | ✅ Reality |
+| ❌ Миф | ✅ Как на самом деле |
 |---------|-----------|
-| "We hired a DevOps engineer, we're done" | 👥 Everyone participates |
-| "DevOps means using Kubernetes" | 🛠️ Tools support culture, not the reverse |
-| "DevOps replaces developers or ops" | 🤝 It unites them |
-| "DevOps = just automation" | 🧩 Automation + culture + measurement + sharing |
-| "DevOps is a team" | 🌍 It's a way of working |
+| «Наняли DevOps-инженера — и готово» | 👥 Участвуют все |
+| «DevOps — это поставить Kubernetes» | 🛠️ Инструменты служат культуре, не наоборот |
+| «DevOps заменяет разработчиков или ops» | 🤝 Он их соединяет |
+| «DevOps = просто автоматизация» | 🧩 Автоматизация + культура + измерения + обмен |
+| «DevOps — это команда» | 🌍 Это способ работать |
 
-> 🔥 **Hot take:** You can't buy DevOps. You build it.
+> 🔥 **Жёстко:** DevOps не купить. Его строят.
 
 ---
 
-## 📍 Slide 12 – 🔄 The Three Ways
+## 📍 Слайд 12 – 🔄 Три пути
 
 ```mermaid
 flowchart LR
-  W1[1️⃣ Flow] --> W2[2️⃣ Feedback]
-  W2 --> W3[3️⃣ Continual Learning]
+  W1[1️⃣ Поток] --> W2[2️⃣ Обратная связь]
+  W2 --> W3[3️⃣ Непрерывное обучение]
   W3 --> W1
 ```
 
-| 🛤️ Way | 🎯 Focus | 💡 Practical Example |
+| 🛤️ Путь | 🎯 Фокус | 💡 Пример из практики |
 |--------|---------|-----------|
-| 1️⃣ **Flow** | Fast Dev → Prod | 🚀 CI/CD pipelines, trunk-based development |
-| 2️⃣ **Feedback** | Fast Prod → Dev | 📊 Monitoring, alerting, error budgets |
-| 3️⃣ **Continual Learning** | Experiment safely | 📝 Blameless postmortems, chaos engineering |
+| 1️⃣ **Поток** | Быстро Dev → прод | 🚀 CI/CD pipeline (цепочка автоматической сборки и выкладки), trunk-based development |
+| 2️⃣ **Обратная связь** | Быстро прод → Dev | 📊 Мониторинг, алерты, error budget (бюджет ошибок) |
+| 3️⃣ **Непрерывное обучение** | Безопасные эксперименты | 📝 Постмортемы без поиска виноватых, chaos engineering |
 
-> 📚 **Source:** *The Phoenix Project* and *The DevOps Handbook* (Kim et al.)
+> 📚 **Источник:** *The Phoenix Project* и *The DevOps Handbook* (Kim et al.)
 
 ---
 
-## 📍 Slide 13 – 🧩 The CAMS Model
+## 📍 Слайд 13 – 🧩 Модель CAMS
 
 ```mermaid
 graph TD
-  C[🌱 Culture] --> DevOps[🚀 DevOps]
-  A[🤖 Automation] --> DevOps
-  M[📊 Measurement] --> DevOps
-  S[🔗 Sharing] --> DevOps
+  C[🌱 Культура] --> DevOps[🚀 DevOps]
+  A[🤖 Автоматизация] --> DevOps
+  M[📊 Измерения] --> DevOps
+  S[🔗 Обмен] --> DevOps
 ```
 
-* 🌱 **Culture** — trust, collaboration, shared ownership
-* 🤖 **Automation** — eliminate manual, error-prone toil
-* 📊 **Measurement** — track metrics, decide with data
-* 🔗 **Sharing** — knowledge flows freely, postmortems are blameless
+* 🌱 **Культура** — доверие, сотрудничество, общее владение
+* 🤖 **Автоматизация** — убрать ручной toil, на котором легко ошибиться
+* 📊 **Измерения** — смотреть метрики, решать по данным
+* 🔗 **Обмен** — знание течёт свободно, постмортемы без поиска виноватых
 
-> 📖 Coined by Damon Edwards and John Willis (2010). Jez Humble later added **L** for *Lean* → **CALMS**.
+> 📖 Термин придумали Damon Edwards и John Willis (2010). Позже Jez Humble добавил **L** от *Lean* — получилось **CALMS**.
 
 ---
 
-## 📍 Slide 14 – ⚡ Before vs. After DevOps
+## 📍 Слайд 14 – ⚡ До и после DevOps
 
-| 😰 Before | 🚀 After |
+| 😰 До | 🚀 После |
 |----------|---------|
-| 📅 Releases every few months | 📆 Releases daily or hourly |
-| 📋 Manual deployments | 🤖 Automated, version-controlled pipelines |
-| 👉 Blame when things break | 📝 Blameless postmortems |
-| 🙅 "Not my problem" | 🤝 Shared ownership ("you build it, you run it") |
-| 😨 Fear of change | 💪 Small, reversible changes embraced |
-| 🐌 Hours of manual deploy | ⚡ Minutes to deploy, seconds to roll back |
+| 📅 Релизы раз в несколько месяцев | 📆 Релизы каждый день или каждый час |
+| 📋 Ручные деплои | 🤖 Автоматические pipeline под контролем версий |
+| 👉 Обвинения, когда всё ломается | 📝 Постмортемы без поиска виноватых |
+| 🙅 «Не моя проблема» | 🤝 Общая ответственность («you build it, you run it» — построил, сам и эксплуатируешь) |
+| 😨 Страх изменений | 💪 Маленькие обратимые изменения — это норма |
+| 🐌 Часы ручного деплоя | ⚡ Минуты на выкатку, секунды на откат |
 
-> 🤔 Which column describes a team you've worked on?
-
----
-
-## 📍 Slide 15 – 🎮 Section 3: DevOps as a Game
-
-## 🕹️ Simulation — You're the CTO
-
-* 🏢 **FlowStart Inc.** — a growing startup
-* 👥 5 developers, 2 ops engineers, 10K users
-* 📈 Pressure from leadership: ship faster, but stop breaking things
-* ❓ **What could go wrong?**
-
-> 💀 *Everything.*
-
-Let's walk through four real failure modes and the DevOps practice that fixes each. Each scenario maps to a lab you'll do this semester.
+> 🤔 Какой столбец про команду, где вы уже работали?
 
 ---
 
-## 📍 Slide 16 – 💥 Scenario 1: Release Failure → CI/CD
+## 📍 Слайд 15 – 🎮 Раздел 3: DevOps как игра
 
-**The failure:**
-* 📤 Friday 5pm push, no tests, no review, straight to production
-* 💥 Login broken, 10K users locked out, 4 hours of downtime
-* 🤷 Nobody knows what changed because nobody can replay the deploy
+## 🕹️ Симуляция — вы CTO
 
-**The fix — Continuous Integration & Continuous Delivery:**
+* 🏢 **FlowStart Inc.** — растущий стартап
+* 👥 5 разработчиков, 2 инженера эксплуатации, 10K пользователей
+* 📈 Давление сверху: выкатывать быстрее, но перестать всё ломать
+* ❓ **Что может пойти не так?**
+
+> 💀 *Всё.*
+
+Разберём четыре реальных режима отказа и практику DevOps, которая закрывает каждый. Каждый сценарий ложится на лабу этого семестра.
+
+---
+
+## 📍 Слайд 16 – 💥 Сценарий 1: сломанный релиз → CI/CD
+
+**Сбой:**
+* 📤 Пятница, 17:00, push без тестов и без ревью, сразу в прод
+* 💥 Логин сломан, 10K пользователей не могут войти, 4 часа простоя
+* 🤷 Никто не знает, что изменилось: деплой нельзя воспроизвести
+
+**Починка — непрерывная интеграция и непрерывная поставка:**
 
 ```mermaid
 flowchart LR
-  Push[📤 Push] --> CI[🧪 Tests]
-  CI -->|✅ Pass| Review[👀 Review]
-  Review --> CD[🚀 Deploy]
-  CD --> Monitor[📊 Monitor]
-  CI -->|❌ Fail| Fix[🔧 Fix]
+  Push[📤 Push] --> CI[🧪 Тесты]
+  CI -->|✅ Прошёл| Review[👀 Ревью]
+  Review --> CD[🚀 Выкатка]
+  CD --> Monitor[📊 Мониторинг]
+  CI -->|❌ Провал| Fix[🔧 Починить]
 ```
 
-* ✅ Every change runs automated tests before merging
-* ✅ Code review is non-optional
-* ✅ Deployment is one command (or one git push)
-* ✅ Rollback is one click
+* ✅ Каждое изменение гоняет автотесты до мержа
+* ✅ Ревью кода обязательно
+* ✅ Деплой — одна команда (или один git push)
+* ✅ Откат — один клик
 
-> 🔗 **Course tie-in:** Lab 3 builds this exact pipeline in GitHub Actions.
+> 🔗 **Связка с курсом:** Lab 3 собирает ровно этот pipeline в GitHub Actions.
 
 ---
 
-## 📍 Slide 17 – 🐾 Scenario 2: Snowflake Servers → Infrastructure as Code
+## 📍 Слайд 17 – 🐾 Сценарий 2: серверы-снежинки → инфраструктура как код
 
-**The failure:**
-* 🖥️ Production server hand-configured over 2 years by the ops engineer who just quit
-* 📈 Need to scale to 3 servers — but no one can reproduce the config
-* 😱 The "documentation" is in someone's head and Slack DMs
+**Сбой:**
+* 🖥️ Прод два года руками настраивал инженер эксплуатации, который только что уволился
+* 📈 Нужно выйти на 3 сервера — а конфиг никто не повторит
+* 😱 «Документация» живёт в чьей-то голове и в личках Slack
 
-> 🐶 **"Pets vs. cattle"** — Bill Baker, Microsoft (2012). Pets are nursed; cattle are replaced.
+> 🐶 **«Питомцы против стада»** (pets vs. cattle) — Bill Baker, Microsoft (2012). Питомцев выхаживают, стадо меняют.
 
-**The fix — Infrastructure as Code:**
+**Починка — инфраструктура как код:**
 
 ```hcl
 # 🌍 Terraform (1.10+) — declarative infra
@@ -309,22 +309,22 @@ resource "aws_instance" "web" {
 }
 ```
 
-* 📝 Infrastructure lives in version-controlled files
-* 🔄 Servers are reproducible, not unique
-* ⚡ Identical environments spin up in minutes
+* 📝 Инфраструктура живёт в файлах под контролем версий
+* 🔄 Серверы воспроизводимы, а не уникальны
+* ⚡ Одинаковые окружения поднимаются за минуты
 
-> 🔗 **Course tie-in:** Labs 4 (Terraform + Pulumi) and 5–6 (Ansible) build this skill.
+> 🔗 **Связка с курсом:** Labs 4 (Terraform + Pulumi) и 5–6 (Ansible) как раз про этот навык.
 
 ---
 
-## 📍 Slide 18 – 🔓 Scenario 3: Secret Leak → Secrets Management
+## 📍 Слайд 18 – 🔓 Сценарий 3: утечка секрета → управление секретами
 
-**The failure:**
-* 👨‍💻 Developer commits `database.password = "hunter2"` to a public repo
-* 🤖 Scanner bots find it in **under 5 minutes** (verified by GitGuardian reports)
-* 💥 Attackers exfiltrate the database
+**Сбой:**
+* 👨‍💻 Разработчик коммитит `database.password = "hunter2"` в публичный репозиторий
+* 🤖 Боты-сканеры находят это **меньше чем за 5 минут** (это подтверждают отчёты GitGuardian)
+* 💥 Атакующие выгружают базу
 
-**The fix — Secrets Management:**
+**Починка — управление секретами:**
 
 ```yaml
 # ❌ Bad — secret in source
@@ -334,269 +334,269 @@ DATABASE_PASSWORD: "super_secret_123"
 DATABASE_PASSWORD: ${vault:secret/db/password}
 ```
 
-* 🚫 Never store secrets in code or unencrypted config
-* 🔐 Use a secret manager: HashiCorp Vault, OpenBao, AWS Secrets Manager, GCP Secret Manager
-* 🔍 Pre-commit hooks scan for secrets (gitleaks, trufflehog)
-* 🔄 Rotate credentials automatically
+* 🚫 Никогда не храните секреты в коде и в открытом конфиге
+* 🔐 Берите менеджер секретов: HashiCorp Vault, OpenBao, AWS Secrets Manager, GCP Secret Manager
+* 🔍 Pre-commit хуки ищут секреты (gitleaks, trufflehog)
+* 🔄 Ротируйте учётные данные автоматически
 
-> 🔗 **Course tie-in:** Lab 11 integrates Kubernetes Secrets with **OpenBao** (the BSL-licensed Vault's open-source fork).
+> 🔗 **Связка с курсом:** Lab 11 связывает Kubernetes Secrets с **OpenBao** (open source-форк Vault; у самого Vault лицензия BSL).
 
 ---
 
-## 📍 Slide 19 – 🙈 Scenario 4: Blind Operations → Observability
+## 📍 Слайд 19 – 🙈 Сценарий 4: слепая эксплуатация → наблюдаемость
 
-**The failure:**
-* 👥 Users on Twitter: *"App is slow."*
-* 🤷 Team has no metrics, no logs, no traces
-* ⏱️ Hours wasted guessing; finally restart the server out of desperation
+**Сбой:**
+* 👥 Пользователи в Twitter: *«Приложение тормозит.»*
+* 🤷 У команды нет метрик, логов и трейсов
+* ⏱️ Часы уходят на догадки; в конце от бессилия перезапускают сервер
 
-**The fix — Observability (the three pillars):**
+**Починка — наблюдаемость (три столпа):**
 
 ```mermaid
 graph TD
-  Logs[📋 Logs: what happened] --> Obs[🔍 Observability]
-  Metrics[📊 Metrics: how much, how fast] --> Obs
-  Traces[🔗 Traces: where and why] --> Obs
-  Obs --> Action[⚡ Fix in minutes, not hours]
+  Logs[📋 Логи: что случилось] --> Obs[🔍 Наблюдаемость]
+  Metrics[📊 Метрики: сколько и как быстро] --> Obs
+  Traces[🔗 Трейсы: где и почему] --> Obs
+  Obs --> Action[⚡ Починка за минуты, не часы]
 ```
 
-| 📊 Pillar | 🛠️ Tools you'll use this course |
+| 📊 Столп | 🛠️ Инструменты этого курса |
 |-----------|---------------------------------|
-| 📋 Logs | Loki + Promtail (Lab 7) |
-| 📊 Metrics | Prometheus + Grafana (Lab 8, Lab 16) |
-| 🔗 Traces | Out of scope for Core — covered in SRE-Intro |
+| 📋 Логи | Loki + Promtail (Lab 7) |
+| 📊 Метрики | Prometheus + Grafana (Lab 8, Lab 16) |
+| 🔗 Трейсы | Не в Core — это в SRE-Intro |
 
-> 🔗 **Course tie-in:** Labs 7, 8, and 16 build a complete observability stack from scratch.
+> 🔗 **Связка с курсом:** Labs 7, 8 и 16 собирают полный стек наблюдаемости с нуля.
 
 ---
 
-## 📍 Slide 20 – ♾️ Section 4: The DevOps Lifecycle
+## 📍 Слайд 20 – ♾️ Раздел 4: жизненный цикл DevOps
 
 ```mermaid
 flowchart LR
-  Plan[📋 Plan] --> Code[💻 Code]
-  Code --> Build[🔨 Build]
-  Build --> Test[🧪 Test]
-  Test --> Release[📦 Release]
-  Release --> Deploy[🚀 Deploy]
-  Deploy --> Operate[⚙️ Operate]
-  Operate --> Monitor[📊 Monitor]
+  Plan[📋 План] --> Code[💻 Код]
+  Code --> Build[🔨 Сборка]
+  Build --> Test[🧪 Тест]
+  Test --> Release[📦 Релиз]
+  Release --> Deploy[🚀 Выкатка]
+  Deploy --> Operate[⚙️ Эксплуатация]
+  Operate --> Monitor[📊 Мониторинг]
   Monitor --> Plan
 ```
 
-* ♾️ DevOps is **continuous** — there is no "done"
-* 🔄 Each stage feeds the next; monitoring informs the next plan
-* 🔁 Forever improving — the loop is the point
+* ♾️ DevOps **непрерывен** — «готово» не бывает
+* 🔄 Каждый этап кормит следующий; мониторинг подсказывает следующий план
+* 🔁 Улучшаем бесконечно — смысл в самом цикле
 
 ---
 
-## 📍 Slide 21 – 🔁 Lifecycle Phases → Tools (May 2026 baseline)
+## 📍 Слайд 21 – 🔁 Фазы цикла → инструменты (ориентир на май 2026)
 
-| 📍 Phase | 🎯 Activity | 🛠️ Representative Tools |
+| 📍 Фаза | 🎯 Действие | 🛠️ Типичные инструменты |
 |----------|------------|-------------------------|
-| 📋 Plan | Requirements, design | Jira, Linear, GitHub Issues |
-| 💻 Code | Write & review | Git, GitHub, VS Code, JetBrains |
-| 🔨 Build | Compile, package | Docker **29.x**, Buildah, Maven, npm |
-| 🧪 Test | Automated testing | pytest 8.3, Jest 30, Playwright, k6 |
-| 📦 Release | Version, approve | GitHub Releases, Conventional Commits |
-| 🚀 Deploy | Push to environment | **ArgoCD 3.4**, **Argo Rollouts 1.8**, **Helm 4.1** |
-| ⚙️ Operate | Run, scale | **Kubernetes 1.36** "Haru", **Terraform 1.15**, **ansible-core 2.21** |
-| 📊 Monitor | Observe, alert | **Prometheus 3.11+**, Grafana 11, Loki 3.7, **Alloy 1.16** (Promtail EOL Mar 2026) |
+| 📋 План | Требования, дизайн | Jira, Linear, GitHub Issues |
+| 💻 Код | Писать и ревьюить | Git, GitHub, VS Code, JetBrains |
+| 🔨 Сборка | Компиляция, упаковка | Docker **29.x**, Buildah, Maven, npm |
+| 🧪 Тест | Автотесты | pytest 8.3, Jest 30, Playwright, k6 |
+| 📦 Релиз | Версия, согласование | GitHub Releases, Conventional Commits |
+| 🚀 Выкатка | Выкатить в окружение | **ArgoCD 3.4**, **Argo Rollouts 1.8**, **Helm 4.1** |
+| ⚙️ Эксплуатация | Запуск, масштаб | **Kubernetes 1.36** «Haru», **Terraform 1.15**, **ansible-core 2.21** |
+| 📊 Мониторинг | Смотреть и алертить | **Prometheus 3.11+**, Grafana 11, Loki 3.7, **Alloy 1.16** (Promtail: EOL в марте 2026) |
 
-> 🔧 **Note on versions:** every tool above is pinned to a current May-2026 stable. The labs match. *Helm 4 is a major release — most online tutorials still show Helm 3 syntax; we deliberately use 4.*
+> 🔧 **Про версии:** каждый инструмент выше прибит к стабильному релизу на май 2026. Лабы совпадают. *Helm 4 — мажор: большинство туториалов в сети всё ещё на синтаксисе Helm 3; мы сознательно берём 4.*
 
 ---
 
-## 📍 Slide 22 – 🗺️ Course Map
+## 📍 Слайд 22 – 🗺️ Карта курса
 
 ```mermaid
 flowchart TD
-  subgraph "📋 Build"
-    L1[Lab 1: Web App<br/>Lab 2: Docker<br/>Lab 3: CI/CD]
+  subgraph "📋 Сборка"
+    L1[Lab 1: веб-приложение<br/>Lab 2: Docker<br/>Lab 3: CI/CD]
   end
-  subgraph "🌍 Provision"
+  subgraph "🌍 Провижининг"
     L2[Lab 4: Terraform + Pulumi<br/>Lab 5–6: Ansible]
   end
-  subgraph "📊 Observe"
-    L3[Lab 7: Loki logs<br/>Lab 8: Prometheus]
+  subgraph "📊 Наблюдение"
+    L3[Lab 7: логи Loki<br/>Lab 8: Prometheus]
   end
-  subgraph "☸️ Orchestrate"
+  subgraph "☸️ Оркестрация"
     L4[Lab 9: K8s<br/>Lab 10: Helm<br/>Lab 11–12: Secrets, ConfigMaps]
   end
-  subgraph "🚢 Deliver"
+  subgraph "🚢 Доставка"
     L5[Lab 13: ArgoCD GitOps<br/>Lab 14: Argo Rollouts]
   end
-  subgraph "🛡️ Operate at Scale"
-    L6[Lab 15: StatefulSets<br/>Lab 16: Cluster Monitoring]
+  subgraph "🛡️ Эксплуатация в масштабе"
+    L6[Lab 15: StatefulSets<br/>Lab 16: мониторинг кластера]
   end
-  subgraph "🎁 Bonus"
-    L7[Lab 17: Cloudflare Workers<br/>Lab 18: Nix Reproducible Builds]
+  subgraph "🎁 Бонус"
+    L7[Lab 17: Cloudflare Workers<br/>Lab 18: Nix, воспроизводимые сборки]
   end
   L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7
 ```
 
-✅ **16 main labs + 2 bonus labs. Every one maps to a real DevOps skill.**
+✅ **16 основных лаб + 2 бонусные. Каждая ложится на реальный навык DevOps.**
 
 ---
 
-## 📍 Slide 23 – 📊 DORA Metrics — How We Measure DevOps
+## 📍 Слайд 23 – 📊 Метрики DORA — как мерить DevOps
 
-The DORA team (Nicole Forsgren et al.) identified four metrics that predict software delivery performance. The DORA *State of DevOps* report has tracked them yearly since 2014.
+Команда DORA (Nicole Forsgren и др.) выделила четыре метрики, которые предсказывают, как команда поставляет софт. Отчёт DORA *State of DevOps* следит за ними каждый год с 2014.
 
-| 📊 Metric | 📏 What it measures | 🏆 Elite (2024) | 🐢 Low (2024) |
+| 📊 Метрика | 📏 Что измеряет | 🏆 Elite (2024) | 🐢 Low (2024) |
 |-----------|--------------------|--------------|--------------|
-| ⏱️ **Lead Time for Changes** | Commit → production | < 1 hour | > 1 month |
-| 📦 **Deployment Frequency** | How often you deploy | On-demand (multi/day) | < 1/month |
-| ❌ **Change Failure Rate** | % deploys that cause incidents | 0–5% | 46–60% |
-| 🔧 **Failed Deployment Recovery Time** | MTTR after a bad deploy | < 1 hour | > 1 month |
+| ⏱️ **Lead Time for Changes** | Коммит → прод | < 1 часа | > 1 месяца |
+| 📦 **Deployment Frequency** | Как часто выкатываете | По запросу (несколько раз в день) | < 1/месяц |
+| ❌ **Change Failure Rate** | % деплоев, которые вызывают инциденты | 0–5% | 46–60% |
+| 🔧 **Failed Deployment Recovery Time** | MTTR после плохого деплоя | < 1 часа | > 1 месяца |
 
-> 📚 **Source:** DORA *State of DevOps Report 2024* — the last report to use this four-tier ladder. The fifth metric (reliability) was added in 2021. The 2025 report retired the ladder in favour of seven team archetypes blending delivery + human factors — but the four metrics themselves remain the industry standard for measurement.
+> 📚 **Источник:** DORA *State of DevOps Report 2024* — последний отчёт с лестницей из четырёх ступеней. Пятую метрику (надёжность) добавили в 2021. Отчёт 2025 убрал лестницу и поставил семь архетипов команд: поставка плюс человеческие факторы. Сами четыре метрики так и остаются стандартом, по которому меряют в индустрии.
 
-**🤔 Question:** which metric is hardest to improve, and why?
+**🤔 Вопрос:** какую метрику труднее всего сдвинуть и почему?
 
 ---
 
-## 📍 Slide 24 – 🌊 From Chaos to Flow
+## 📍 Слайд 24 – 🌊 От хаоса к потоку
 
 ```mermaid
 flowchart LR
-  subgraph "🌊 Flow"
-    Auto[🤖 Automation]
-    Collab[🤝 Collaboration]
-    Confidence[💪 Confidence]
+  subgraph "🌊 Поток"
+    Auto[🤖 Автоматизация]
+    Collab[🤝 Сотрудничество]
+    Confidence[💪 Уверенность]
   end
-  subgraph "😱 Chaos"
-    Manual[📋 Manual Work]
-    Silos[🧱 Silos]
-    Fear[😨 Fear]
+  subgraph "😱 Хаос"
+    Manual[📋 Ручная работа]
+    Silos[🧱 Силосы]
+    Fear[😨 Страх]
   end
   Chaos -->|🚀 DevOps| Flow
 ```
 
-**🎯 Flow State (Gene Kim's definition):**
-* ⚡ Changes flow smoothly from idea to production
-* 🔄 Feedback loops are fast and trustworthy
-* 📈 Teams continuously experiment and improve
+**🎯 Состояние потока (определение Gene Kim):**
+* ⚡ Изменения спокойно идут от идеи до прода
+* 🔄 Петли обратной связи быстрые, им можно верить
+* 📈 Команды постоянно экспериментируют и улучшаются
 
 ---
 
-## 📍 Slide 25 – 🏢 Section 5: DevOps in Real Life
+## 📍 Слайд 25 – 🏢 Раздел 5: DevOps вживую
 
-**🎬 Netflix** — the canonical DevOps case study
-* 🚀 1000+ production deploys/day across services
-* 🐒 *Chaos Monkey* (open-sourced 2012) — kills production instances on purpose to verify resilience
-* 🔄 Self-healing infrastructure; on-call engineers rarely paged
+**🎬 Netflix** — канонический кейс DevOps
+* 🚀 1000+ деплоев в прод в день по сервисам
+* 🐒 *Chaos Monkey* (исходники открыли в 2012) — специально убивает инстансы в проде, чтобы проверить устойчивость
+* 🔄 Инфраструктура лечит себя сама; дежурных почти не дёргают
 
 **📦 Amazon**
-* ⚡ Every 11.7 seconds on average (Werner Vogels, 2011) — still cited as a benchmark
-* 🔧 *"You build it, you run it"* — Werner's two-pizza team rule
-* 🛠️ AWS itself was built to dogfood Amazon's internal platform
+* ⚡ В среднем каждые 11.7 секунды (Werner Vogels, 2011) — до сих пор ставят в пример
+* 🔧 *«You build it, you run it»* (построил — сам и эксплуатируешь) — правило Werner про команду на две пиццы
+* 🛠️ Сам AWS построили, чтобы Amazon обкатывал свою платформу на себе (dogfood)
 
 **🔍 Google**
-* 🛡️ Invented **Site Reliability Engineering (SRE)** in 2003 — Ben Treynor Sloss
-* 📊 *Error budgets* balance velocity against reliability
-* 📝 Blameless postmortems are a hiring criterion
+* 🛡️ Придумали **Site Reliability Engineering (SRE)** в 2003 — Ben Treynor Sloss
+* 📊 *Error budget* балансирует скорость и надёжность
+* 📝 Постмортемы без поиска виноватых проверяют ещё на найме
 
-> 🔗 **Want more of this?** SRE-Intro (elective) goes deep on Google's playbook.
+> 🔗 **Хотите глубже?** SRE-Intro (по выбору) подробно разбирает playbook Google.
 
 ---
 
-## 📍 Slide 26 – 👥 DevOps Roles (2025/26)
+## 📍 Слайд 26 – 👥 Роли в DevOps (2025/26)
 
-| 👤 Role | 🎯 Focus |
+| 👤 Роль | 🎯 Фокус |
 |---------|---------|
-| 🔧 **DevOps Engineer** | Pipelines, automation, infra-as-code |
-| 🛡️ **SRE** | Reliability, SLOs, incident response |
-| 🏗️ **Platform Engineer** | Internal developer platform, golden paths |
-| ☁️ **Cloud Engineer** | Cloud infra, cost optimization, FinOps |
+| 🔧 **DevOps Engineer** | Pipeline, автоматизация, инфраструктура как код |
+| 🛡️ **SRE** | Надёжность, SLO, реакция на инциденты |
+| 🏗️ **Platform Engineer** | Внутренняя платформа разработчика, golden path (проторенный путь) |
+| ☁️ **Cloud Engineer** | Облачная инфраструктура, оптимизация затрат, FinOps |
 
-**🔗 Common thread:** collaboration, automation, ownership of production.
+**🔗 Общее:** сотрудничество, автоматизация, владение продом.
 
-> 💼 Platform Engineering is the fastest-growing of the four (Gartner 2024). Many companies now treat the *internal developer platform* as a product.
+> 💼 Platform Engineering растёт быстрее трёх остальных (Gartner 2024). Внутреннюю платформу разработчика многие уже ведут как продукт.
 
 ---
 
-## 📍 Slide 27 – 🤝 Team Collaboration in Practice
+## 📍 Слайд 27 – 🤝 Как команды работают вместе
 
 ```mermaid
 flowchart TD
-  Dev[👨‍💻 Developers] --> Shared[🤝 Shared Ownership]
-  Ops[⚙️ Operations] --> Shared
+  Dev[👨‍💻 Разработчики] --> Shared[🤝 Общая ответственность]
+  Ops[⚙️ Эксплуатация] --> Shared
   QA[🧪 QA] --> Shared
-  Sec[🔐 Security] --> Shared
-  Shared --> Ship[🚀 Ship Better Software]
+  Sec[🔐 Безопасность] --> Shared
+  Shared --> Ship[🚀 Выкатывать лучше]
 ```
 
-**🤝 Practices you'll see in healthy teams:**
-* 📟 Shared on-call rotations across Dev and Ops
-* 📝 Blameless incident reviews with action items
-* 👥 Cross-functional squads — feature teams own from idea to operations
-* 🔓 Self-service deploy — every engineer can ship, with guardrails
+**🤝 Что видно в здоровых командах:**
+* 📟 Общие дежурства Dev и Ops
+* 📝 Разборы инцидентов без поиска виноватых, с конкретными действиями
+* 👥 Кросс-функциональные сквады: фичевые команды владеют путём от идеи до эксплуатации
+* 🔓 Деплой самообслуживанием: выкатить может каждый инженер, но есть предохранители
 
 ---
 
-## 📍 Slide 28 – 🎯 Key Takeaways
+## 📍 Слайд 28 – 🎯 Главное
 
-1. 🧩 **DevOps = culture + practices + tools** — in that order
-2. 🧱 **Break down silos** between Dev and Ops
-3. 🤖 **Automate everything** repeatable
-4. 📊 **Measure with DORA** — lead time, deploy frequency, change failure rate, MTTR
-5. 📝 **Learn from failures**, don't assign blame
-6. 🔄 **Small changes, fast feedback** — the safest path to production
+1. 🧩 **DevOps = культура + практики + инструменты** — именно в этом порядке
+2. 🧱 **Ломайте силосы** между Dev и Ops
+3. 🤖 **Автоматизируйте всё** повторяемое
+4. 📊 **Мерьте по DORA** — lead time, частота деплоев, доля неудачных изменений, MTTR
+5. 📝 **Учитесь на сбоях**, не ищите виноватых
+6. 🔄 **Маленькие изменения, быстрая обратная связь** — самый безопасный путь в прод
 
-> 💡 DevOps isn't a destination. It's a direction.
+> 💡 DevOps — не пункт назначения. Это направление.
 
 ---
 
-## 📍 Slide 29 – 🧠 The Mindset Shift
+## 📍 Слайд 29 – 🧠 Смена взгляда
 
-| 😰 Old Mindset | 🚀 DevOps Mindset |
+| 😰 Старый взгляд | 🚀 Взгляд DevOps |
 |---------------|------------------|
-| 🙅 "Not my job" | 🤝 "Our responsibility" |
-| 🚫 "Don't touch prod" | 💪 "Deploy with confidence, roll back fast" |
-| 👉 "Who broke it?" | 🔍 "How do we prevent this class of failure?" |
-| 😨 "Change is risky" | ✅ "Small frequent changes are safer than rare big ones" |
-| 💻 "Works on my machine" | 🌍 "Works in every environment — proved by pipeline" |
+| 🙅 «Не моя работа» | 🤝 «Наша ответственность» |
+| 🚫 «Прод не трогать» | 💪 «Выкатывай уверенно, откатывай быстро» |
+| 👉 «Кто сломал?» | 🔍 «Как не допустить этот класс сбоев?» |
+| 😨 «Изменения — это риск» | ✅ «Частые маленькие изменения безопаснее редких больших» |
+| 💻 «У меня работает» | 🌍 «Работает в любом окружении — это доказал pipeline» |
 
-> ❓ Which mindset describes the team you want to work on?
+> ❓ Какой взгляд про команду, в которой вы хотите работать?
 
 ---
 
-## 📍 Slide 30 – 🚀 What Comes Next
+## 📍 Слайд 30 – 🚀 Что дальше
 
-**📚 Next lecture: *Containerization with Docker*** — packaging your app so "works on my machine" finally means "works everywhere."
+**📚 Следующая лекция: *Контейнеризация с Docker*** — упаковка приложения, чтобы «работает у меня» наконец значило «работает везде».
 
-* 🐳 Why containers won (and where they don't)
-* 🔧 Writing production-ready Dockerfiles
-* 🛡️ Rootless, distroless, multi-stage builds
-* 🌐 Docker Hub workflow
+* 🐳 Почему победили контейнеры (и где нет)
+* 🔧 Пишем production-ready Dockerfile
+* 🛡️ Rootless, distroless, multi-stage сборки
+* 🌐 Workflow с Docker Hub
 
-**🔬 Your Lab 1 work:** build a Python web service exposing `/` and `/health`. That service will be your project for the rest of the semester — by Lab 16, it'll be running on Kubernetes with GitOps, monitoring, secrets, and StatefulSet-backed storage.
+**🔬 Ваша работа в Lab 1:** соберите Python-веб-сервис с `/` и `/health`. Этот сервис — ваш проект до конца семестра. К Lab 16 он крутится в Kubernetes с GitOps, мониторингом, секретами и хранилищем на StatefulSet.
 
 ```mermaid
 flowchart LR
-  You[👤 You today] --> Lab1[🐍 Lab 1: Web App]
-  Lab1 --> Skills[🛠️ 16 weeks of DevOps]
-  Skills --> Career[🚀 Real production fluency]
+  You[👤 Вы сегодня] --> Lab1[🐍 Lab 1: веб-приложение]
+  Lab1 --> Skills[🛠️ 16 недель DevOps]
+  Skills --> Career[🚀 Уверенная работа в проде]
 ```
 
-**👋 See you in Lecture 2.**
+**👋 Увидимся в Lecture 2.**
 
-> 🌊 From chaos to flow — one commit at a time.
+> 🌊 От хаоса к потоку — один коммит за раз.
 
 ---
 
-## 📚 Resources & Further Reading
+## 📚 Материалы
 
-**📕 Books — read at least one this semester:**
-* *The Phoenix Project* — Gene Kim, Kevin Behr, George Spafford (2013). The novel that introduced DevOps to mainstream IT.
-* *The DevOps Handbook* (2nd ed.) — Kim, Humble, Debois, Willis (2021). The reference manual.
-* *Accelerate* — Forsgren, Humble, Kim (2018). The science behind DORA metrics.
-* *Site Reliability Engineering* — Beyer, Jones, Petoff, Murphy (2016). Free at sre.google/books.
+**📕 Книги — прочитайте хотя бы одну за семестр:**
+* *The Phoenix Project* — Gene Kim, Kevin Behr, George Spafford (2013). Роман, который вывел DevOps в обычный IT.
+* *The DevOps Handbook* (2-е изд.) — Kim, Humble, Debois, Willis (2021). Справочник.
+* *Accelerate* — Forsgren, Humble, Kim (2018). Наука за метриками DORA.
+* *Site Reliability Engineering* — Beyer, Jones, Petoff, Murphy (2016). Бесплатно: sre.google/books.
 
-**🔗 Links:**
-* 🌐 [DORA State of DevOps reports](https://dora.dev/research/) — yearly research, free
-* 🌐 [12 Factor App](https://12factor.net) — Heroku's foundational principles
-* 🌐 [CNCF Cloud Native Landscape](https://landscape.cncf.io) — the tool universe
+**🔗 Ссылки:**
+* 🌐 [Отчёты DORA State of DevOps](https://dora.dev/research/) — ежегодные исследования, бесплатно
+* 🌐 [12 Factor App](https://12factor.net) — базовые принципы от Heroku
+* 🌐 [CNCF Cloud Native Landscape](https://landscape.cncf.io) — вселенная инструментов
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 1–3 leaderboard (see `README.md` → Grading).
+**🎓 Квиз:** после лекции он кормит таблицу лидеров недель 1–3 (см. `README.md` → Grading).

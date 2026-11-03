@@ -1,72 +1,72 @@
-# 📌 Lecture 14 — Progressive Delivery with Argo Rollouts
+# 📌 Lecture 14 — Постепенная выкладка с Argo Rollouts
 
-## 📍 Slide 1 – 🚦 Welcome to Progressive Delivery
+## 📍 Слайд 1 – 🚦 Добро пожаловать в постепенную выкладку
 
-* 🌍 **Lecture 13 gave you GitOps.** ArgoCD now reconciles your Helm chart from Git → cluster within seconds. Source of truth: solved.
-* 🐤 **But "deployed" ≠ "released".** A Deployment rollout swaps pods 25% at a time and stops measuring once they pass a liveness probe. The bug in your new image — the one that only fires on 5% of requests — ships to 100% of users.
-* 🎯 This lecture: replace `kind: Deployment` with `kind: Rollout`, shape traffic in steps (5% → 25% → 50% → 100%), let metrics decide whether to promote or roll back — **without a human watching Grafana at 5pm on a Friday**.
-* 🔗 **Tie-in to Lab 14:** convert your Lab 13 chart from `Deployment` → `Rollout`, ship a canary strategy with 5-step traffic shifting, then add a parallel blue-green strategy with a `previewService`, plus a Prometheus `AnalysisTemplate` for the bonus.
+* 🌍 **Lecture 13 дала вам GitOps.** ArgoCD сверяет Helm-чарт из Git с кластером за секунды. Источник истины закрыт.
+* 🐤 **«Задеплоено» ≠ «выпущено».** Выкат Deployment меняет Pod пачками по 25% и перестаёт мерить, как только те проходят liveness probe. Баг в новом образе — тот, что стреляет только на 5% запросов, — уезжает к 100% пользователей.
+* 🎯 Эта лекция: меняем `kind: Deployment` на `kind: Rollout`, режем трафик шагами (5% → 25% → 50% → 100%), метрики решают, продвигать или откатывать — **без человека, который в пятницу в 17:00 смотрит в Grafana**.
+* 🔗 **Связка с Lab 14:** переведите чарт Lab 13 с `Deployment` на `Rollout`, выкатите canary со сдвигом трафика в 5 шагов, затем параллельный blue-green с `previewService` и бонусный `AnalysisTemplate` для Prometheus.
 
 ```mermaid
 flowchart LR
-  Deploy[📦 kind: Deployment] -->|25% pods at a time, no metrics| Done[✅ "Deployed"]
-  Rollout[🐤 kind: Rollout] -->|5% → 25% → 50% → 100%<br/>+ metric gates| Released[🎯 "Released"]
+  Deploy[📦 kind: Deployment] -->|25% Pod за раз, без метрик| Done[✅ "Выкатили"]
+  Rollout[🐤 kind: Rollout] -->|5% → 25% → 50% → 100%<br/>+ ворота по метрикам| Released[🎯 "Выпустили"]
 ```
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Слайд 2 – 🎯 Чему научитесь
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Distinguish **deployment** (pods running new code) from **release** (users seeing new code) |
-| 2 | 🐤 Configure **canary** strategy with step-based weights and pauses |
-| 3 | 🔵 Configure **blue-green** strategy with an `activeService` + `previewService` |
-| 4 | 📊 Write an **`AnalysisTemplate`** that queries Prometheus and auto-promotes / auto-aborts |
-| 5 | 🚦 Wire **traffic shaping** through NGINX, ALB, Istio, or the Gateway API plugin |
-| 6 | 🛠️ Drive a rollout with `kubectl argo rollouts`: `get`, `promote`, `abort`, `retry`, `undo` |
+| 1 | 🧠 Отличить **deployment** (Pod уже на новом коде) от **релиза** (пользователи видят новый код) |
+| 2 | 🐤 Настроить **canary**: веса по шагам и паузы |
+| 3 | 🔵 Настроить **blue-green** с `activeService` и `previewService` |
+| 4 | 📊 Написать **`AnalysisTemplate`**, который спрашивает Prometheus и сам продвигает или прерывает |
+| 5 | 🚦 Подключить **нарезку трафика** через NGINX, ALB, Istio или плагин Gateway API |
+| 6 | 🛠️ Вести rollout через `kubectl argo rollouts`: `get`, `promote`, `abort`, `retry`, `undo` |
 
-**Tech stack pinned for May 2026:** **Argo Rollouts 1.8.4** (released Feb 13 2026), Kubernetes **1.36 "Haru"**, ArgoCD **3.4.x** for sync, **Prometheus 3.11.3** (or the 3.5 LTS line) for analysis metrics — the same Prometheus you stood up in Lab 8.
-
----
-
-## 📍 Slide 3 – ❓ Deployment ≠ Release
-
-You've done rolling updates with vanilla `kind: Deployment` since Lab 9. So why isn't that enough?
-
-* 🩺 **A Deployment's only health signal is the pod-level probe.** Once readiness flips green, K8s shifts traffic. Memory leaks, slow tail-latency, and 5xx spikes are invisible to the rollout.
-* ⏱️ **`maxSurge` and `maxUnavailable` are blunt knobs.** 25% maxSurge means by minute 2 you have 25% of traffic on a broken build with no automatic abort.
-* 🌐 **No traffic-percentage primitive.** Deployments can't say "send 5% of HTTP requests to v2 and 95% to v1." They can only say "swap N pods."
-* 🚫 **No metric integration.** You can't tell a Deployment "rollback if 5xx > 1%." You can tell *Argo Rollouts* exactly that.
-
-> 🔥 **Hot take:** "Move fast and break things" is dead; "move fast with feedback loops" is what elite teams actually do. Progressive delivery is what closes the loop between *deploying code* and *knowing it works*.
+**Стек зафиксирован на май 2026:** **Argo Rollouts 1.8.4** (вышел 13 февраля 2026), Kubernetes **1.36 "Haru"**, ArgoCD **3.4.x** для sync, **Prometheus 3.11.3** (или линейка 3.5 LTS) для метрик анализа — тот самый Prometheus, который вы подняли в Lab 8.
 
 ---
 
-## 📍 Slide 4 – 📜 A Brief History of Progressive Delivery
+## 📍 Слайд 3 – ❓ Deployment ≠ релиз
 
-* 📅 **2010** — Humble & Farley publish *Continuous Delivery*. The book introduces the canary metaphor as "deploy to one server, watch, then promote."
-* 📅 **2014** — Netflix open-sources **Spinnaker** with built-in canary stages backed by their internal "ACA" (Automated Canary Analysis).
-* 📅 **2018** — Netflix + Google open-source **Kayenta**, the statistical canary judge (Mann-Whitney U test). Spinnaker users get free metric-driven promotion.
-* 📅 **2019** — Weaveworks coin the term **"progressive delivery"** in a blog post; they ship **Flagger** alongside Flux. Argo team ships **Argo Rollouts** alongside ArgoCD the same year.
-* 📅 **2021** — Argo Rollouts **v1.0 GA**. Joins ArgoCD/Workflows/Events as CNCF incubating, graduates to Graduated in **December 2022**.
-* 📅 **2024** — CNCF archives the **SMI** (Service Mesh Interface) spec. **Gateway API** + the Argo Rollouts Gateway API plugin become the recommended path for traffic shaping across meshes.
-* 📅 **2026 (Feb 13)** — **Argo Rollouts 1.8.4** — bug fix release for blue-green analysis (the "premature success when ReplicaSet becomes unsaturated" issue), plus dependency bumps.
+С Lab 9 вы делаете rolling update обычным `kind: Deployment`. Почему этого мало?
 
-> 📚 *The Phoenix Project* and *Accelerate* both call progressive delivery the single largest predictor of low change-failure-rate. DORA 2024: elite teams have **< 5% change failure rate**; low performers sit at 15-30%.
+* 🩺 **Единственный сигнал здоровья у Deployment — probe на уровне Pod.** Readiness стал зелёным — Kubernetes перекладывает трафик. Утечки памяти, хвост латентности и всплески 5xx для выката невидимы.
+* ⏱️ **`maxSurge` и `maxUnavailable` — грубые ручки.** При maxSurge 25% ко второй минуте четверть трафика уже на сломанной сборке, и автоматического abort нет.
+* 🌐 **Примитива «процент трафика» нет.** Deployment не умеет «отправь 5% HTTP-запросов на v2 и 95% на v1». Он умеет только «замени N Pod».
+* 🚫 **С метриками он не связан.** Сказать ему «откатись, если 5xx > 1%» нельзя. *Argo Rollouts* можно сказать ровно это.
+
+> 🔥 **Жёстко:** «Move fast and break things» (двигайся быстро и ломай) умерло. Сильные команды живут иначе: «двигайся быстро и сразу видь обратную связь». Постепенная выкладка замыкает петлю между *выкладкой кода* и *знанием, что он работает*.
 
 ---
 
-## 📍 Slide 5 – 🐤 Canary, Blue-Green, and Friends
+## 📍 Слайд 4 – 📜 Короткая история постепенной выкладки
 
-Four strategies you'll see in the wild. Argo Rollouts implements the first two natively; the others are application-level patterns.
+* 📅 **2010** — Humble и Farley публикуют *Continuous Delivery*. В книге появляется метафора canary: «выкати на один сервер, посмотри, потом продвигай».
+* 📅 **2014** — Netflix открывает **Spinnaker** со встроенными стадиями canary на внутреннем ACA (Automated Canary Analysis).
+* 📅 **2018** — Netflix и Google открывают **Kayenta**, статистического судью canary (тест Манна–Уитни, Mann-Whitney U). Пользователи Spinnaker получают продвижение по метрикам.
+* 📅 **2019** — Weaveworks в блоге называет это **"progressive delivery"** (постепенная выкладка) и выпускает **Flagger** рядом с Flux. В том же году команда Argo выпускает **Argo Rollouts** рядом с ArgoCD.
+* 📅 **2021** — **v1.0 GA** у Argo Rollouts. Вместе с ArgoCD, Workflows и Events проект входит в CNCF Incubating. Статус Graduated — **декабрь 2022**.
+* 📅 **2024** — CNCF архивирует спецификацию **SMI** (Service Mesh Interface). **Gateway API** и плагин Gateway API для Argo Rollouts становятся рекомендуемым способом резать трафик в mesh.
+* 📅 **2026 (Feb 13)** — **Argo Rollouts 1.8.4**. Багфикс анализа blue-green (кейс «преждевременный успех, когда ReplicaSet становится unsaturated») и обновление зависимостей.
 
-| Strategy | How it shifts traffic | Resource cost | Best for |
+> 📚 *The Phoenix Project* и *Accelerate* называют постепенную выкладку самым сильным предиктором низкого change failure rate (доля изменений, которые ломают прод). DORA 2024: у элиты **change failure rate < 5%**, у слабых команд он 15-30%.
+
+---
+
+## 📍 Слайд 5 – 🐤 Canary, blue-green и остальные
+
+Четыре стратегии, которые встречаются вживую. Первые две Argo Rollouts умеет из коробки. Остальные живут в коде приложения.
+
+| Стратегия | Как сдвигает трафик | Цена по ресурсам | Когда брать |
 |----------|----------------------|----------------|----------|
-| 🟰 **Rolling** (built into Deployment) | Pod count, not request % | 1x + maxSurge | Stateless, low-risk changes |
-| 🐤 **Canary** | Request % via traffic router (5 → 25 → 50 → 100) | 1x + canary replicas | Most production deploys |
-| 🔵 **Blue-Green** | All-or-nothing service swap | 2x during cutover | DB migrations, breaking API changes |
-| 🚩 **Feature flag** | Per-request, in-app | 1x (it's just code) | Internal-only or A/B experiments |
+| 🟰 **Rolling** (встроен в Deployment) | Число Pod, не процент запросов | 1x + maxSurge | Stateless, низкий риск |
+| 🐤 **Canary** | Процент запросов через traffic router (маршрутизатор доли запросов): 5 → 25 → 50 → 100 | 1x + реплики canary | Большинство прод-выкладок |
+| 🔵 **Blue-Green** | Обмен сервиса целиком, всё сразу | 2x на время переключения | Миграции БД, ломающие изменения API |
+| 🚩 **Feature flag** | На каждый запрос, внутри приложения | 1x (это просто код) | Только внутри или эксперименты A/B |
 
 ```mermaid
 flowchart LR
@@ -78,45 +78,45 @@ flowchart LR
   subgraph BlueGreen
     direction LR
     B1[🟢 v1 active] --> UsersB[👥]
-    B2[🔵 v2 preview] --> QA[🧪 QA / smoke]
+    B2[🔵 v2 preview] --> QA[🧪 QA / смоук]
   end
 ```
 
-> 🤔 **Think:** which strategy would you pick for a database schema change that v1 can't read? *(Hint: not canary — 5% of users hitting a broken schema is still 5% of users.)*
+> 🤔 **Подумайте:** какую стратегию взять, если v1 не умеет читать новую схему БД? *(Подсказка: canary тут мимо. 5% пользователей на сломанной схеме — всё ещё 5% пользователей.)*
 
 ---
 
-## 📍 Slide 6 – 🤖 Argo Rollouts: the Drop-in Replacement
+## 📍 Слайд 6 – 🤖 Argo Rollouts: встаёт на место Deployment
 
-Argo Rollouts is a Kubernetes controller that owns a CRD called `Rollout`. The shape is 95% identical to `Deployment` — same `replicas`, `selector`, `template` — plus a `strategy` block where you declare *how* to roll out.
+Argo Rollouts — контроллер Kubernetes со своим CRD `Rollout`. Форма на 95% как у `Deployment`: те же `replicas`, `selector`, `template`. Сверху блок `strategy`, где вы описываете, *как* выкатывать.
 
 ```mermaid
 flowchart TB
-  subgraph "Control plane"
+  subgraph "Плоскость управления"
     API[🚪 kube-apiserver]
-    ROC[🤖 argo-rollouts<br/>controller]
+    ROC[🤖 argo-rollouts<br/>контроллер]
     API <--> ROC
   end
-  subgraph "Your workload"
+  subgraph "Ваша нагрузка"
     R[📜 Rollout CR] --> RS1[🟢 ReplicaSet v1<br/>stable]
     R --> RS2[🐤 ReplicaSet v2<br/>canary]
     SVC[🌐 Service] --> RS1
     SVC --> RS2
   end
-  ROC -.->|watches| R
-  ROC -.->|adjusts replicas + traffic| RS1
-  ROC -.->|adjusts replicas + traffic| RS2
+  ROC -.->|следит| R
+  ROC -.->|правит реплики и трафик| RS1
+  ROC -.->|правит реплики и трафик| RS2
 ```
 
-* 📜 **One CRD replaces Deployment.** The controller manages two ReplicaSets — stable and canary — and shifts pods and/or HTTP weights between them.
-* 🔧 **kubectl plugin** (`kubectl argo rollouts`) gives you `get`, `promote`, `abort`, `retry`, `undo`, plus the `dashboard` subcommand for a local UI.
-* 🤝 **ArgoCD already speaks Rollouts.** Once you swap your chart's `Deployment` for a `Rollout`, ArgoCD's UI renders rollout progress as a first-class object — no extra config.
+* 📜 **Один CRD вместо Deployment.** Контроллер ведёт два ReplicaSet, stable и canary, и сдвигает между ними Pod и веса HTTP.
+* 🔧 **Плагин kubectl** (`kubectl argo rollouts`) даёт `get`, `promote`, `abort`, `retry`, `undo` и подкоманду `dashboard` для локального UI.
+* 🤝 **ArgoCD уже понимает Rollouts.** Поменяли в чарте `Deployment` на `Rollout` — UI ArgoCD рисует прогресс rollout как объект первого класса. Лишней настройки нет.
 
-> 🔥 **Migration is mechanical:** `sed -i 's/kind: Deployment/kind: Rollout/' templates/*.yaml`, then add a `strategy:` block. The pod template is unchanged.
+> 🔥 **Миграция механическая:** `sed -i 's/kind: Deployment/kind: Rollout/' templates/*.yaml`, затем добавьте блок `strategy:`. Шаблон Pod тот же.
 
 ---
 
-## 📍 Slide 7 – 📜 A Minimal Rollout
+## 📍 Слайд 7 – 📜 Минимальный Rollout
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -151,31 +151,31 @@ spec:
         - setWeight: 100
 ```
 
-* 🐤 **Step list runs top-to-bottom.** Each `setWeight` is a percentage of *replicas* (with no traffic router) or a percentage of *requests* (with a traffic router — see slide 12).
-* ⏸️ **`pause: {duration: ...}`** is a timed pause; **`pause: {}`** is a hard manual gate — the rollout sits there until you run `kubectl argo rollouts promote`.
-* 🎯 **No `setWeight: 100` needed at the end** — the controller assumes 100% is the final state once all steps complete.
+* 🐤 **Шаги идут сверху вниз.** Каждый `setWeight` — процент *реплик*, если traffic router нет, или процент *запросов*, если он есть (слайд 12).
+* ⏸️ **`pause: {duration: ...}`** — пауза по таймеру. **`pause: {}`** — жёсткий ручной шлагбаум: rollout стоит, пока вы не выполните `kubectl argo rollouts promote`.
+* 🎯 **`setWeight: 100` в конце не обязателен.** Когда шаги кончились, контроллер считает конечным состоянием 100%.
 
 ---
 
-## 📍 Slide 8 – ⏱️ What Happens at Each Step
+## 📍 Слайд 8 – ⏱️ Что происходит на каждом шаге
 
-| Time | Stable replicas | Canary replicas | Traffic to v2 | State |
+| Время | Реплики stable | Реплики canary | Трафик на v2 | Состояние |
 |------|----------------|----------------|----------------|-------|
-| T+0   | 10 | 0 | 0%   | `Progressing` (deploying canary) |
-| T+0.5 | 10 | 1 | 5%   | `Paused` (2 min timer) |
-| T+2.5 | 8  | 3 | 25%  | `Paused` (5 min timer) |
-| T+7.5 | 5  | 5 | 50%  | `Paused` (5 min timer) |
+| T+0   | 10 | 0 | 0%   | `Progressing` (canary выкатывается) |
+| T+0.5 | 10 | 1 | 5%   | `Paused` (таймер 2 мин) |
+| T+2.5 | 8  | 3 | 25%  | `Paused` (таймер 5 мин) |
+| T+7.5 | 5  | 5 | 50%  | `Paused` (таймер 5 мин) |
 | T+12.5 | 0 | 10 | 100% | `Healthy` ✅ |
 
-* 🔄 **Without a traffic router,** Argo Rollouts approximates the weight by adjusting the *replica count ratio* and relying on the `Service`'s round-robin to do the rest. At 10 replicas total, 5% rounds to 1 canary pod.
-* 🚦 **With a traffic router** (NGINX, ALB, Istio, Gateway API), the weight is exact at the HTTP layer regardless of replica count. You can run 5% traffic on 10% of pods.
-* 💥 **`Degraded`** appears if the canary ReplicaSet fails progress deadlines or an `analysis` step fails.
+* 🔄 **Без traffic router** Argo Rollouts приближает вес отношением числа реплик и надеется на round-robin у `Service`. На 10 репликах 5% округляется до одного Pod canary.
+* 🚦 **С traffic router** (NGINX, ALB, Istio, Gateway API) вес точный на уровне HTTP, число реплик тут ни при чём. Можно пустить 5% трафика на 10% Pod.
+* 💥 **`Degraded`** появляется, если ReplicaSet canary не уложился в progress deadline или шаг `analysis` упал.
 
 ---
 
-## 📍 Slide 9 – 🔵 Blue-Green Strategy
+## 📍 Слайд 9 – 🔵 Стратегия blue-green
 
-When you can't afford to mix versions — say, a backwards-incompatible schema migration — switch all traffic at once.
+Когда версии нельзя мешать — например, миграция схемы, которую старый код не читает, — переключайте весь трафик сразу.
 
 ```yaml
 strategy:
@@ -190,22 +190,22 @@ strategy:
 
 ```mermaid
 flowchart LR
-  Users[👥 prod users] --> ActiveSvc[🟢 Service: active] --> V1[📦 v1 pods]
-  QA[🧪 QA / smoke tests] --> PreviewSvc[🔵 Service: preview] --> V2[📦 v2 pods]
+  Users[👥 прод-пользователи] --> ActiveSvc[🟢 Service: active] --> V1[📦 Pod v1]
+  QA[🧪 QA / smoke-тесты] --> PreviewSvc[🔵 Service: preview] --> V2[📦 Pod v2]
   V2 -.->|promote| ActiveSvc
 ```
 
-* 🟢 **`activeService`** is what production traffic uses. The selector is rewritten by the controller to point at the current "live" ReplicaSet.
-* 🔵 **`previewService`** points at the new ReplicaSet — your QA team / smoke tests / synthetic monitors hit this URL.
-* ⏪ **`scaleDownDelaySeconds`** keeps the old pods alive for N seconds post-promotion. Roll back instantly by running `kubectl argo rollouts undo` before the timer expires.
+* 🟢 **`activeService`** — куда идёт прод-трафик. Селектор переписывает контроллер: он смотрит на текущий живой ReplicaSet.
+* 🔵 **`previewService`** смотрит на новый ReplicaSet. Сюда ходят QA, smoke-тесты и синтетические мониторы.
+* ⏪ **`scaleDownDelaySeconds`** держит старые Pod живыми N секунд после продвижения. Пока таймер не истёк, мгновенный откат — `kubectl argo rollouts undo`.
 
-> ⚠️ **Cost reality:** during cutover you're running 2x the pods (active + preview), 2x the cluster cost for that window. Budget it.
+> ⚠️ **Про деньги:** на переключении крутятся 2x Pod (active и preview) и 2x стоимость кластера на это окно. Заложите это в бюджет.
 
 ---
 
-## 📍 Slide 10 – 📊 AnalysisTemplate — Metric-Driven Decisions
+## 📍 Слайд 10 – 📊 AnalysisTemplate — решение по метрикам
 
-The most powerful Argo Rollouts feature: define a query, a success condition, and a failure threshold. Reference it from a rollout step and the controller will *automatically* abort on regression.
+Самое сильное в Argo Rollouts: запрос, условие успеха, порог провала. Сошлитесь на это из шага rollout — при регрессии контроллер *сам* прервёт выкат.
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -235,15 +235,15 @@ spec:
             }[2m]))
 ```
 
-* 🎯 **`successCondition`** is a Go expression over `result` — Prometheus returns a `[]float64`, take index 0 for instant queries.
-* ❌ **`failureLimit: 2`** means up to 2 failed measurements are tolerated; the third aborts the rollout.
-* ⚠️ **`inconclusiveLimit`** (not shown) pauses (rather than aborts) when data is missing — useful if Prometheus is slow to scrape new pods.
+* 🎯 **`successCondition`** — выражение Go над `result`. Prometheus возвращает `[]float64`; для мгновенного запроса берите индекс 0.
+* ❌ **`failureLimit: 2`** — два плохих замера ещё терпимы, третий прерывает rollout.
+* ⚠️ **`inconclusiveLimit`** (на схеме его нет) ставит паузу, а не abort, когда данных нет. Полезно, если Prometheus медленно скрейпит новые Pod.
 
 ---
 
-## 📍 Slide 11 – 🔗 Hooking Analysis into a Canary
+## 📍 Слайд 11 – 🔗 Как вставить анализ в canary
 
-Drop an `analysis` step between weight changes. The rollout will not proceed until the analysis returns `Successful`.
+Поставьте шаг `analysis` между сменами веса. Дальше rollout не пойдёт, пока анализ не вернёт `Successful`.
 
 ```yaml
 strategy:
@@ -265,32 +265,32 @@ strategy:
       - setWeight: 100
 ```
 
-Analysis outcomes:
+Чем кончается анализ:
 
-| Result | Rollout action |
+| Результат | Что делает rollout |
 |--------|----------------|
-| ✅ `Successful` | Move to next step |
-| ❌ `Failed` | Auto-abort, scale canary down, reset traffic to stable |
-| ⚠️ `Inconclusive` | Pause; resume manually with `promote` |
-| 🐢 `Running` | Keep sampling until count or failureLimit reached |
+| ✅ `Successful` | Следующий шаг |
+| ❌ `Failed` | Авто-abort, свернуть canary, вернуть трафик на stable |
+| ⚠️ `Inconclusive` | Пауза; дальше вручную через `promote` |
+| 🐢 `Running` | Сэмплировать дальше, пока не наберётся count или failureLimit |
 
-> 🔥 **Pro tip:** also configure `analysis` as `backgroundAnalysis` at the spec level — it runs in parallel with every step from the moment it's started, so a regression mid-step aborts immediately rather than waiting for the next gate.
+> 🔥 **Приём:** повесьте `analysis` ещё и как `backgroundAnalysis` на уровне spec. Он идёт параллельно каждому шагу с момента старта, и регрессия посреди шага прерывает сразу, не дожидаясь следующих ворот.
 
 ---
 
-## 📍 Slide 12 – 🚦 Traffic Routing: Replica Ratio vs Real HTTP Weights
+## 📍 Слайд 12 – 🚦 Маршрутизация: отношение реплик и настоящие веса HTTP
 
-Without a traffic router, "5% traffic" is approximated by the replica count ratio. That's coarse and inaccurate at small N. A **traffic router** integration lets the controller program real HTTP weights into your ingress or mesh.
+Без traffic router «5% трафика» — это отношение числа реплик. На маленьком N это грубо и мимо. **Traffic router** даёт контроллеру прописать настоящие HTTP-веса в ingress или mesh.
 
-| Router | Resource Argo Rollouts edits | When |
+| Роутер | Что правит Argo Rollouts | Когда |
 |--------|------------------------------|------|
-| 🌐 **NGINX Ingress** | A second `Ingress` with `nginx.ingress.kubernetes.io/canary: true` + `canary-weight` | Most common K8s ingress |
-| 🚢 **AWS ALB** | `TargetGroupBinding` weight in the `ListenerRule` | EKS shops on managed ALB |
-| 🕸️ **Istio** | `VirtualService` HTTP route weights | Existing Istio mesh |
-| 🔗 **Linkerd** | Via the **SMI** TrafficSplit (legacy) or **Gateway API** (recommended) | Linkerd users |
-| 🌉 **Gateway API plugin** | Native `HTTPRoute` weighted backends — works on any GW API impl | New deployments (mesh-agnostic) |
+| 🌐 **NGINX Ingress** | Второй `Ingress` с `nginx.ingress.kubernetes.io/canary: true` и `canary-weight` | Самый частый ingress в Kubernetes |
+| 🚢 **AWS ALB** | Вес `TargetGroupBinding` в `ListenerRule` | EKS и управляемый ALB |
+| 🕸️ **Istio** | Веса HTTP-маршрута в `VirtualService` | Mesh Istio уже стоит |
+| 🔗 **Linkerd** | **SMI** TrafficSplit (наследие) или **Gateway API** (рекомендуется) | Пользователи Linkerd |
+| 🌉 **Плагин Gateway API** | Взвешенные бэкенды `HTTPRoute` — любая реализация GW API | Новые выкладки, mesh не важен |
 
-Example with NGINX:
+Пример на NGINX:
 
 ```yaml
 strategy:
@@ -306,11 +306,11 @@ strategy:
       - setWeight: 100
 ```
 
-> 📚 **CNCF archived the SMI spec in 2024.** New work should target the **Kubernetes Gateway API** via the `argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi` plugin — one plugin, any conformant mesh.
+> 📚 **В 2024 CNCF заархивировал спецификацию SMI.** Новую работу ведите на **Kubernetes Gateway API** через плагин `argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi`: один плагин, любой совместимый mesh.
 
 ---
 
-## 📍 Slide 13 – 🛠️ kubectl argo rollouts — The Survival Toolkit
+## 📍 Слайд 13 – 🛠️ kubectl argo rollouts — набор, чтобы выжить
 
 ```bash
 # 📊 Live status — refreshes in place, shows weight, pods, analysis
@@ -335,115 +335,115 @@ kubectl argo rollouts undo lab14-app
 kubectl argo rollouts dashboard
 ```
 
-> 🔧 **Tip:** alias the long command — `alias kr='kubectl argo rollouts'`. You'll thank yourself by mid-Lab-14.
+> 🔧 **Совет:** повесьте алиас на длинную команду — `alias kr='kubectl argo rollouts'`. К середине Lab 14 скажете себе спасибо.
 
 ---
 
-## 📍 Slide 14 – 🔁 ArgoCD + Argo Rollouts — Full GitOps Loop
+## 📍 Слайд 14 – 🔁 ArgoCD + Argo Rollouts — полный цикл GitOps
 
-Lab 13 wired ArgoCD; Lab 14 swaps the workload type. ArgoCD treats the `Rollout` as a first-class resource, watching its `.status.phase` for `Healthy` / `Paused` / `Degraded`.
+Lab 13 подключил ArgoCD, Lab 14 меняет тип нагрузки. Для ArgoCD `Rollout` — ресурс первого класса: он смотрит `.status.phase` на `Healthy`, `Paused` и `Degraded`.
 
 ```mermaid
 flowchart LR
-  Dev[👨‍💻 dev] -->|git push values.yaml<br/>image.tag=v1.2.0| Repo[(📂 Git)]
+  Dev[👨‍💻 разработчик] -->|git push values.yaml<br/>image.tag=v1.2.0| Repo[(📂 Git)]
   Repo -->|sync| ArgoCD[🤖 ArgoCD]
-  ArgoCD -->|apply Rollout CR| K8s[☸️ Cluster]
+  ArgoCD -->|apply Rollout CR| K8s[☸️ Кластер]
   K8s --> Rollouts[🚦 Argo Rollouts]
-  Rollouts -->|canary step 1 5%| Stable[🟢 v1]
-  Rollouts -->|canary step 1 5%| Canary[🐤 v2]
+  Rollouts -->|шаг canary 1, 5%| Stable[🟢 v1]
+  Rollouts -->|шаг canary 1, 5%| Canary[🐤 v2]
   Rollouts -.->|status: Paused| ArgoCD
-  Prom[📈 Prometheus] -.->|analysis query| Rollouts
+  Prom[📈 Prometheus] -.->|запрос analysis| Rollouts
 ```
 
-* ✅ ArgoCD reports the app `Healthy` *only* when the Rollout is `Healthy` — a paused canary shows as `Progressing`, an aborted one as `Degraded`. No more "synced but actually broken" footguns.
-* 🚫 **Don't enable ArgoCD auto-sync `selfHeal: true` on the Rollout CR's `status` fields.** ArgoCD diffs spec only by default — but if you've widened that, you can fight the rollout controller.
+* ✅ ArgoCD ставит приложению `Healthy` *только* когда Rollout в `Healthy`. Canary на паузе виден как `Progressing`, прерванный rollout — как `Degraded`. Ловушки «Synced, а по факту сломано» больше нет.
+* 🚫 **Не включайте авто-sync ArgoCD с `selfHeal: true` на поля `status` у CR Rollout.** По умолчанию ArgoCD диффит только spec. Расширите diff на status — начнёте драться с контроллером rollout.
 
 ---
 
-## 📍 Slide 15 – 🐦 Flagger — The Other Option
+## 📍 Слайд 15 – 🐦 Flagger — второй вариант
 
-Argo Rollouts isn't alone. **Flagger** (Weaveworks, now Flux subproject) is the other major progressive-delivery controller.
+Argo Rollouts не единственный. **Flagger** (Weaveworks, теперь подпроект Flux) — второй крупный контроллер постепенной выкладки.
 
 | | 🐤 **Argo Rollouts** | 🐦 **Flagger** |
 |---|------------------------|----------------|
-| Resource model | Replaces Deployment with `Rollout` CRD | Keeps your existing Deployment, adds `Canary` CR |
-| Rollout shape | Explicit `steps:` list (you write each weight) | Declarative `stepWeight`/`maxWeight` — controller increments automatically |
-| GitOps pairing | ArgoCD (same project family) | Flux CD (same project family) |
-| Mesh support | Native: NGINX, ALB, Istio, Traefik, AppMesh, plugins (Gateway API, Contour, Consul…) | Native: Istio, Linkerd, AppMesh, Contour, NGINX, Gloo, Gateway API |
-| Metric providers | Prometheus, Datadog, NewRelic, Wavefront, CloudWatch, Graphite, InfluxDB, Kayenta, Web | Prometheus, Datadog, CloudWatch, NewRelic, Graphite, custom webhooks |
-| Manual gates | First-class (`pause: {}`) | Possible via webhook, less ergonomic |
+| Модель ресурса | Меняет Deployment на CRD `Rollout` | Оставляет ваш Deployment, добавляет CR `Canary` |
+| Форма выката | Явный список `steps:` (каждый вес пишете вы) | Декларативные `stepWeight` и `maxWeight`: контроллер наращивает сам |
+| Пара в GitOps | ArgoCD (та же семья проектов) | Flux CD (та же семья проектов) |
+| Mesh | Из коробки: NGINX, ALB, Istio, Traefik, AppMesh, плагины (Gateway API, Contour, Consul…) | Из коробки: Istio, Linkerd, AppMesh, Contour, NGINX, Gloo, Gateway API |
+| Метрики | Prometheus, Datadog, NewRelic, Wavefront, CloudWatch, Graphite, InfluxDB, Kayenta, Web | Prometheus, Datadog, CloudWatch, NewRelic, Graphite, свои webhook |
+| Ручные шлагбаумы | Из коробки (`pause: {}`) | Можно через webhook, менее удобно |
 
-> 🔥 **Rule of thumb:** if you're on ArgoCD, use Argo Rollouts. If you're on Flux, use Flagger. The two are spiritual siblings — same goals, slightly different ergonomics. This course uses Argo Rollouts because Lab 13 already stood up ArgoCD.
-
----
-
-## 📍 Slide 16 – 🔥 Common Anti-Patterns
-
-1. ❌ **Canary with no analysis.** A time-based pause "5 minutes at 5%" is just slow Russian roulette. Always wire an `AnalysisTemplate`.
-2. ❌ **`successCondition: result[0] >= 0.95`.** Too lax — that allows a 5% error rate. Real SLOs are 99.9%+.
-3. ❌ **No `failureLimit`.** Without it, a single Prometheus blip aborts every rollout. Default to `failureLimit: 2` or `3`.
-4. ❌ **Selecting on `version: v1` labels.** Service selector + rollout label conflict — Argo Rollouts injects its own `rollouts-pod-template-hash` label and you'll break the service.
-5. ❌ **`scaleDownDelaySeconds: 0` on blue-green.** Old pods are gone the instant you promote; if you find a bug 10 seconds later, there's nothing to roll back *to*.
-6. ❌ **Mixing canary + database migration.** 5% of users hit v2 → v2 writes a column v1 can't read → 95% of users get 500s. Use blue-green for schema changes, with the migration as a pre-promotion analysis.
-7. ❌ **Skipping the kubectl plugin in CI.** Your CI job runs `kubectl rollout status` (Deployment command), gets confused, and reports "success" while the canary is still at 5%. Use `kubectl argo rollouts status` instead.
+> 🔥 **Правило:** на ArgoCD берите Argo Rollouts. На Flux берите Flagger. Близкие родственники: цели одни, эргономика чуть разная. Курс берёт Argo Rollouts, потому что Lab 13 уже поднял ArgoCD.
 
 ---
 
-## 📍 Slide 17 – 🏭 Progressive Delivery in the Wild
+## 📍 Слайд 16 – 🔥 Частые антипаттерны
 
-* 🎬 **Netflix** — pioneered automated canary analysis with Kayenta (2018, joint with Google). Every Spinnaker pipeline at Netflix gates production behind a statistical comparison of canary-vs-baseline metrics. Their canary "judge" uses a Mann-Whitney U test for time-series significance.
-* 🏢 **Google** — uses canary + blue-green internally; one Borg job per region, with traffic-shifted releases across regions over hours, not minutes. SRE book chapter 8.
-* 🐙 **GitHub** — ships a "preview" environment for every internal change before merge; production rollout is region-by-region with metric gates.
-* 🐦 **Twitter (now X)** — public engineering blog (2023) on rolling out the timeline algorithm changes via 0.1% → 1% → 10% canaries with 24-hour observation windows.
-* 💸 **Capital One** — case study (2022): moved from blue-green-only to canary + analysis after a $20M outage caused by an instant 100% promotion of a broken auth service.
-
-> 📊 **DORA 2024:** organizations using progressive delivery report **41% lower change-failure rate** than those still on rolling Deployments.
+1. ❌ **Canary без анализа.** Пауза по времени «5 минут на 5%» — медленная русская рулетка. Всегда подключайте `AnalysisTemplate`.
+2. ❌ **`successCondition: result[0] >= 0.95`.** Слишком мягко: это разрешает 5% ошибок. Живые SLO — от 99.9%.
+3. ❌ **Нет `failureLimit`.** Один чих Prometheus прерывает каждый rollout. Ставьте `failureLimit: 2` или `3`.
+4. ❌ **Селектор по меткам `version: v1`.** Селектор Service ссорится с метками rollout. Argo Rollouts сам ставит `rollouts-pod-template-hash`, и Service развалится.
+5. ❌ **`scaleDownDelaySeconds: 0` в blue-green.** Старые Pod исчезают в момент promote. Баг через 10 секунд — откатываться *некуда*.
+6. ❌ **Canary вместе с миграцией БД.** 5% пользователей попадают на v2, v2 пишет колонку, которую v1 не читает, и 95% получают 500. Схему меняйте через blue-green, миграцию повесьте на анализ до продвижения.
+7. ❌ **В CI нет плагина kubectl.** Джоба гоняет `kubectl rollout status` (команда Deployment), путается и пишет «успех», пока canary ещё на 5%. Нужен `kubectl argo rollouts status`.
 
 ---
 
-## 📍 Slide 18 – 🎚️ Choosing Your Step Sizes
+## 📍 Слайд 17 – 🏭 Постепенная выкладка вживую
 
-There's no universal "right" canary step list. Calibrate by **expected error budget** and **traffic volume**.
+* 🎬 **Netflix** — первопроходцы автоматического анализа canary с Kayenta (2018, вместе с Google). Каждый pipeline Spinnaker в Netflix пускает прод только после статистического сравнения метрик canary и baseline. Судья canary берёт тест Манна–Уитни, чтобы оценить значимость временных рядов.
+* 🏢 **Google** — внутри canary и blue-green. Одна задача Borg на регион, трафик между регионами сдвигается часами, не минутами. Глава 8 книги SRE.
+* 🐙 **GitHub** — preview-окружение на каждое внутреннее изменение до merge. Прод идёт регион за регионом, с воротами по метрикам.
+* 🐦 **Twitter (ныне X)** — инженерный блог (2023) про выкат алгоритма ленты: canary 0.1% → 1% → 10%, окна наблюдения по 24 часа.
+* 💸 **Capital One** — кейс (2022): после аварии на $20M ушли с чистого blue-green на canary с анализом. Сломанный сервис аутентификации тогда уехал на 100% сразу.
 
-| Service type | Traffic | Recommended steps |
+> 📊 **DORA 2024:** у команд с постепенной выкладкой **change failure rate на 41% ниже**, чем у тех, кто всё ещё на rolling Deployment.
+
+---
+
+## 📍 Слайд 18 – 🎚️ Как выбрать размер шагов
+
+Универсального списка шагов canary нет. Калибруйте по ожидаемому **error budget** (бюджет ошибок) и по **объёму трафика**.
+
+| Тип сервиса | Трафик | Какие шаги |
 |--------------|---------|--------------------|
-| 🌐 Internal admin tool | < 100 rpm | `25 → 50 → 100`, 2 min pauses |
-| 🏬 Mid-traffic API | 1k-10k rpm | `5 → 25 → 50 → 100`, 5 min pauses + analysis |
-| 🌍 High-traffic public service | > 100k rpm | `1 → 5 → 10 → 25 → 50 → 100`, 30 min pauses + background analysis |
-| 💳 Payment / auth (high blast radius) | any | `1 → 5 → 25 → 50 → 100`, manual gates between EACH step + multi-window analysis |
+| 🌐 Внутренняя админка | < 100 rpm | `25 → 50 → 100`, паузы 2 мин |
+| 🏬 API среднего трафика | 1k-10k rpm | `5 → 25 → 50 → 100`, паузы 5 мин и анализ |
+| 🌍 Публичный сервис с большим трафиком | > 100k rpm | `1 → 5 → 10 → 25 → 50 → 100`, паузы 30 мин и фоновый анализ |
+| 💳 Платежи и аутентификация (большой радиус поражения) | любой | `1 → 5 → 25 → 50 → 100`, ручной шлагбаум между КАЖДЫМ шагом и анализ в нескольких окнах |
 
-* 📏 **Rule:** smaller first step + longer pause when the cost of a bad deploy is high. A 5% canary on a service handling 1M req/min still exposes 50,000 req/min to bugs.
-* ⏱️ **Pause length** should be ≥ the analysis sample window (e.g., 5 min query rate → 5 min pause minimum) so the first analysis sees only canary traffic.
-
----
-
-## 📍 Slide 19 – 🧪 Lab 14 in Detail
-
-You'll build on the Helm chart from Lab 13 (ArgoCD-managed).
-
-**Task 1 — Fundamentals (2 pts):** install Argo Rollouts controller + `kubectl argo rollouts` plugin + dashboard. Verify with `kubectl argo rollouts version`.
-
-**Task 2 — Canary (3 pts):** convert `templates/deployment.yaml` → `templates/rollout.yaml`. Configure 5-step canary `20 → 40 → 60 → 80 → 100` with a manual gate after step 1. Trigger a rollout via image tag bump, promote through the dashboard, then abort mid-rollout and confirm traffic returns to stable.
-
-**Task 3 — Blue-Green (3 pts):** add a second values file `values-bluegreen.yaml`. Configure `activeService` / `previewService`. Deploy v1, then v2, hit the preview service, promote, then immediately `undo` and watch the active service flip back.
-
-**Task 4 — Documentation (2 pts):** write `k8s/ROLLOUTS.md` documenting both strategies, screenshots from the Argo Rollouts dashboard, CLI command reference, and your recommendation on which strategy to use for what.
-
-**Bonus (+2.5 pts):** wire an `AnalysisTemplate` against the Prometheus you stood up in Lab 8. Use a `web` provider against `/health` as a low-bar option, or a real `prometheus` provider with `rate(http_requests_total{status=~"5.."}[2m])` for the full experience. Demonstrate **auto-rollback** by intentionally deploying an image that returns 500s.
-
-> 🔗 **Carry-over to Lab 16:** the AnalysisTemplate you write here is exactly what Lab 16's "monitoring + alerting" picks up — Prometheus rules + rollout gates close the loop between *observe* and *react*.
+* 📏 **Правило:** меньше первый шаг и длиннее пауза, когда плохая выкладка дорого стоит. Canary 5% на сервисе в 1M req/min всё равно подставляет под баги 50,000 req/min.
+* ⏱️ **Длина паузы** не короче окна выборки анализа. Rate за 5 минут — пауза минимум 5 минут, чтобы первый анализ видел только трафик canary.
 
 ---
 
-## 📍 Slide 20 – 📊 Dashboard + Notifications
+## 📍 Слайд 19 – 🧪 Lab 14 подробно
+
+Берёте Helm-чарт из Lab 13. Им уже управляет ArgoCD.
+
+**Задача 1 — основы (2 балла):** поставьте контроллер Argo Rollouts, плагин `kubectl argo rollouts` и дашборд. Проверка: `kubectl argo rollouts version`.
+
+**Задача 2 — canary (3 балла):** `templates/deployment.yaml` → `templates/rollout.yaml`. Canary из 5 шагов `20 → 40 → 60 → 80 → 100`, ручной шлагбаум после шага 1. Запустите rollout сменой тега образа, пройдите promote в дашборде, сделайте abort посреди выката и проверьте, что трафик вернулся на stable.
+
+**Задача 3 — blue-green (3 балла):** добавьте второй файл значений `values-bluegreen.yaml`. Настройте `activeService` и `previewService`. Выкатите v1, затем v2, сходите в preview-сервис, сделайте promote, сразу `undo` и смотрите, как активный сервис отщёлкивается назад.
+
+**Задача 4 — документация (2 балла):** напишите `k8s/ROLLOUTS.md`. Обе стратегии, скриншоты дашборда Argo Rollouts, шпаргалка команд CLI и ваша рекомендация, какую стратегию когда брать.
+
+**Бонус (+2.5 балла):** подключите `AnalysisTemplate` к Prometheus из Lab 8. Провайдер `web` на `/health` — нижняя планка. Настоящий провайдер `prometheus` с `rate(http_requests_total{status=~"5.."}[2m])` — полный опыт. Покажите **автооткат**: специально выкатите образ, который отвечает 500.
+
+> 🔗 **Перенос в Lab 16:** AnalysisTemplate отсюда — ровно то, что подхватывает Lab 16 в части «мониторинг и алерты». Правила Prometheus и ворота rollout замыкают петлю между *наблюдением* и *реакцией*.
+
+---
+
+## 📍 Слайд 20 – 📊 Дашборд и уведомления
 
 ```bash
 kubectl argo rollouts dashboard           # http://localhost:3100
 ```
 
-The dashboard shows every Rollout in the cluster, its current step, the canary/stable replica counts, traffic weight, and the live status of any in-flight analysis. Three buttons matter: `Promote`, `Abort`, `Restart`.
+Дашборд показывает каждый Rollout в кластере: текущий шаг, реплики canary и stable, вес трафика, живой статус анализа, который ещё идёт. Три кнопки решают дело: `Promote`, `Abort`, `Restart`.
 
-For **notifications** (Slack, MS Teams, email), install `argo-rollouts-notifications` and define `NotificationConfiguration` triggers:
+Для **уведомлений** (Slack, MS Teams, почта) поставьте `argo-rollouts-notifications` и опишите триггеры `NotificationConfiguration`:
 
 ```yaml
 apiVersion: notifications.argoproj.io/v1alpha1
@@ -461,88 +461,88 @@ spec:
             "color": "#E96D76"}]
 ```
 
-> 🚨 **Production rule:** every team should get a Slack ping on `Degraded` rollouts. Silent failures are how you find out a week later that production has been on v1.1 because every promotion since auto-aborts.
+> 🚨 **Правило прода:** каждая команда получает пинг в Slack, когда rollout в `Degraded`. Тихий провал выглядит так: через неделю выясняется, что прод сидит на v1.1, потому что каждое продвижение с тех пор само прерывается.
 
 ---
 
-## 📍 Slide 21 – ✨ What's New in Argo Rollouts 1.8.x
+## 📍 Слайд 21 – ✨ Что нового в Argo Rollouts 1.8.x
 
-Argo Rollouts is a stable project — 1.8 is incremental refinement, not revolution.
+Проект стабильный. Линейка 1.8 — точечная доводка, не революция.
 
-* 🩹 **1.8.4 (Feb 13 2026)** — fix for "bluegreen analysis prematurely succeeds if new ReplicaSet becomes unsaturated" (PR #4604). Bumps `hashicorp/go-plugin` to 1.6.3. **This is the version to pin in Lab 14.**
-* 🔌 **Plugin maturation** — the traffic-router and metric-provider plugin systems are now the recommended path for non-core integrations. Gateway API, Contour, kgateway, Consul plugins all live under `argoproj-labs/`.
-* 📜 **`apisix` traffic router** GA earlier in the 1.8 line.
-* 🏃 **Performance** — controller now uses informer caches more aggressively for large clusters (10k+ rollouts).
-* 🚫 **Deprecation reminder:** the in-tree `smi` traffic router still works but is on borrowed time after CNCF archived the SMI spec. Move to Gateway API plugin for new work.
+* 🩹 **1.8.4 (Feb 13 2026)** — фикс «анализ bluegreen преждевременно успешен, если новый ReplicaSet становится unsaturated» (PR #4604). `hashicorp/go-plugin` поднят до 1.6.3. **В Lab 14 фиксируйте эту версию.**
+* 🔌 **Плагины выросли.** Для интеграций вне ядра теперь берут плагины traffic-router и провайдеров метрик. Gateway API, Contour, kgateway и Consul живут в `argoproj-labs/`.
+* 📜 **Traffic router `apisix`** стал GA раньше, на линейке 1.8.
+* 🏃 **Скорость.** На больших кластерах (10k+ rollout) контроллер агрессивнее пользуется кэшами informer.
+* 🚫 **Напоминание:** встроенный traffic router `smi` ещё работает, но после архивации спецификации SMI его дни сочтены. Новую работу ведите на плагине Gateway API.
 
-> 📚 **Source:** [Argo Rollouts releases](https://github.com/argoproj/argo-rollouts/releases). Pin to `v1.8.4` for stability; `v1.9` ships in mid-2026.
-
----
-
-## 📍 Slide 22 – 🎯 Key Takeaways
-
-1. 🐤 **A Rollout is a Deployment + a strategy.** Same pod template, different controller, vastly safer release.
-2. 🎚️ **Canary shifts traffic in steps;** blue-green flips it all at once. Both are first-class in Argo Rollouts.
-3. 📊 **`AnalysisTemplate` is the unlock.** Without metric gates, you've just slowed down a bad deploy; with them, you've automated rollback.
-4. 🚦 **Traffic router > replica ratio** for accurate small percentages. NGINX for most, Gateway API plugin for mesh-agnostic.
-5. 🧰 **`kubectl argo rollouts` is your daily driver** — `get --watch`, `promote`, `abort`, `undo`. Alias it.
-6. 🔁 **ArgoCD + Argo Rollouts is the canonical GitOps + progressive delivery combo.** Lab 13 + Lab 14 sit together by design.
-7. 🚫 **Avoid mixing canary with breaking changes.** 5% of users on an incompatible schema is still a bad day. Reach for blue-green.
-
-> 💡 **The pattern:** Git push → ArgoCD sync → Rollout starts → analysis queries Prometheus → step or rollback. The whole loop runs without a human.
+> 📚 **Источник:** [релизы Argo Rollouts](https://github.com/argoproj/argo-rollouts/releases). Для стабильности фиксируйте `v1.8.4`. `v1.9` выходит в середине 2026.
 
 ---
 
-## 📍 Slide 23 – 🧠 The Mindset Shift
+## 📍 Слайд 22 – 🎯 Главное
 
-| 😰 Vanilla Deployment | 🐤 Progressive Delivery |
+1. 🐤 **Rollout — это Deployment плюс стратегия.** Тот же шаблон Pod, другой контроллер, релиз заметно безопаснее.
+2. 🎚️ **Canary сдвигает трафик шагами, blue-green переключает его целиком.** В Argo Rollouts оба — объекты первого класса.
+3. 📊 **`AnalysisTemplate` — это ключ.** Без ворот по метрикам вы просто замедлили плохую выкладку. С ними откат делает контроллер.
+4. 🚦 **Для точных маленьких процентов traffic router лучше отношения реплик.** NGINX в большинстве случаев, плагин Gateway API — когда mesh не важен.
+5. 🧰 **`kubectl argo rollouts` — инструмент на каждый день:** `get --watch`, `promote`, `abort`, `undo`. Повесьте алиас.
+6. 🔁 **ArgoCD + Argo Rollouts — каноническая связка GitOps и постепенной выкладки.** Lab 13 и Lab 14 стоят рядом специально.
+7. 🚫 **Canary и ломающее изменение вместе не живут.** 5% пользователей на несовместимой схеме — всё равно плохой день. Берите blue-green.
+
+> 💡 **Паттерн:** push в Git → sync ArgoCD → стартует Rollout → анализ спрашивает Prometheus → шаг или откат. Петля идёт без человека.
+
+---
+
+## 📍 Слайд 23 – 🧠 Другой взгляд
+
+| 😰 Обычный Deployment | 🐤 Постепенная выкладка |
 |---|---|
-| "It rolled out, ship it" | "It rolled out *and the metrics held* — ship it" |
-| `kubectl rollout undo` (manual) | `kubectl argo rollouts abort` (auto on regression) |
-| 100% blast radius from minute 1 | 5% blast radius gated behind analysis |
-| Friday deploys = scary | Friday deploys = same as Tuesday deploys |
-| Rollback is a postmortem | Rollback is a controller decision |
-| "Did it deploy?" | "Did it deploy *and release*?" |
+| «Выкатилось — отдаём» | «Выкатилось, *и метрики удержались* — отдаём» |
+| `kubectl rollout undo` (руками) | `kubectl argo rollouts abort` (само, при регрессии) |
+| Радиус поражения 100% с первой минуты | Радиус поражения 5%, дальше пускает анализ |
+| Выкладка в пятницу = страшно | Выкладка в пятницу = выкладка во вторник |
+| Откат — это постмортем | Откат — решение контроллера |
+| «Задеплоилось?» | «Задеплоилось *и выпустилось*?» |
 
 ---
 
-## 📍 Slide 24 – 🚀 What Comes Next
+## 📍 Слайд 24 – 🚀 Что дальше
 
-**📚 Next lecture: *StatefulSets & Persistent Storage*** — because stateless rollouts are easy. Databases, Kafka, Elastic, Redis: those are different.
+**📚 Следующая лекция: *StatefulSet и постоянное хранилище*.** Stateless-выкаты простые. Базы, Kafka, Elastic, Redis — другое дело.
 
-* 🗄️ **StatefulSets:** ordered, stable network identity, per-pod PVCs
-* 💾 **PersistentVolumes & PersistentVolumeClaims:** the storage abstraction
-* 🪣 **StorageClasses:** dynamic provisioning (gp3, ssd, nfs)
-* 📦 **Volume snapshots & restore:** for backups inside K8s
-* 🔄 **OnDelete vs RollingUpdate strategies:** why StatefulSet updates aren't progressive in the Rollout sense
+* 🗄️ **StatefulSet:** порядок, стабильное сетевое имя, PVC на каждый Pod
+* 💾 **PersistentVolume и PersistentVolumeClaim:** абстракция хранилища
+* 🪣 **StorageClass:** динамическое выделение (gp3, ssd, nfs)
+* 📦 **Снимки томов и восстановление:** бэкапы внутри Kubernetes
+* 🔄 **Стратегии OnDelete и RollingUpdate:** обновление StatefulSet — это не постепенная выкладка в смысле Rollout
 
-**🔬 Lab 14 deliverables (recap):**
-* Argo Rollouts 1.8.4 controller + dashboard
-* Helm chart with `Rollout` resource, both canary and blue-green strategies
-* `kubectl argo rollouts` walkthrough: promote, abort, retry, undo
-* Bonus: `AnalysisTemplate` + intentional-failure rollback demo
+**🔬 Что сдать в Lab 14 (кратко):**
+* Контроллер Argo Rollouts 1.8.4 и дашборд
+* Helm-чарт с ресурсом `Rollout`, стратегии canary и blue-green
+* Проход по `kubectl argo rollouts`: promote, abort, retry, undo
+* Бонус: `AnalysisTemplate` и откат на специально сломанном образе
 
 ```mermaid
 flowchart LR
   Lab13[🤖 Lab 13: ArgoCD GitOps] --> Lab14[🚦 Lab 14: Argo Rollouts]
   Lab14 --> Lab15[🗄️ Lab 15: StatefulSets]
-  Lab15 --> Lab16[📈 Lab 16: Monitoring]
+  Lab15 --> Lab16[📈 Lab 16: Мониторинг]
 ```
 
-> 🌊 From "deployed" to "released" — one weighted step at a time.
+> 🌊 От «задеплоено» к «выпущено» — по одному взвешенному шагу.
 
 ---
 
-## 📚 Resources
+## 📚 Материалы
 
-* 📕 *Continuous Delivery* (2010) — Humble & Farley. Where the canary metaphor enters the mainstream.
-* 📕 *Accelerate* (2018) — Forsgren, Humble, Kim. DORA data on change failure rate.
-* 🌐 [Argo Rollouts docs](https://argoproj.github.io/argo-rollouts/) — official; the *Features* section is excellent
-* 🌐 [Argo Rollouts releases](https://github.com/argoproj/argo-rollouts/releases) — pin v1.8.4
-* 🌐 [Gateway API plugin](https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi) — mesh-agnostic traffic routing
-* 🌐 [Flagger docs](https://flagger.app/) — the Flux-side alternative
-* 🌐 [Kayenta on Netflix Tech Blog](https://netflixtechblog.com/automated-canary-analysis-at-netflix-with-kayenta-3260bc7acc69) — statistical canary analysis from the team that pioneered it
-* 🌐 [CNCF: Progressive Delivery primer](https://www.cncf.io/blog/2024/02/27/flagger-vs-argo-rollouts-vs-service-meshes-a-guide-to-progressive-delivery-in-kubernetes/)
-* 🎥 [Argo vs Flagger (KubeCon panel)](https://www.cncf.io/online-programs/) — direct controller-vs-controller comparison
+* 📕 *Continuous Delivery* (2010) — Humble и Farley. Откуда метафора canary вошла в общий обиход.
+* 📕 *Accelerate* (2018) — Forsgren, Humble, Kim. Данные DORA по change failure rate.
+* 🌐 [Документация Argo Rollouts](https://argoproj.github.io/argo-rollouts/) — официальная; раздел *Features* отличный
+* 🌐 [Релизы Argo Rollouts](https://github.com/argoproj/argo-rollouts/releases) — фиксируйте v1.8.4
+* 🌐 [Плагин Gateway API](https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi) — маршрутизация трафика без привязки к mesh
+* 🌐 [Документация Flagger](https://flagger.app/) — альтернатива со стороны Flux
+* 🌐 [Kayenta в Netflix Tech Blog](https://netflixtechblog.com/automated-canary-analysis-at-netflix-with-kayenta-3260bc7acc69) — статистический анализ canary от тех, кто это придумал
+* 🌐 [CNCF: введение в progressive delivery](https://www.cncf.io/blog/2024/02/27/flagger-vs-argo-rollouts-vs-service-meshes-a-guide-to-progressive-delivery-in-kubernetes/)
+* 🎥 [Argo и Flagger, панель KubeCon](https://www.cncf.io/online-programs/) — прямое сравнение двух контроллеров
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 13-16 leaderboard window.
+**🎓 Квиз:** квиз после лекции попадает в окно таблицы лидеров за недели 13-16.

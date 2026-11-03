@@ -1,57 +1,57 @@
-# Lab 12 — ConfigMaps & Persistent Volumes
+# Lab 12 — ConfigMap и Persistent Volumes
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-Configuration%20%26%20Storage-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-ConfigMaps%20%7C%20PVC%20%7C%20K8s%201.36-informational)
 
-> **Goal:** Externalize non-secret config with ConfigMaps and make application data survive `kubectl delete pod` with a PersistentVolumeClaim.
-> **Deliverable:** A PR from `lab12` extending your Lab 10/11 chart with two ConfigMaps + a PVC, an app-side visit counter, and `docs/LAB12.md` containing the write-delete-pod-read-from-new-pod persistence proof.
+> **Цель:** вынесите несекретный конфиг в ConfigMap и сделайте так, чтобы данные приложения пережили `kubectl delete pod` за счёт PersistentVolumeClaim.
+> **Что сдать:** PR из ветки `lab12`, который расширяет чарт Lab 10/11 двумя ConfigMap и PVC, счётчиком визитов на стороне приложения и `docs/LAB12.md` с доказательством персистентности: запись, удаление Pod, чтение из нового Pod.
 
 ---
 
-## Overview
+## Обзор
 
-Lab 11 hid your *secrets* (DB passwords, API tokens). But not every value is a secret — log levels, feature flags, app names, `NGINX` configs — these belong in **ConfigMaps**. And containers are *ephemeral*: when a pod restarts, its writable layer is gone. Anything your app wrote to local disk vanishes. The fix is a **PersistentVolumeClaim** — the pod claims storage by name, the volume follows the pod from one node to another, and the data outlives any individual pod.
+В Lab 11 вы спрятали *секреты* (пароли БД, API-токены). Но не каждое значение — секрет: уровни логов, feature flags, имена приложений, конфиги `NGINX` — им место в **ConfigMap**. Контейнеры при этом *эфемерны*: Pod перезапустился — записываемый слой исчез. Всё, что приложение писало на локальный диск, пропало. Лечение — **PersistentVolumeClaim**: Pod забирает хранилище по имени, том идёт за Pod с узла на узел, данные переживают любой конкретный Pod.
 
-In this lab you will practice:
+В этой лабораторной вы потренируетесь:
 
-- The three ConfigMap injection patterns (single env, `envFrom` bulk, volume mount) and **picking the right one for the situation**
-- Designing a PVC: access mode, size, storage class — by **reading what the cluster actually offers** instead of guessing
-- The headline proof: **write → `kubectl delete pod` → read from the new pod → same value**. A PVC that merely `Bound`s does NOT prove persistence.
+- Трём паттернам инъекции ConfigMap (одна переменная, массовый `envFrom`, volume mount) и **выбору подходящего под ситуацию**
+- Проектированию PVC: режим доступа, размер, storage class — **прочитав, что кластер реально даёт**, а не угадав
+- Главному доказательству: **запись → `kubectl delete pod` → чтение из нового Pod → то же значение**. PVC, который просто перешёл в `Bound`, персистентность НЕ доказывает.
 
-> ⚠️ **Scope:** one replica with `ReadWriteOnce` storage. `ReadWriteMany` (multi-node concurrent writes) needs a network FS (NFS/EFS/CephFS) and is outside this lab. StatefulSets + `volumeClaimTemplates` (one PVC per replica) come in Lab 15.
-
----
-
-## Project State
-
-**You should have from previous labs:**
-- Lab 9 — your `web` Deployment + Service on k3d (1.36)
-- Lab 10 — your `lab10-app` Helm chart packaging that Deployment + Service
-- Lab 11 — Secret(s) wired into the same chart
-
-**This lab adds (in your existing chart):**
-- App-side **visit counter** that writes to a file under `DATA_DIR` (default `/data`)
-- `templates/configmap.yaml` — two ConfigMaps; one mounted as a file, one bulk-injected as env vars
-- `templates/pvc.yaml` — a PVC under `.Values.persistence.enabled`
-- Deployment patches to wire them in
-- `docs/LAB12.md` — the persistence proof + your design reasoning
-
-> 📚 Pairs with **Lecture 12 — ConfigMaps and Persistent Volumes**. Re-read slides 6–8 (injection patterns), 13–15 (PV/PVC/StorageClass, access modes, reclaim policies), and 16 (`subPath` trap) before you start.
+> ⚠️ **Объём:** одна реплика и хранилище `ReadWriteOnce`. `ReadWriteMany` (одновременная запись с нескольких узлов) требует сетевую ФС (NFS/EFS/CephFS) и в эту лабораторную не входит. StatefulSet и `volumeClaimTemplates` (PVC на каждую реплику) будут в Lab 15.
 
 ---
 
-## Setup
+## Состояние проекта
 
-You need the k3d cluster from Lab 9 running on Kubernetes 1.36, your `lab10-app` chart, and `kubectl`.
+**Из прошлых лабораторных у вас уже должно быть:**
+- Lab 9 — Deployment `web` и Service на k3d (1.36)
+- Lab 10 — Helm-чарт `lab10-app`, в который упакованы этот Deployment и Service
+- Lab 11 — Secret, подключённые в тот же чарт
+
+**Эта лабораторная добавляет (в уже существующий чарт):**
+- **Счётчик визитов** на стороне приложения: пишет в файл под `DATA_DIR` (по умолчанию `/data`)
+- `templates/configmap.yaml` — два ConfigMap: один смонтирован файлом, второй массово залит в env
+- `templates/pvc.yaml` — PVC под флагом `.Values.persistence.enabled`
+- Патчи Deployment, которые всё это подключают
+- `docs/LAB12.md` — доказательство персистентности и ваши рассуждения о решениях
+
+> 📚 Идёт в паре с **Lecture 12 — ConfigMap и Persistent Volumes**. Перед стартом перечитайте слайды 6–8 (паттерны инъекции), 13–15 (PV/PVC/StorageClass, режимы доступа, reclaim policy) и 16 (ловушка `subPath`).
+
+---
+
+## Подготовка
+
+Нужны работающий кластер k3d из Lab 9 на Kubernetes 1.36, чарт `lab10-app` и `kubectl`.
 
 ```bash
 kubectl get nodes                # should show k3d-devops-server-0 + 2 agents on v1.36.x
 helm list -n lab12 2>/dev/null   # namespace you'll use below
 ```
 
-**Before you write a single line of YAML**, inspect what the cluster gives you for free — the answers to "which access mode?" and "which storage class?" depend on it:
+**Прежде чем писать хоть одну строку YAML**, посмотрите, что кластер даёт даром. От этого зависят ответы на «какой режим доступа?» и «какой storage class?»:
 
 ```bash
 kubectl get storageclass
@@ -59,39 +59,39 @@ kubectl get storageclass
 # Write the answer in docs/LAB12.md — this is the storage class your PVC will use.
 ```
 
-> 💡 k3d (k3s) ships **`local-path`** (`rancher.io/local-path`) marked `(default)`. It's RWO-only, no snapshots — fine for a single-pod visits counter, not what you'd run in prod. On a real cloud cluster the same chart would bind to an **AWS EBS** (`ebs.csi.aws.com`) or **GCE PD** (`pd.csi.storage.gke.io`) volume via its CSI driver, with no chart change.
+> 💡 k3d (k3s) привозит **`local-path`** (`rancher.io/local-path`) с пометкой `(default)`. Только RWO, без снапшотов — для счётчика визитов в одном Pod хватит, в прод такое не ставят. На настоящем облачном кластере тот же чарт привяжется к тому **AWS EBS** (`ebs.csi.aws.com`) или **GCE PD** (`pd.csi.storage.gke.io`) через его CSI-драйвер, и чарт менять не придётся.
 
 ---
 
-## Task 1 — Application Persistence Upgrade (2 pts)
+## Задание 1 — Доработка персистентности приложения (2 балла)
 
-Before any Kubernetes work, the app needs something worth persisting. Add a visit counter that writes to a file, and prove it works locally before you move on.
+До любой работы с Kubernetes приложению нужно что-то, что стоит хранить. Добавьте счётчик визитов, который пишет в файл, и докажите локально, что он работает, — и только потом идите дальше.
 
-### 1.1 — Add the visit counter
+### 1.1 — Добавьте счётчик визитов
 
-`YOUR TASK`: in `app_python/app.py` (or your language equivalent), add the counter.
+`ВАША ЗАДАЧА`: в `app_python/app.py` (или аналог на вашем языке) добавьте счётчик.
 
-Requirements:
+Требования:
 
-- `GET /` increments a counter; the value is stored in a file under `DATA_DIR` (env var, default `/data`).
-- On startup, read the file. If it's missing, default to `0` — don't crash.
-- Add `GET /visits` returning `{"visits": N}` JSON.
-- Write **atomically**: write to a temp file in the same directory, then `os.replace(tmp, final)`. A crash mid-write must not corrupt the count.
-- Make the data dir on startup if it doesn't exist (`os.makedirs(..., exist_ok=True)`).
+- `GET /` увеличивает счётчик; значение лежит в файле под `DATA_DIR` (переменная окружения, по умолчанию `/data`).
+- На старте прочитайте файл. Если его нет — берите `0`, не падайте.
+- Добавьте `GET /visits`, который возвращает JSON `{"visits": N}`.
+- Пишите **атомарно**: сначала во временный файл в том же каталоге, потом `os.replace(tmp, final)`. Падение посреди записи не должно портить счётчик.
+- На старте создайте каталог данных, если его нет (`os.makedirs(..., exist_ok=True)`).
 
-Hints — sketch of the moving parts (do NOT copy-paste, derive the code yourself):
+Подсказки — набросок частей (не копируйте, выведите код сами):
 
-- **constants** — `DATA_DIR = env("DATA_DIR","/data")`, `COUNTER = DATA_DIR + "/visits"`
-- **read_count** — open + `int(...)`; on `FileNotFoundError` return `0`
-- **write_count(n)** — `mkstemp` in `DATA_DIR` → write → `os.replace(tmp, COUNTER)` (atomic)
-- **`GET /`** — `c = read_count() + 1`; `write_count(c)`; respond
-- **`GET /visits`** — respond `{ "visits": read_count() }`
+- **константы** — `DATA_DIR = env("DATA_DIR","/data")`, `COUNTER = DATA_DIR + "/visits"`
+- **read_count** — открыть и `int(...)`; на `FileNotFoundError` вернуть `0`
+- **write_count(n)** — `mkstemp` в `DATA_DIR`, запись, `os.replace(tmp, COUNTER)` (атомарно)
+- **`GET /`** — `c = read_count() + 1`; `write_count(c)`; ответить
+- **`GET /visits`** — ответить `{ "visits": read_count() }`
 
-### 1.2 — Local Docker Compose persistence test
+### 1.2 — Локальный тест персистентности в Docker Compose
 
-`YOUR TASK`: in `app_python/docker-compose.yml`, mount a host directory at `DATA_DIR`. Hit `/` three times, restart the container, hit `/visits` — the count must continue, not reset.
+`ВАША ЗАДАЧА`: в `app_python/docker-compose.yml` смонтируйте каталог хоста в `DATA_DIR`. Дёрните `/` три раза, перезапустите контейнер, дёрните `/visits` — счётчик должен продолжиться, а не обнулиться.
 
-Skeleton (fill in the blanks):
+Каркас (заполните пропуски):
 
 ```yaml
 services:
@@ -103,25 +103,25 @@ services:
       - # YOUR TASK: host-path : DATA_DIR
 ```
 
-### 1.3 — Proof of work
+### 1.3 — Доказательства
 
-Paste into `docs/LAB12.md`:
+Вставьте в `docs/LAB12.md`:
 
-- The three curls (`curl localhost:8080/` × 3) + the `/visits` reading.
-- `docker compose restart app` followed by `/visits` showing the **same** count, not 0.
-- `cat ./data/visits` from the host showing the same integer (proves it's actually persisted, not a race).
+- Три вызова (`curl localhost:8080/` × 3) и чтение `/visits`.
+- `docker compose restart app`, затем `/visits` с **тем же** счётчиком, не с 0.
+- `cat ./data/visits` с хоста с тем же целым (это доказывает, что значение реально сохранилось, а не гонка).
 
 ---
 
-## Task 2 — ConfigMaps: Three Patterns, One Decision Per Value (3 pts)
+## Задание 2 — ConfigMap: три паттерна, одно решение на значение (3 балла)
 
-The lecture covered three ways to inject a ConfigMap into a pod. **One pattern per *value* — not all three for every value.** You'll ship two ConfigMaps (one shaped as files, one shaped as env vars), wire each into the pod with the pattern that fits its shape, and defend the choice for the three example values in the decision table below.
+Лекция разобрала три способа залить ConfigMap в Pod. **Один паттерн на *значение*, а не все три на каждое.** Вы отдадите два ConfigMap (один как файлы, другой как переменные окружения), подключите каждый в Pod тем паттерном, который подходит его форме, и защитите выбор для трёх примеров в таблице ниже.
 
-### 2.1 — Author the two ConfigMaps
+### 2.1 — Напишите два ConfigMap
 
-You'll ship two ConfigMaps in `templates/configmap.yaml`. The shape and *labels* are given; the **data** is yours to fill from the chart's `values.yaml`.
+Два ConfigMap поедут в `templates/configmap.yaml`. Форма и *лейблы* заданы; **данные** заполняете вы из `values.yaml` чарта.
 
-Skeleton — `templates/configmap.yaml` (one file, two CMs separated by `---`):
+Каркас — `templates/configmap.yaml` (один файл, два ConfigMap через `---`):
 
 ```yaml
 apiVersion: v1
@@ -143,13 +143,13 @@ data:                            # YOUR TASK: ≥3 K/V pairs from .Values
                                  # invalid names are silently skipped by envFrom
 ```
 
-`YOUR TASK`: create `files/config.json` with at least these keys: `appName`, `environment`, `features` (object with `visitsCounter: true`). Add the corresponding values to `values.yaml`.
+`ВАША ЗАДАЧА`: создайте `files/config.json` минимум с ключами `appName`, `environment`, `features` (объект с `visitsCounter: true`). Те же значения добавьте в `values.yaml`.
 
-### 2.2 — Pick an injection pattern per value
+### 2.2 — Выберите паттерн инъекции на каждое значение
 
-Three injection patterns exist (Lecture 12, slides 6–8). Below is the skeleton of each as a separate Deployment-patch block — **keep the ones you need, delete the others**, then justify your choices in `docs/LAB12.md`. At minimum your Deployment ends up using Pattern B (the env-shaped CM) **and** Pattern C (the file-shaped CM); Pattern A is optional and only earns points if you can defend a specific reason to rename or single-pick a key.
+Паттернов инъекции три (Lecture 12, слайды 6–8). Ниже каркас каждого отдельным блоком-патчем Deployment — **нужные оставьте, лишние удалите**, затем обоснуйте выбор в `docs/LAB12.md`. Как минимум в итоге Deployment использует паттерн B (ConfigMap в форме env) **и** паттерн C (ConfigMap в форме файла). Паттерн A необязателен и даёт баллы, только если вы можете защитить конкретную причину переименовать ключ или взять ровно один.
 
-**Pattern A — single env, renamed/optional control.** Use when you want ONE value, possibly RENAMED into the container.
+**Паттерн A — одна переменная, переименование и необязательность.** Когда нужно ОДНО значение, возможно ПЕРЕИМЕНОВАННОЕ внутри контейнера.
 
 ```yaml
 env:
@@ -161,7 +161,7 @@ env:
         optional:                    # YOUR TASK: true/false — start if missing?
 ```
 
-**Pattern B — `envFrom` (bulk).** EVERY key in the CM becomes an env var. No rename, no filter — curate the ConfigMap, not the injection.
+**Паттерн B — `envFrom` (пачкой).** КАЖДЫЙ ключ ConfigMap становится переменной окружения. Без переименования и без фильтра: отбирайте ключи в самом ConfigMap, а не в инъекции.
 
 ```yaml
 envFrom:
@@ -169,7 +169,7 @@ envFrom:
       name:                          # YOUR TASK
 ```
 
-**Pattern C — volume mount (whole directory, NOT `subPath`).** For structured files (JSON/YAML/conf) the app reads; auto-updates without an image rebuild (Bonus depends on this).
+**Паттерн C — volume mount (весь каталог, НЕ `subPath`).** Для структурированных файлов (JSON/YAML/conf), которые читает приложение. Обновляется сам, без пересборки образа (на этом держится бонус).
 
 ```yaml
 volumeMounts:
@@ -182,19 +182,19 @@ volumes:
       name:                          # YOUR TASK: which ConfigMap supplies the files?
 ```
 
-Pick the right pattern for each of these values and document the choice in `docs/LAB12.md` (one sentence each):
+Подберите паттерн каждому из этих значений и зафиксируйте выбор в `docs/LAB12.md` (по одному предложению):
 
-| Value | Pattern? | Why? |
+| Значение | Паттерн? | Почему? |
 |---|---|---|
-| `LOG_LEVEL` (a single string the framework reads from env) | YOUR TASK | YOUR TASK |
-| `config.json` (a structured file with feature flags) | YOUR TASK | YOUR TASK |
-| ≥ 10 boolean feature flags that all need to be env vars | YOUR TASK | YOUR TASK |
+| `LOG_LEVEL` (одна строка, которую фреймворк читает из env) | ВАША ЗАДАЧА | ВАША ЗАДАЧА |
+| `config.json` (структурированный файл с feature flags) | ВАША ЗАДАЧА | ВАША ЗАДАЧА |
+| ≥ 10 булевых feature flags, и все должны стать переменными окружения | ВАША ЗАДАЧА | ВАША ЗАДАЧА |
 
-> 💡 **Hint** — none of the three answers is "all three". One value, one pattern. The point is the *decision*, not the proliferation.
+> 💡 **Подсказка** — ни один из трёх ответов не «все три». Одно значение — один паттерн. Смысл в *решении*, а не в том, чтобы размножить паттерны.
 
-### 2.3 — Proof of work
+### 2.3 — Доказательства
 
-`YOUR TASK`: after `helm upgrade --install lab10-app k8s/lab10-app -n lab12 --create-namespace` (same chart path as Lab 10/11), capture:
+`ВАША ЗАДАЧА`: после `helm upgrade --install lab10-app k8s/lab10-app -n lab12 --create-namespace` (тот же путь чарта, что в Lab 10/11) снимите:
 
 ```bash
 # YOUR TASK: get the pod name into $POD
@@ -203,45 +203,45 @@ Pick the right pattern for each of these values and document the choice in `docs
 # YOUR TASK: kubectl describe pod $POD | grep -A2 -E 'Environment|Mounts' — shows the wiring
 ```
 
-Paste into `docs/LAB12.md`:
+Вставьте в `docs/LAB12.md`:
 
-- The three captures above (file contents, env vars, pod description excerpt)
-- The decision table from 2.2 filled in
-- One paragraph: *if the ConfigMap had 30 keys but you only needed 2, would you still use `envFrom`? Why/why not?*
+- Три захвата выше (содержимое файла, переменные окружения, выдержка из описания Pod)
+- Заполненную таблицу решений из 2.2
+- Один абзац: *если в ConfigMap 30 ключей, а нужны только 2, стали бы вы всё равно брать `envFrom`? Почему да или почему нет?*
 
 ---
 
-## Task 3 — Persistent Volumes: Read the Cluster, Then Write the Claim (3 pts)
+## Задание 3 — Persistent Volumes: сначала прочитайте кластер, потом напишите claim (3 балла)
 
-A PVC has four knobs: `accessModes`, `resources.requests.storage`, `storageClassName`, and (less obviously) the **reclaim policy** inherited from the StorageClass. You'll set the first three explicitly — but only after inspecting what the cluster already offers.
+У PVC четыре ручки: `accessModes`, `resources.requests.storage`, `storageClassName` и (это менее очевидно) **reclaim policy**, которую он наследует от StorageClass. Первые три задайте явно — но только после того, как посмотрите, что кластер уже предлагает.
 
-### 3.1 — Inspect the cluster's storage first
+### 3.1 — Сначала осмотрите хранилище кластера
 
 ```bash
 kubectl get storageclass
 kubectl get sc <default-sc-name> -o yaml | grep -E 'provisioner|reclaimPolicy|volumeBindingMode'
 ```
 
-`YOUR TASK`: in `docs/LAB12.md`, answer:
+`ВАША ЗАДАЧА`: в `docs/LAB12.md` ответьте:
 
-- Which StorageClass has the `(default)` marker? What provisioner backs it?
-- What's its `reclaimPolicy` (Delete vs Retain)? What happens to your data if you delete the PVC?
-- What's its `volumeBindingMode`? Why does `WaitForFirstConsumer` mean a `Pending` PVC is **normal**, not a bug?
+- У какого StorageClass стоит пометка `(default)`? Какой provisioner за ним?
+- Какой у него `reclaimPolicy` (Delete или Retain)? Что будет с данными, если удалить PVC?
+- Какой у него `volumeBindingMode`? Почему при `WaitForFirstConsumer` PVC в `Pending` — это **норма**, а не баг?
 
-### 3.2 — Pick `accessModes` for the visits-counter use case
+### 3.2 — Выберите `accessModes` для счётчика визитов
 
-The four modes (Lecture 12, slide 14):
+Четыре режима (Lecture 12, слайд 14):
 
-- **`ReadWriteOnce`** — RW from one *node* (multiple pods on that node OK). Cloud block storage (EBS/PD/Azure Disk) only supports this.
-- **`ReadOnlyMany`** — RO from many nodes. Content distribution.
-- **`ReadWriteMany`** — RW from many nodes simultaneously. Needs NFS/EFS/CephFS — slower, more expensive.
-- **`ReadWriteOncePod`** — RW from exactly *one* pod cluster-wide (GA in K8s 1.29).
+- **`ReadWriteOnce`** — чтение и запись с одного *узла* (несколько Pod на этом узле можно). Облачные блочные диски (EBS/PD/Azure Disk) умеют только это.
+- **`ReadOnlyMany`** — только чтение со многих узлов. Раздача контента.
+- **`ReadWriteMany`** — чтение и запись со многих узлов сразу. Нужны NFS/EFS/CephFS — медленнее и дороже.
+- **`ReadWriteOncePod`** — чтение и запись ровно с *одного* Pod на весь кластер (GA в K8s 1.29).
 
-`YOUR TASK`: pick ONE for the visits counter and justify it in `docs/LAB12.md`. Hint: you have one Deployment replica writing to one file. Don't reach for the most flexible option — reach for the one that actually fits.
+`ВАША ЗАДАЧА`: выберите ОДИН режим для счётчика визитов и обоснуйте его в `docs/LAB12.md`. Подсказка: одна реплика Deployment пишет в один файл. Не хватайтесь за самый гибкий вариант — берите тот, который реально подходит.
 
-### 3.3 — Author the PVC
+### 3.3 — Напишите PVC
 
-Skeleton — `templates/pvc.yaml`:
+Каркас — `templates/pvc.yaml`:
 
 ```yaml
 {{- if .Values.persistence.enabled }}
@@ -262,7 +262,7 @@ spec:
 {{- end }}
 ```
 
-Add to `values.yaml`:
+Добавьте в `values.yaml`:
 
 ```yaml
 persistence:
@@ -271,9 +271,9 @@ persistence:
   storageClass: # YOUR TASK: "" to use the cluster default, or a specific name (e.g. local-path)
 ```
 
-### 3.4 — Mount it on the Deployment
+### 3.4 — Смонтируйте его на Deployment
 
-Patch `templates/deployment.yaml` — only the new bits:
+Пропатчьте `templates/deployment.yaml` — только новые куски:
 
 ```yaml
 volumeMounts:
@@ -289,13 +289,13 @@ volumes:
     {{- end }}
 ```
 
-### 3.5 — The persistence proof (the headline)
+### 3.5 — Доказательство персистентности (главное)
 
-This is the heart of the lab. **A `Bound` PVC means a volume exists, NOT that your data survived a pod restart.** You prove persistence by writing, deleting the pod, and reading from the new pod.
+Это сердце лабораторной. **PVC в статусе `Bound` значит, что том есть, а не то, что данные пережили перезапуск Pod.** Персистентность доказывается так: записали, удалили Pod, прочитали из нового Pod.
 
-`YOUR TASK`: figure out the four steps yourself. You'll need `kubectl exec ... -- sh -c 'echo ... > $DATA_DIR/marker'`, `kubectl delete pod`, `kubectl wait`, and a final `kubectl exec ... cat $DATA_DIR/marker`.
+`ВАША ЗАДАЧА`: четыре шага придумайте сами. Понадобятся `kubectl exec ... -- sh -c 'echo ... > $DATA_DIR/marker'`, `kubectl delete pod`, `kubectl wait` и финальный `kubectl exec ... cat $DATA_DIR/marker`.
 
-Use a **separate file** called `marker` for this proof — don't reuse `/data/visits`. The counter increments naturally and you want a constant string to compare. Both files live on the same PVC, so the proof for `marker` is also the proof for `visits`.
+Для доказательства возьмите **отдельный файл** `marker` — не переиспользуйте `/data/visits`. Счётчик растёт сам, а вам нужна неизменная строка для сравнения. Оба файла лежат на одном PVC, так что доказательство для `marker` заодно доказывает и `visits`.
 
 ```bash
 # YOUR TASK: write a unique marker (e.g. epoch seconds) to $DATA_DIR/marker
@@ -305,58 +305,58 @@ Use a **separate file** called `marker` for this proof — don't reuse `/data/vi
 # YOUR TASK: prove the marker is the SAME — the write survived the pod's death
 ```
 
-The deliverable is the actual captured output showing the *same* string before and after. If it differs (or the second `cat` returns "No such file or directory"), your PVC isn't really mounted at the data dir, or your storage class is doing something unexpected — debug with `kubectl describe pvc` and `kubectl describe pod`.
+Сдать нужно реальный захват, где *одна и та же* строка до и после. Если строки разные (или второй `cat` отвечает "No such file or directory"), PVC на самом деле не смонтирован в каталог данных, либо storage class ведёт себя неожиданно — смотрите `kubectl describe pvc` и `kubectl describe pod`.
 
-> 💡 You may see `Unknown stream id 5` from `kubectl exec` — that's a harmless client-side websocket warning, not a failure. If the data round-trips, you're fine.
+> 💡 От `kubectl exec` может прилететь `Unknown stream id 5` — это безвредное предупреждение websocket на стороне клиента, не ошибка. Если данные сходили туда и обратно, всё хорошо.
 
-### 3.6 — Proof of work
+### 3.6 — Доказательства
 
-Paste into `docs/LAB12.md`:
+Вставьте в `docs/LAB12.md`:
 
-- The storage-class inspection from 3.1 + your answers
-- The access-mode decision from 3.2 with justification
-- `kubectl get pvc` showing the claim `Bound` (or `Pending` if `WaitForFirstConsumer` and no pod has consumed it yet — explain which)
-- **The persistence proof from 3.5: original pod name, marker written, delete command, new pod name, marker read — same value, side by side**
-
----
-
-## Task 4 — Documentation (2 pts)
-
-Bundle everything into `docs/LAB12.md`. Required sections, in order:
-
-1. **App changes** — counter design, `DATA_DIR`, the atomic-write rationale, the Compose persistence capture from Task 1
-2. **ConfigMap design** — your `files/config.json`, the two ConfigMaps, the decision table from Task 2.2, the verification captures from 2.3
-3. **PVC design** — the StorageClass inspection, the access-mode justification, the PVC YAML, the mount, **the headline persistence proof from 3.5**
-4. **ConfigMap vs Secret** — when to use each (RBAC scope, tmpfs vs regular fs, encryption-at-rest story). Reference Lab 11.
-5. **Common pitfalls you hit** — at least one real one with how you debugged it
+- Осмотр storage class из 3.1 и ваши ответы
+- Решение по режиму доступа из 3.2 с обоснованием
+- `kubectl get pvc`: claim в `Bound` (или `Pending`, если `WaitForFirstConsumer` и ни один Pod его ещё не взял — напишите, какой из случаев у вас)
+- **Доказательство персистентности из 3.5: имя исходного Pod, записанный marker, команда удаления, имя нового Pod, прочитанный marker — то же значение, рядом**
 
 ---
 
-## Bonus Task — ConfigMap Hot Reload (2 pts)
+## Задание 4 — Документация (2 балла)
 
-Edit a value in `lab10-app-env`. Watch the running pod. The env var **doesn't change**. Edit a value in `lab10-app-file`. Watch the mounted file. It **eventually** changes — minutes later. If you'd used `subPath` to mount it as a single file? It would **never** change.
+Соберите всё в `docs/LAB12.md`. Обязательные разделы, по порядку:
 
-These three behaviors are why every team eventually picks a hot-reload strategy. Your job is to:
-
-1. **Reproduce the default behavior.** `YOUR TASK`: edit a value with `kubectl edit configmap`, time how long until (a) the env var inside a running pod reflects the change — measure in the pod with `printenv` — and (b) the mounted file reflects the change — measure with `cat` in a loop. Document the result.
-
-2. **Explain `subPath`.** `YOUR TASK`: in one paragraph in `docs/LAB12.md`, explain why a `subPath` mount is a one-shot copy that never updates, and when you'd accept that trade-off anyway (hint: clean mount paths, no `..data` symlink visible to the app).
-
-3. **Pick and implement ONE strategy.** Don't reach for the install command yet — research the three options and choose:
-
-   - **A — Checksum annotation (GitOps-native, no extra controller):** the pod template carries an annotation whose value is the `sha256sum` of the rendered ConfigMap. Any data change → annotation change → Deployment rolls out. Implemented entirely in your Helm template.
-   - **B — Reloader controller** (Stakater): an in-cluster controller watches ConfigMaps/Secrets and patches owning Deployments to trigger a rollout. Zero chart logic, one annotation.
-   - **C — App-level watch:** the app `inotify`-watches the mounted file and re-reads on change. No restart, instant. Used by NGINX, Envoy, Prometheus, Loki natively.
-
-   `YOUR TASK`: in `docs/LAB12.md`, write 3–4 sentences on which one you picked and **why** (think: GitOps fit? extra moving parts? does your app even support C?). Then implement it. **No install commands or annotation snippets are shown in this lab** — go to the lecture, the docs, or the upstream README and figure it out.
-
-4. **Demonstrate it works.** `YOUR TASK`: change a ConfigMap value, observe either (a) a rolling restart for A/B or (b) an in-place re-read for C. Capture the evidence.
-
-> 💡 If you picked A, the hash must change when the ConfigMap **data** changes. A `helm upgrade` with no changes should NOT roll the pod. If both `helm upgrade --dry-run` runs produce the same annotation, you've done it right.
+1. **Изменения приложения** — устройство счётчика, `DATA_DIR`, зачем писать атомарно, захват персистентности Compose из задания 1
+2. **Устройство ConfigMap** — ваш `files/config.json`, два ConfigMap, таблица решений из 2.2, захваты проверки из 2.3
+3. **Устройство PVC** — осмотр StorageClass, обоснование режима доступа, YAML PVC, монтирование, **главное доказательство персистентности из 3.5**
+4. **ConfigMap и Secret** — когда что брать (область RBAC, tmpfs против обычной ФС, история про encryption-at-rest). Сошлитесь на Lab 11.
+5. **Ловушки, на которые вы сами наткнулись** — минимум одна настоящая и как вы её отладили
 
 ---
 
-## How to Submit
+## Бонусное задание — горячая перезагрузка ConfigMap (2 балла)
+
+Поменяйте значение в `lab10-app-env`. Посмотрите на запущенный Pod. Переменная окружения **не меняется**. Поменяйте значение в `lab10-app-file`. Посмотрите на смонтированный файл. Он **когда-нибудь** меняется — через минуты. А если смонтировать его одним файлом через `subPath`? Не изменится **никогда**.
+
+Из-за этих трёх поведений каждая команда в итоге выбирает стратегию hot reload. Вам нужно:
+
+1. **Воспроизведите поведение по умолчанию.** `ВАША ЗАДАЧА`: измените значение через `kubectl edit configmap` и засеките, сколько пройдёт, пока (a) переменная внутри запущенного Pod увидит изменение — меряйте в Pod через `printenv` — и (b) смонтированный файл увидит изменение — меряйте `cat` в цикле. Зафиксируйте результат.
+
+2. **Объясните `subPath`.** `ВАША ЗАДАЧА`: одним абзацем в `docs/LAB12.md` объясните, почему монтирование через `subPath` — разовая копия, которая больше не обновляется, и когда вы всё равно на этот компромисс пойдёте (подсказка: чистые пути монтирования, приложению не виден симлинк `..data`).
+
+3. **Выберите и реализуйте ОДНУ стратегию.** К команде установки пока не тянитесь — разберите три варианта и выберите:
+
+   - **A — аннотация с контрольной суммой (родная для GitOps, без лишнего контроллера):** в шаблоне Pod лежит аннотация, значение которой — `sha256sum` отрендеренного ConfigMap. Поменялись данные → поменялась аннотация → Deployment делает rollout. Всё это живёт в вашем шаблоне Helm.
+   - **B — контроллер Reloader** (Stakater): контроллер в кластере смотрит на ConfigMap и Secret и патчит Deployment-владельцев, чтобы запустить rollout. В чарте ноль логики, одна аннотация.
+   - **C — наблюдение в самом приложении:** приложение через `inotify` следит за смонтированным файлом и перечитывает его при изменении. Без рестарта, сразу. Так из коробки делают NGINX, Envoy, Prometheus и Loki.
+
+   `ВАША ЗАДАЧА`: в `docs/LAB12.md` напишите 3–4 предложения: что выбрали и **почему** (ложится ли на GitOps? сколько лишних частей? умеет ли ваше приложение вообще вариант C?). Потом реализуйте. **Команд установки и кусков аннотаций в этой лабораторной нет** — идите в лекцию, в документацию или в upstream README и разберитесь сами.
+
+4. **Покажите, что это работает.** `ВАША ЗАДАЧА`: поменяйте значение ConfigMap и поймайте либо (a) rolling restart для A/B, либо (b) перечитывание на месте для C. Захватите доказательства.
+
+> 💡 Если выбрали A, хеш должен меняться, когда меняются **данные** ConfigMap. `helm upgrade` без изменений Pod перекатывать НЕ должен. Если два прогона `helm upgrade --dry-run` дают одну и ту же аннотацию — сделано верно.
+
+---
+
+## Как сдавать
 
 ```bash
 git switch -c lab12
@@ -365,12 +365,12 @@ git commit -m "feat(lab12): configmaps + persistence with hot-reload strategy"
 git push -u origin lab12
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab12` → `course-repo:master` *(reviewed)*
-- `your-fork:lab12` → `your-fork:master` *(merges into your own main)*
+- `your-fork:lab12` → `course-repo:master` *(на ревью)*
+- `your-fork:lab12` → `your-fork:master` *(вливается в ваш собственный main)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 done — counter + /visits + DATA_DIR + atomic write + Compose persistence
@@ -382,104 +382,104 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 (2 pts)
-- ✅ `GET /` increments + persists; `GET /visits` returns current count
-- ✅ `DATA_DIR` env var honored; atomic write used (temp + rename)
-- ✅ Compose restart preserves the count (captured)
+### Задание 1 (2 балла)
+- ✅ `GET /` увеличивает счётчик и сохраняет его; `GET /visits` возвращает текущее значение
+- ✅ Переменная `DATA_DIR` учитывается; запись атомарная (временный файл и rename)
+- ✅ Перезапуск Compose сохраняет счётчик (захват есть)
 
-### Task 2 (3 pts)
-- ✅ `files/config.json` + `lab10-app-file` ConfigMap (volume mount)
-- ✅ `lab10-app-env` ConfigMap with ≥ 3 valid env-shaped keys (`envFrom`)
-- ✅ Decision table filled in for each of the three example values, with reasoning
-- ✅ Verification captures: file readable in pod, env vars present, `describe pod` shows the wiring
+### Задание 2 (3 балла)
+- ✅ `files/config.json` и ConfigMap `lab10-app-file` (volume mount)
+- ✅ ConfigMap `lab10-app-env` с ≥ 3 ключами в форме env (`envFrom`)
+- ✅ Таблица решений заполнена для каждого из трёх примеров, с обоснованием
+- ✅ Захваты проверки: файл читается в Pod, переменные на месте, `describe pod` показывает проводку
 
-### Task 3 (3 pts)
-- ✅ StorageClass inspection documented (which one, what provisioner, what `volumeBindingMode`)
-- ✅ Access mode picked + justified (`ReadWriteOnce` is correct here — defend it)
-- ✅ PVC reaches `Bound` (or `Pending` explained via `WaitForFirstConsumer`)
-- ✅ **Write → delete pod → read from new pod, same marker, captured side by side**
+### Задание 3 (3 балла)
+- ✅ Осмотр StorageClass записан (какой именно, какой provisioner, какой `volumeBindingMode`)
+- ✅ Режим доступа выбран и обоснован (здесь верен `ReadWriteOnce` — защитите его)
+- ✅ PVC доходит до `Bound` (или `Pending` объяснён через `WaitForFirstConsumer`)
+- ✅ **Запись → удаление Pod → чтение из нового Pod, тот же marker, захват рядом**
 
-### Task 4 (2 pts)
-- ✅ All five sections in `docs/LAB12.md` complete with real captures (not illustrative)
+### Задание 4 (2 балла)
+- ✅ Все пять разделов `docs/LAB12.md` заполнены реальными захватами (не примерами из текста)
 
-### Bonus (2 pts)
-- ✅ Default behavior measured: env var update delay + file update delay
-- ✅ `subPath` trap explained in own words
-- ✅ One strategy (A/B/C) chosen with written justification, implemented, demonstrated
+### Бонус (2 балла)
+- ✅ Поведение по умолчанию измерено: задержка обновления переменной и задержка обновления файла
+- ✅ Ловушка `subPath` объяснена своими словами
+- ✅ Выбрана одна стратегия (A/B/C) с письменным обоснованием, реализована и показана
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задание | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — App persistence | **2** | Counter + atomic write + Compose proof |
-| **Task 2** — ConfigMaps | **3** | Two CMs, three-pattern understanding, decision table |
-| **Task 3** — PVC | **3** | Right access mode, right size/SC, headline persistence proof |
-| **Task 4** — Documentation | **2** | All five LAB12.md sections with real evidence |
-| **Bonus** — Hot reload | **2** | Default behavior measured, strategy chosen + implemented + demonstrated |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задание 1** — персистентность приложения | **2** | Счётчик, атомарная запись, доказательство в Compose |
+| **Задание 2** — ConfigMap | **3** | Два ConfigMap, понимание трёх паттернов, таблица решений |
+| **Задание 3** — PVC | **3** | Верный режим доступа, верные размер и storage class, главное доказательство персистентности |
+| **Задание 4** — документация | **2** | Все пять разделов LAB12.md с реальными доказательствами |
+| **Бонус** — hot reload | **2** | Поведение по умолчанию измерено, стратегия выбрана, реализована и показана |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
-**Grading guide:**
-- **10/10:** All four tasks; persistence proof is unambiguous (same marker in both pods); ConfigMap decisions are defended, not just chosen
-- **8–9/10:** ConfigMaps + PVC work; persistence proof present but reasoning is thin or one pattern decision is wrong
-- **6–7/10:** PVC `Bound` but no write→delete→read proof, OR only one ConfigMap pattern used
-- **< 6:** No persistence proof, or ConfigMap not wired into the pod
+**Как оцениваем:**
+- **10/10:** все четыре задания; доказательство персистентности однозначно (один и тот же marker в обоих Pod); решения по ConfigMap защищены, а не просто выбраны
+- **8–9/10:** ConfigMap и PVC работают; доказательство персистентности есть, но обоснование тонкое или одно решение по паттерну неверное
+- **6–7/10:** PVC в `Bound`, но нет доказательства запись→удаление→чтение, ИЛИ использован только один паттерн ConfigMap
+- **< 6:** нет доказательства персистентности, или ConfigMap не подключён в Pod
 
 ---
 
-## Resources
+## Материалы
 
 <details>
-<summary>📚 Documentation</summary>
+<summary>📚 Документация</summary>
 
-- [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/) — concepts
-- [Configure a Pod with a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/) — the three injection patterns
-- [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/) — PV/PVC/StorageClass
+- [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/) — концепции
+- [Configure a Pod with a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/) — три паттерна инъекции
+- [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/) — PV, PVC, StorageClass
 - [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes/) — `reclaimPolicy`, `volumeBindingMode`
 - [Access Modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) — RWO/ROX/RWX/RWOP
-- [Helm `.Files.Get`](https://helm.sh/docs/chart_template_guide/accessing_files/) — embed a file into a ConfigMap
-- [local-path-provisioner](https://github.com/rancher/local-path-provisioner) — the default StorageClass in k3d
+- [Helm `.Files.Get`](https://helm.sh/docs/chart_template_guide/accessing_files/) — вложить файл в ConfigMap
+- [local-path-provisioner](https://github.com/rancher/local-path-provisioner) — StorageClass по умолчанию в k3d
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs — read these BEFORE you debug)</summary>
+<summary>⚠️ Типичные ловушки (с реальных пробных прогонов — прочитайте это ДО отладки)</summary>
 
-- **ConfigMap env vars don't refresh in a running pod.** Change `LOG_LEVEL` in the CM, `printenv` in the running pod still shows the old value — forever, until the pod restarts. This is the #1 "my ConfigMap update isn't working" cause. Env vars are baked at pod start; nothing changes that.
-- **`subPath` mounts NEVER auto-update.** A `subPath: config.json` mount is a one-shot file copy at pod start. The ConfigMap can change every five seconds; the file in the container won't. Whole-directory mounts DO auto-update (within `kubelet --sync-frequency`, default 60s + cache TTL — total delay can be a couple of minutes). If you want hot reload, mount the whole dir.
-- **`WaitForFirstConsumer` PVC stays `Pending` — that's normal, not an error.** The default StorageClass on k3d (and on most cloud SCs in multi-AZ clusters) waits to bind until a pod actually mounts the PVC, so the PV can be provisioned in the same zone as the pod. If your PVC is `Pending` and no pod has consumed it yet, just deploy the pod — don't try to "fix" the SC.
-- **`kubectl exec ... Unknown stream id` is harmless.** Client-side websocket message from a benign control-frame mismatch. The data round-trips fine. Don't chase it.
-- **Deleting a PVC may NOT delete the PV (or the data).** Depends on `reclaimPolicy`: `Delete` (default for cloud SCs) wipes the volume; `Retain` keeps the PV and the disk after the PVC is gone — you must clean up manually. Set `Retain` for anything you'd cry over losing, and write the cleanup runbook **before** the day you need it.
-- **Invalid env-var names from `envFrom` are silently skipped.** A ConfigMap key `feature.x.enabled` won't appear as an env var — `envFrom` only emits keys matching `[A-Z_][A-Z0-9_]*`. No error, no warning, just missing.
-- **`hostPath` for "real" persistence ties a pod to a node.** Demo only. Use a PVC even for local clusters — the local-path provisioner gives you a real PVC backed by a host directory, with proper rescheduling semantics.
-- **Don't overwrite `/data/visits` with your marker.** Use a *separate* file (e.g. `/data/marker`) for the 3.5 persistence proof. The visit counter is rewriting `visits` on every `GET /`, which makes side-by-side comparison flaky.
+- **Переменные из ConfigMap в запущенном Pod не обновляются.** Поменяйте `LOG_LEVEL` в ConfigMap — `printenv` в запущенном Pod всё равно показывает старое значение, и так будет всегда, пока Pod не перезапустится. Это причина номер один у «мой ConfigMap обновился, а ничего не работает». Переменные запекаются на старте Pod; дальше их уже не трогают.
+- **Монтирование через `subPath` НИКОГДА не обновляется само.** `subPath: config.json` — это разовая копия файла на старте Pod. ConfigMap может меняться каждые пять секунд, файл в контейнере — нет. Монтирование всего каталога обновляется само (в пределах `kubelet --sync-frequency`, по умолчанию 60 с плюс TTL кэша — суммарная задержка может быть пара минут). Хотите hot reload — монтируйте весь каталог.
+- **PVC при `WaitForFirstConsumer` остаётся в `Pending` — это норма, не ошибка.** StorageClass по умолчанию в k3d (и большинство облачных SC в кластерах на несколько AZ) ждёт, пока Pod реально смонтирует PVC, чтобы PV можно было создать в той же зоне, что и Pod. Если PVC в `Pending` и ни один Pod его ещё не взял, просто задеплойте Pod — «чинить» StorageClass не надо.
+- **`kubectl exec ... Unknown stream id` безвреден.** Это сообщение websocket на стороне клиента из-за безобидного расхождения control-frame. Данные ходят нормально. Не гоняйтесь за ним.
+- **Удаление PVC может НЕ удалить PV (и данные).** Зависит от `reclaimPolicy`: `Delete` (значение по умолчанию у облачных SC) стирает том; `Retain` оставляет PV и диск после того, как PVC исчез, — убирать придётся руками. Ставьте `Retain` на всё, о чём будете жалеть, и напишите runbook по уборке **до** того дня, когда он понадобится.
+- **Невалидные имена переменных из `envFrom` молча пропускаются.** Ключ ConfigMap `feature.x.enabled` переменной не станет: `envFrom` выпускает только ключи по шаблону `[A-Z_][A-Z0-9_]*`. Ни ошибки, ни предупреждения — просто пусто.
+- **`hostPath` ради «настоящей» персистентности привязывает Pod к узлу.** Только для демо. Даже на локальном кластере берите PVC: local-path provisioner даёт настоящий PVC поверх каталога хоста, и перенос Pod работает как положено.
+- **Не затирайте `/data/visits` своим marker.** Для доказательства из 3.5 берите *отдельный* файл (например, `/data/marker`). Счётчик визитов переписывает `visits` на каждый `GET /`, и сравнение рядом начинает врать.
 
 </details>
 
 <details>
-<summary>🛠️ Useful CLI (no YAML — exec recipes only)</summary>
+<summary>🛠️ Полезный CLI (без YAML — только рецепты exec)</summary>
 
-- `kubectl get sc` / `kubectl describe sc <name>` — what storage the cluster offers
-- `kubectl describe pvc <name>` — check Events at the bottom when a PVC is stuck
-- `kubectl describe pod <name> | grep -A4 'Mounts\|Volumes'` — what's actually mounted
-- `kubectl exec <pod> -- mount | grep /data` — confirm the volume is mounted
-- `kubectl get events --field-selector involvedObject.name=<pvc>` — provisioning errors
-- For the persistence proof: write a marker with `kubectl exec deploy/<name> -- sh -c 'echo $(date +%s) > /data/marker'` (NOT `/data/visits` — the counter overwrites that), then `kubectl delete pod -l <selector>`, then `kubectl wait --for=condition=Ready pod -l <selector> --timeout=60s`, then `kubectl exec deploy/<name> -- cat /data/marker`
+- `kubectl get sc` / `kubectl describe sc <name>` — какое хранилище даёт кластер
+- `kubectl describe pvc <name>` — смотрите Events внизу, если PVC завис
+- `kubectl describe pod <name> | grep -A4 'Mounts\|Volumes'` — что реально смонтировано
+- `kubectl exec <pod> -- mount | grep /data` — убедитесь, что том смонтирован
+- `kubectl get events --field-selector involvedObject.name=<pvc>` — ошибки provisioning
+- Для доказательства персистентности: запишите marker командой `kubectl exec deploy/<name> -- sh -c 'echo $(date +%s) > /data/marker'` (НЕ `/data/visits` — счётчик его перезаписывает), затем `kubectl delete pod -l <selector>`, затем `kubectl wait --for=condition=Ready pod -l <selector> --timeout=60s`, затем `kubectl exec deploy/<name> -- cat /data/marker`
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-| Lab | What it adds |
+| Lab | Что добавляет |
 |---:|---|
-| 13 | ArgoCD GitOps — your ConfigMap + PVC reconciled from git |
-| 14 | Argo Rollouts — canary the new ConfigMap before all pods see it |
-| 15 | StatefulSets + `volumeClaimTemplates` — one PVC *per* replica, for Postgres/Kafka |
-| 16 | kube-prometheus-stack — scrape `/metrics` from your app, alert on visit-count regressions |
+| 13 | ArgoCD и GitOps — ваши ConfigMap и PVC реконсилируются из git |
+| 14 | Argo Rollouts — canary нового ConfigMap, прежде чем его увидят все Pod |
+| 15 | StatefulSet и `volumeClaimTemplates` — PVC *на* каждую реплику, для Postgres и Kafka |
+| 16 | kube-prometheus-stack — скрейп `/metrics` с вашего приложения, алерт на регрессии счётчика визитов |
 
-> **Remember:** the goal of the lab is not "PVC `Bound`". The goal is "the value I wrote in pod A came back from pod B after I deleted pod A." That's persistence. Everything else is plumbing.
+> **Запомните:** цель лабораторной — не «PVC в `Bound`». Цель — «значение, которое я записал в Pod A, вернулось из Pod B после того, как я удалил Pod A». Вот это персистентность. Всё остальное — обвязка.

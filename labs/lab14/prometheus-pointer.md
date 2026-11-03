@@ -1,18 +1,18 @@
-# Lab 14 — in-cluster Prometheus pointer (bonus only)
+# Lab 14 — ориентир по Prometheus внутри кластера (только бонус)
 
-Lab 8 stood up Prometheus in a **Docker-Compose** stack on your laptop. Lab 14's
-bonus `AnalysisTemplate` runs **inside** the k3d cluster — `http://localhost:9090`
-from a pod means *the pod's own localhost*, not your laptop's.
+В Lab 8 Prometheus поднимался стеком **Docker-Compose** на вашем ноутбуке. Бонусный
+`AnalysisTemplate` в Lab 14 работает **внутри** кластера k3d — `http://localhost:9090`
+из Pod означает *localhost самого Pod*, а не ноутбука.
 
-This file lists the three ways to give Argo Rollouts a reachable URL. Pick one,
-document the choice in `docs/LAB14.md`.
+Здесь три способа дать Argo Rollouts доступный URL. Выберите один
+и зафиксируйте выбор в `docs/LAB14.md`.
 
 ---
 
-## Option 1 — Reach back to the host (cheapest)
+## Вариант 1 — достучаться до хоста (дешевле всего)
 
-k3d exposes the Docker host as **`host.k3d.internal`**. Your Lab 8 Prometheus on
-`localhost:9090` becomes reachable from any pod in the cluster as
+k3d отдаёт Docker-хост как **`host.k3d.internal`**. Prometheus из Lab 8 на
+`localhost:9090` из любого Pod кластера доступен как
 `http://host.k3d.internal:9090`.
 
 ```yaml
@@ -21,19 +21,19 @@ k3d exposes the Docker host as **`host.k3d.internal`**. Your Lab 8 Prometheus on
       address: http://host.k3d.internal:9090
 ```
 
-✅ Zero setup — works today if Lab 8's stack is `docker compose up`.
-❌ Lab 16 replaces this when you move Prometheus into the cluster — you'll edit
-   the AnalysisTemplate again.
-❌ Doesn't work on plain `kind` (use `host.docker.internal` there instead).
+✅ Ноль подготовки — работает сразу, если стек Lab 8 поднят через `docker compose up`.
+❌ Lab 16 заменит это, когда вы перенесёте Prometheus в кластер — `AnalysisTemplate`
+   придётся править снова.
+❌ На голом `kind` не работает (там берите `host.docker.internal`).
 
 ---
 
-## Option 2 — Minimal in-cluster Prometheus (recommended)
+## Вариант 2 — минимальный Prometheus в кластере (рекомендуется)
 
-Stand up a tiny Prometheus in a `monitoring` namespace that scrapes your
-`app-python` Service via the `prometheus.io/scrape` annotation pattern. This is
-what Lab 16 will replace with kube-prometheus-stack — installing it now is a
-two-file dress rehearsal.
+Поднимите маленький Prometheus в namespace `monitoring`: он скрейпит
+Service `app-python` по шаблону аннотации `prometheus.io/scrape`. Именно это
+Lab 16 заменит на kube-prometheus-stack — установка сейчас это репетиция
+из двух файлов.
 
 ```bash
 kubectl create namespace monitoring
@@ -118,7 +118,7 @@ subjects:
 EOF
 ```
 
-Then in your `AnalysisTemplate`:
+Дальше в вашем `AnalysisTemplate`:
 
 ```yaml
   provider:
@@ -126,24 +126,24 @@ Then in your `AnalysisTemplate`:
       address: http://prometheus.monitoring:9090
 ```
 
-✅ Survives Lab 16 — kube-prometheus-stack publishes a Service at the same name
-   (`prometheus-operated.monitoring`). Switching is a one-line URL change.
-✅ No host-coupling — works on `kind`, EKS, GKE, anywhere.
+✅ Переживёт Lab 16 — kube-prometheus-stack публикует Service с тем же именем
+   (`prometheus-operated.monitoring`). Переключение — одна строка в URL.
+✅ Нет привязки к хосту — работает на `kind`, EKS, GKE, где угодно.
 
 ---
 
-## Option 3 — Skip the bonus
+## Вариант 3 — пропустить бонус
 
-The main tasks (1–4) do not need Prometheus. If your Lab 8 stack is gone and
-Lab 16 is still two weeks out, hand in 10/10 on the main tasks and pick up the
-bonus when kube-prometheus-stack lands.
+Основным заданиям (1–4) Prometheus не нужен. Если стек Lab 8 уже снесён, а
+до Lab 16 ещё две недели, сдайте 10/10 по основным заданиям и вернитесь к
+бонусу, когда появится kube-prometheus-stack.
 
 ---
 
-## Sanity check whichever option you pick
+## Быстрая проверка, какой бы вариант вы ни выбрали
 
-From a throwaway pod inside the cluster, prove the URL resolves and returns
-Prometheus's own metrics:
+Из одноразового Pod внутри кластера докажите, что URL резолвится и отдаёт
+собственные метрики Prometheus:
 
 ```bash
 kubectl run probe --rm -it --image=curlimages/curl:8.11.0 --restart=Never -- \
@@ -155,6 +155,6 @@ kubectl run probe --rm -it --image=curlimages/curl:8.11.0 --restart=Never -- \
 # expected: JSON with "status":"success" — proves the API works from inside the cluster
 ```
 
-If the second call returns no `up{job="app-python"}` series, Prometheus isn't
-scraping your app — fix scraping first; the `AnalysisTemplate` cannot succeed
-against metrics that don't exist.
+Если второй вызов не вернул ряд `up{job="app-python"}`, Prometheus не
+скрейпит ваше приложение — сначала почините scrape. `AnalysisTemplate` не
+пройдёт на метриках, которых нет.
