@@ -1,60 +1,60 @@
-# Lab 16 — Kubernetes Monitoring & Init Containers
+# Lab 16 — Мониторинг Kubernetes и init-контейнеры
 
 ![difficulty](https://img.shields.io/badge/difficulty-advanced-red)
 ![topic](https://img.shields.io/badge/topic-Observability-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-kube--prometheus--stack%20%7C%20Grafana-informational)
 
-> **Goal:** Replace Lab 8's hand-edited `prometheus.yml` with the operator-driven **kube-prometheus-stack**, then teach `kubectl` how to start your pods *in the right order* with **init containers** (and learn how `restartPolicy: Always` turns the same primitive into a sidecar).
-> **Deliverable:** A PR from `lab16` adding `monitoring-values.yaml`, `k8s/servicemonitor-app-python.yaml` (bonus), `k8s/init-demo.yaml`, and `k8s/MONITORING.md`.
+> **Цель:** Замените `prometheus.yml` из Lab 8, который правили руками, на **kube-prometheus-stack** под управлением оператора. Затем научите `kubectl` стартовать Pod *в нужном порядке* с помощью **init-контейнеров** и посмотрите, как `restartPolicy: Always` превращает тот же примитив в sidecar.
+> **Что сдать:** PR из `lab16` с файлами `monitoring-values.yaml`, `k8s/servicemonitor-app-python.yaml` (бонус), `k8s/init-demo.yaml` и `k8s/MONITORING.md`.
 
 ---
 
-## Overview
+## Обзор
 
-In Lab 8 you ran one `prom/prometheus` container in Docker Compose with a hand-written `scrape_configs` block. On Kubernetes, pods come and go, IPs churn, and you cannot re-edit `prometheus.yml` every time the scheduler reschedules. The **Prometheus Operator** solves this by watching **`ServiceMonitor`** / **`PodMonitor`** CRDs and regenerating Prometheus configuration when they change — exactly the GitOps philosophy you applied to apps in Labs 13–14, now applied to **scrape configuration**.
+В Lab 8 вы запускали один контейнер `prom/prometheus` в Docker Compose и сами писали блок `scrape_configs`. В Kubernetes Pod приходят и уходят, IP меняются, и править `prometheus.yml` при каждом переселении планировщиком нельзя. **Prometheus Operator** следит за CRD **`ServiceMonitor`** и **`PodMonitor`** и заново собирает конфигурацию Prometheus, когда они меняются. Та же идея GitOps, которую вы применили к приложениям в Lab 13–14, теперь для **конфигурации сбора**.
 
-You will:
+Вы:
 
-- Install the **kube-prometheus-stack** Helm chart (operator + Prometheus + Alertmanager + Grafana + kube-state-metrics + node-exporter — your choice of how much).
-- Write **a ServiceMonitor from scratch** for your `app-python` service. The chart's default selectors require it to carry the `release:` label — that's the whole **two-level selector pattern** the operator is built around.
-- Use **init containers** to do work *before* the main container runs (download a file into a shared `emptyDir`, then prove the main container reads it).
-- See the same primitive promoted to a **sidecar** by flipping one field — `restartPolicy: Always` on an init container, GA in Kubernetes 1.33.
+- Поставите Helm-чарт **kube-prometheus-stack** (оператор + Prometheus + Alertmanager + Grafana + kube-state-metrics + node-exporter — сколько оставить, решаете вы).
+- Напишете **ServiceMonitor с нуля** для сервиса `app-python`. Селекторы чарта по умолчанию требуют метку `release:`. В этом весь **двухуровневый паттерн селекторов**, вокруг которого построен оператор.
+- **Init-контейнерами** сделаете работу *до* запуска основного контейнера: положите файл в общий `emptyDir` и докажете, что основной контейнер его читает.
+- Увидите, как тот же примитив становится **sidecar**, если переключить одно поле: `restartPolicy: Always` на init-контейнере. В Kubernetes 1.33 это GA.
 
-> ⚠️ **Scope:** no AlertmanagerConfig CRD writing, no recording-rules-as-code, no full SLO stack. Those land in the SRE-Intro elective. Today's lesson is *operator-driven scrape discovery* and *pod-startup ordering primitives*.
+> ⚠️ **Границы:** не пишем CRD AlertmanagerConfig, не описываем recording rules кодом, не собираем полный SLO-стек. Это в элективе SRE-Intro. Сегодняшний урок — *обнаружение целей сбора через оператор* и *примитивы порядка старта Pod*.
 
-**What you'll practice:**
+**Что отработаете:**
 
-- The Prometheus Operator CRDs (`Prometheus`, `ServiceMonitor`, `PodMonitor`, `PrometheusRule`) and how the operator reconciles them into scrape config
-- The **two-level selector pattern** (Prometheus picks ServiceMonitors by label → ServiceMonitor picks Services by label → Service picks Pods)
-- Helm 4 values overrides for an opinionated upstream chart (lean vs full install)
-- Init containers as a Kubernetes-native solution to "wait for dependency" / "fetch a config" / "run a migration"
-- Sidecar containers — init containers with `restartPolicy: Always`, GA since 1.33
+- CRD Prometheus Operator (`Prometheus`, `ServiceMonitor`, `PodMonitor`, `PrometheusRule`) и как оператор сверяет их в конфиг сбора
+- **Двухуровневый паттерн селекторов** (Prometheus выбирает ServiceMonitor по метке → ServiceMonitor выбирает Service по метке → Service выбирает Pod)
+- Переопределение values в Helm 4 для чарта с жёстким мнением: профиль lean (урезанный) и full (полный)
+- Init-контейнеры как нативное для Kubernetes решение задач «подождать зависимость», «забрать конфиг», «прогнать миграцию»
+- Sidecar — init-контейнеры с `restartPolicy: Always`, GA с 1.33
 
-> 📚 Pairs with **Lecture 8 — Metrics & Monitoring with Prometheus** (the scrape model and PromQL) and **Lecture 15 — StatefulSets** (where the sidecar pattern was introduced at the GA boundary). Reread Lec 8 slide on Lab 16 preview and Lec 15 slide on sidecar containers before you start.
-
----
-
-## Project State
-
-**You should have from previous labs:**
-
-- A k3d cluster on Kubernetes 1.36 (Lab 9).
-- Your `lab10-app` Helm chart from Labs 10–13 deploying `app-python` (your code, port **8080**, `/metrics` from Lab 8) plus the course plumbing `echo` (`ghcr.io/inno-devops-labs/echo:v1`, port 8081) and `health` (`ghcr.io/inno-devops-labs/health:v1`, port 8082). All three expose `GET /metrics` in Prometheus text format. Throughout this lab, "app-python" refers to the conceptual *service* (the Python app you wrote); the actual K8s Service name from your chart will be `lab10-app-web` (chart fullname `lab10-app` + `-web` component suffix per Lab 10). Your ServiceMonitor will select by the **label** `app.kubernetes.io/name=lab10-app`, which is helper-independent of the Service name.
-- `kubectl`, `helm` v4.1.x, working `port-forward`.
-
-**This lab adds:**
-
-- `monitoring-values.yaml` — Helm values override for the chart (chart version pinned, components you keep, resources/retention)
-- `k8s/servicemonitor-app-python.yaml` — your custom ServiceMonitor (the bonus, but you'll likely write it during Task 2)
-- `k8s/init-demo.yaml` — single Pod showing both the init pattern and the sidecar variant
-- `k8s/MONITORING.md` — your submission report
-
-> 📦 **Course plumbing recap:** `app-python` is **your** app. `echo` and `health` are pre-built, never built by you, and all three expose `/metrics`. The whole point of Task 2 / Bonus is that you *write a ServiceMonitor* — you do not edit any Prometheus config files.
+> 📚 В паре с **Lecture 8 — Метрики и мониторинг с Prometheus** (модель сбора и PromQL) и **Lecture 15 — StatefulSet** (паттерн sidecar ввели на границе GA). Перед стартом перечитайте слайд Lec 8 с превью Lab 16 и слайд Lec 15 про sidecar-контейнеры.
 
 ---
 
-## Setup
+## Состояние проекта
+
+**Из прошлых лабораторных у вас уже должно быть:**
+
+- Кластер k3d на Kubernetes 1.36 (Lab 9).
+- Helm-чарт `lab10-app` из Lab 10–13. Он выкатывает `app-python` (ваш код, порт **8080**, `/metrics` из Lab 8) и служебные сервисы курса: `echo` (`ghcr.io/inno-devops-labs/echo:v1`, порт 8081) и `health` (`ghcr.io/inno-devops-labs/health:v1`, порт 8082). У всех трёх есть `GET /metrics` в текстовом формате Prometheus. В этой лабораторной «app-python» — концептуальный *сервис* (Python-приложение, которое вы написали). Реальное имя Service в Kubernetes из вашего чарта — `lab10-app-web` (fullname чарта `lab10-app` плюс суффикс компонента `-web` по Lab 10). ServiceMonitor выбирает по **метке** `app.kubernetes.io/name=lab10-app`. От имени Service это не зависит: метку ставят хелперы чарта.
+- `kubectl`, `helm` v4.1.x, рабочий `port-forward`.
+
+**Эта лабораторная добавляет:**
+
+- `monitoring-values.yaml` — переопределение Helm values для чарта (версия чарта зафиксирована, какие компоненты оставляете, resources и retention)
+- `k8s/servicemonitor-app-python.yaml` — ваш ServiceMonitor (это бонус, но скорее всего напишете его ещё в задании 2)
+- `k8s/init-demo.yaml` — один Pod, где видны и паттерн init, и вариант sidecar
+- `k8s/MONITORING.md` — отчёт для сдачи
+
+> 📦 **Напоминание про служебные сервисы курса.** `app-python` — **ваше** приложение. `echo` и `health` собраны заранее, вы их не собираете, и у всех трёх есть `/metrics`. Весь смысл задания 2 и бонуса: вы *пишете ServiceMonitor*. Файлы конфигурации Prometheus не правите.
+
+---
+
+## Подготовка
 
 ```bash
 helm version              # v4.1.x — same as Lab 10
@@ -64,26 +64,26 @@ kubectl get nodes         # your k3d cluster from Lab 9 must be up
 kubectl create namespace monitoring
 ```
 
-Find a current chart version (don't float on `latest` — pin it):
+Найдите актуальную версию чарта. Не плывите на `latest` — зафиксируйте её:
 
 ```bash
 helm search repo prometheus-community/kube-prometheus-stack --versions | head
 # As of May 2026 the chart is in the ~85.x line. Pin whatever is current when you do the lab.
 ```
 
-You'll write `monitoring-values.yaml` next; **do not** install the chart with defaults — defaults run the full stack (alertmanager + node-exporter + kube-state-metrics + push gateway) and may not fit a laptop cluster.
+Дальше напишете `monitoring-values.yaml`. **Не** ставьте чарт с дефолтами. Дефолты поднимают полный стек (alertmanager + node-exporter + kube-state-metrics + push gateway), и на кластер ноутбука он может не влезть.
 
 ---
 
-## Task 1 — Deploy the kube-prometheus-stack (2 pts)
+## Задание 1 — Поставьте kube-prometheus-stack (2 балла)
 
-**Objective:** Install the operator-based monitoring stack. The skill being graded is **picking a chart version, picking which components to keep, and writing values to widen ServiceMonitor discovery** — *not* copying our install command.
+**Цель:** поставить стек мониторинга на операторе. Оценивается навык **выбрать версию чарта, выбрать, какие компоненты оставить, и написать values так, чтобы ServiceMonitor находились шире**, — *а не* скопировать нашу команду установки.
 
-### 1.1 — Document what each component does
+### 1.1 — Опишите, что делает каждый компонент
 
-`YOUR TASK`: in `MONITORING.md`, fill the role of each component in **your own words** (one sentence each — not copied from the chart README):
+`ВАША ЗАДАЧА`: в `MONITORING.md` своими словами заполните роль каждого компонента (**одно предложение на каждый**, не копируйте из README чарта):
 
-| Component | What it does in the stack |
+| Компонент | Что делает в стеке |
 |---|---|
 | Prometheus Operator | ___ |
 | Prometheus (server) | ___ |
@@ -92,13 +92,13 @@ You'll write `monitoring-values.yaml` next; **do not** install the chart with de
 | kube-state-metrics | ___ |
 | node-exporter | ___ |
 
-You may decide to **disable** some of these (Task 1.2). You still document all six.
+Часть из них можно **выключить** (задание 1.2). Все шесть всё равно опишите.
 
-### 1.2 — Write `monitoring-values.yaml`
+### 1.2 — Напишите `monitoring-values.yaml`
 
-The chart is ~85 different YAML knobs deep. You only need a handful — but those handful are the lesson:
+В чарте порядка 85 разных YAML-ручек. Нужна горстка, и именно она — урок.
 
-`YOUR TASK`: write a values file that sets **at least** the four blocks below.
+`ВАША ЗАДАЧА`: напишите values-файл, в котором заданы **как минимум** четыре блока ниже.
 
 ```yaml
 # monitoring-values.yaml — your overrides for kube-prometheus-stack
@@ -134,11 +134,11 @@ grafana:
 #  chart root, not under prometheus.* — look at `helm show values` output.)
 ```
 
-> 🧠 **Why the two selector fields exist:** the chart bakes a default selector `release: <release-name>` into the operator's `Prometheus` CR. If you leave `serviceMonitorSelector` *nil*, the operator behaves as if you set that label match — meaning your ServiceMonitor needs `labels: { release: monitoring }` to be picked up. Setting `serviceMonitorSelectorNilUsesHelmValues: false` tells the operator *"if I gave you nil, treat it as an empty selector — match everything"*. Same trick for PodMonitors. It's confusingly named but it's the canonical knob.
+> 🧠 **Зачем два поля селектора.** Чарт запекает в CR `Prometheus` селектор по умолчанию `release: <release-name>`. Если оставить `serviceMonitorSelector` равным *nil*, оператор ведёт себя так, будто совпадение по этой метке задано. Значит, чтобы ваш ServiceMonitor подобрали, ему нужна метка `labels: { release: monitoring }`. `serviceMonitorSelectorNilUsesHelmValues: false` говорит оператору: *«передал nil — считай селектор пустым и совпадай со всем»*. Тот же приём для PodMonitor. Имя путаное, но это штатная ручка.
 
-### 1.3 — Install with your pinned version
+### 1.3 — Установите с зафиксированной версией
 
-`YOUR TASK`: write the `helm install` command using your **pinned** chart version, the `monitoring` namespace, and `monitoring-values.yaml`:
+`ВАША ЗАДАЧА`: напишите команду `helm install` со **своей зафиксированной** версией чарта, namespace `monitoring` и файлом `monitoring-values.yaml`:
 
 ```bash
 helm install ___ prometheus-community/kube-prometheus-stack \
@@ -147,7 +147,7 @@ helm install ___ prometheus-community/kube-prometheus-stack \
   -f ___
 ```
 
-After install, verify *every* pod in `monitoring` reaches `Running`/`Ready` and the operator's CRDs landed. **YOUR TASK** — write the two `kubectl` commands (one to list pods in the monitoring namespace, one to list only the CRDs in the `monitoring.coreos.com` group):
+После установки проверьте, что *каждый* Pod в `monitoring` дошёл до `Running`/`Ready` и CRD оператора на месте. **ВАША ЗАДАЧА** — напишите две команды `kubectl` (одна перечисляет Pod в namespace monitoring, вторая — только CRD группы `monitoring.coreos.com`):
 
 ```bash
 kubectl ___
@@ -156,27 +156,27 @@ kubectl ___
 # prometheuses, alertmanagers, prometheusrules, probes, scrapeconfigs.
 ```
 
-If a pod is `Pending`, it's almost always resources — re-tune your `resources:` block or disable the heavier components.
+Если Pod в `Pending`, почти всегда не хватает ресурсов. Подкрутите блок `resources:` или выключите тяжёлые компоненты.
 
-### 1.4 — Proof of work
+### 1.4 — Подтверждение
 
-Paste into `MONITORING.md`:
+Вставьте в `MONITORING.md`:
 
-- The pinned chart version (e.g. `85.10.1`) and which profile you picked (lean / full) with one-sentence justification
-- Your six-component table from 1.1
-- `kubectl get pods -n monitoring` showing every chosen pod `Running`/`Ready`
-- `kubectl get crd | grep monitoring.coreos.com` showing the operator CRDs
-- `kubectl get prometheus -n monitoring -o jsonpath='{.items[0].spec.serviceMonitorSelector}'` — proves the selector is `{}` (i.e. matches everything), not the default `release: <release-name>` match
+- Зафиксированную версию чарта (например `85.10.1`) и какой профиль выбрали (lean / full), с обоснованием в одно предложение
+- Таблицу из шести компонентов из 1.1
+- `kubectl get pods -n monitoring`: каждый выбранный Pod в `Running`/`Ready`
+- `kubectl get crd | grep monitoring.coreos.com`: CRD оператора
+- `kubectl get prometheus -n monitoring -o jsonpath='{.items[0].spec.serviceMonitorSelector}'` — селектор равен `{}` (совпадает со всем), а не с дефолтным совпадением `release: <release-name>`
 
 ---
 
-## Task 2 — Explore Grafana & Verify Scrape Targets (3 pts)
+## Задание 2 — Grafana и проверка целей сбора (3 балла)
 
-**Objective:** Use the bundled dashboards and the Prometheus UI to read the health of *your* cluster, and write the ServiceMonitor that connects your app to the operator-driven scrape config. **This is where the operator pattern earns its keep.**
+**Цель:** по встроенным дашбордам и UI Prometheus прочитать здоровье *вашего* кластера и написать ServiceMonitor, который подключает приложение к конфигу сбора под оператором. **Здесь паттерн оператора отрабатывает свою роль.**
 
-### 2.1 — Access the UIs
+### 2.1 — Откройте UI
 
-`YOUR TASK`: find your Service names (`kubectl get svc -n monitoring`) and write three `port-forward` commands — Grafana on `3000:80`, Prometheus on `9090:9090`, Alertmanager on `9093:9093` (only if you kept it). The chart prefixes every Service with your release name; if your release was `kps`, the Grafana service is `kps-grafana`, etc.
+`ВАША ЗАДАЧА`: найдите имена Service (`kubectl get svc -n monitoring`) и напишите три команды `port-forward`. Grafana на `3000:80`, Prometheus на `9090:9090`, Alertmanager на `9093:9093` (только если оставили его). Чарт добавляет к каждому Service префикс — имя релиза. Если релиз был `kps`, сервис Grafana — `kps-grafana`, и так далее.
 
 ```bash
 kubectl port-forward svc/___ -n monitoring 3000:___
@@ -185,30 +185,30 @@ kubectl port-forward svc/___ -n monitoring 9090:___
 kubectl port-forward svc/___ -n monitoring 9093:___
 ```
 
-### 2.2 — Read the cluster with the bundled dashboards
+### 2.2 — Прочитайте кластер по встроенным дашбордам
 
-Answer each question below with a screenshot and a **one-line reading**. Values will differ on your cluster; the question is what the graph *means*, not its number.
+На каждый вопрос ниже — скриншот и **чтение в одну строку**. Числа на вашем кластере будут другими. Вопрос в том, что график *значит*, а не какое там число.
 
-1. **Node resources (USE method):** node CPU utilisation and memory used. *Dashboard: "Node Exporter / Nodes"* — if you went lean and disabled node-exporter, swap in *"Kubernetes / Compute Resources / Cluster"* and explain the swap.
-2. **Namespace compute:** which pods in `<your-app-ns>` use the most/least CPU and memory? *Dashboard: "Kubernetes / Compute Resources / Namespace (Pods)".*
-3. **Per-pod detail:** CPU throttling and memory working-set for one `app-python` pod. *Dashboard: "Kubernetes / Compute Resources / Pod".*
-4. **Cluster state (kube-state-metrics):** count of pods per phase — write `sum by (phase) (kube_pod_status_phase)` if you kept KSM; if not, explain why this query has no result on your lean install.
-5. **Alerts:** how many alerts are firing? (A fresh kube-prometheus-stack cluster runs a `Watchdog` always-firing alert — explain in one sentence what `Watchdog` is *for*.)
+1. **Ресурсы узла (метод USE):** утилизация CPU узла и занятая память. *Дашборд: "Node Exporter / Nodes".* Если взяли lean и выключили node-exporter, подставьте *"Kubernetes / Compute Resources / Cluster"* и объясните замену.
+2. **Вычисления по namespace:** какие Pod в `<your-app-ns>` едят больше всего и меньше всего CPU и памяти? *Дашборд: "Kubernetes / Compute Resources / Namespace (Pods)".*
+3. **Детали по Pod:** троттлинг CPU и working set памяти у одного Pod `app-python`. *Дашборд: "Kubernetes / Compute Resources / Pod".*
+4. **Состояние кластера (kube-state-metrics):** число Pod по фазе. Напишите `sum by (phase) (kube_pod_status_phase)`, если оставили KSM. Если нет, объясните, почему на установке lean у запроса нет результата.
+5. **Алерты:** сколько алертов горит? На свежем кластере kube-prometheus-stack всегда горит алерт `Watchdog`. Одним предложением объясните, *зачем* он нужен.
 
-### 2.3 — Write a ServiceMonitor for `app-python` (this is the lesson)
+### 2.3 — Напишите ServiceMonitor для `app-python` (это и есть урок)
 
-The whole point of the operator is that **you never edit a Prometheus config file again**. You write a `ServiceMonitor` and the operator writes the scrape block for you. The two-level selector pattern:
+Весь смысл оператора: **файл конфигурации Prometheus вы больше не правите**. Вы пишете `ServiceMonitor`, блок сбора пишет оператор. Двухуровневый паттерн селекторов:
 
 ```mermaid
 flowchart LR
-  PROMCR[📜 Prometheus CR<br/>serviceMonitorSelector] -->|matches by label| SM[📜 ServiceMonitor]
+  PROMCR[📜 Prometheus CR<br/>serviceMonitorSelector] -->|совпадает по метке| SM[📜 ServiceMonitor]
   SM -->|spec.selector.matchLabels| SVC[🌐 Service]
-  SVC -->|endpoints| POD[📦 Pods w/ /metrics]
+  SVC -->|endpoints| POD[📦 Pods с /metrics]
 ```
 
-Three labels, three matches, in this order. Break any one and the target silently fails to appear.
+Три метки, три совпадения, в этом порядке. Сломаете любое — цель тихо не появится.
 
-`YOUR TASK`: write `k8s/servicemonitor-app-python.yaml` from scratch. The shape is given, the **fields that ARE the skill** are blank.
+`ВАША ЗАДАЧА`: напишите `k8s/servicemonitor-app-python.yaml` с нуля. Форма задана. **Поля, которые и есть навык**, пустые.
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -249,7 +249,7 @@ spec:
       interval: ___
 ```
 
-After applying, verify from the CLI (port-forward to Prometheus first). The skeleton:
+После apply проверьте из CLI (сначала port-forward на Prometheus). Скелет:
 
 ```bash
 kubectl apply -f k8s/servicemonitor-app-python.yaml
@@ -262,13 +262,13 @@ kubectl get servicemonitor -A          # yours should appear
 curl -s localhost:9090/api/v1/targets | jq '___'
 ```
 
-> ⚠️ **If your target doesn't appear**, in this order: (1) `kubectl describe prometheus -n monitoring <release>-kube-prometheus-prometheus` and grep for your ServiceMonitor in the Status (operator tells you why it skipped you); (2) `kubectl get svc <app-python> -o yaml | grep -A3 ports:` — is the port **named**? (3) does your ServiceMonitor's `spec.selector.matchLabels` exactly match a label on the Service? (4) does the ServiceMonitor's metadata.labels include `release: <release>` *or* did you disable that selector in Task 1? You only get to skip step 4 if you did Task 1's `nilUsesHelmValues: false`.
+> ⚠️ **Если цель не появилась**, идите по порядку. (1) `kubectl describe prometheus -n monitoring <release>-kube-prometheus-prometheus` и grep вашего ServiceMonitor в Status: оператор пишет, почему пропустил. (2) `kubectl get svc <app-python> -o yaml | grep -A3 ports:` — порт **именованный**? (3) `spec.selector.matchLabels` вашего ServiceMonitor точно совпадает с меткой на Service? (4) в metadata.labels ServiceMonitor есть `release: <release>` *или* вы отключили этот селектор в задании 1? Шаг 4 пропускаете, только если в задании 1 поставили `nilUsesHelmValues: false`.
 
-### 2.4 — PromQL on a live cluster
+### 2.4 — PromQL на живом кластере
 
-Once your three services are scraped (`app-python` via your ServiceMonitor, `echo` + `health` via separate monitors you write the same way — *or* via the operator's default service-discovery if they carry the right labels), the same RED/USE queries from Lab 8 work, against more interesting data:
+Когда все три сервиса уже собираются (`app-python` через ваш ServiceMonitor, `echo` и `health` через отдельные мониторы, которые напишете так же, *или* через service discovery оператора по умолчанию, если на них нужные метки), те же запросы RED и USE из Lab 8 работают, но данные интереснее.
 
-`YOUR TASK`: write **three** PromQL queries into `MONITORING.md` with one-line readings each. The shape of each is given — fill the body. Don't reuse Lab 8 verbatim; the data shape changed (more labels, k8s-native `job=` labels, namespace/pod selectors).
+`ВАША ЗАДАЧА`: запишите в `MONITORING.md` **три** запроса PromQL. К каждому — чтение в одну строку. Форма каждого задана, заполните тело. Не копируйте Lab 8 дословно: форма данных изменилась (больше меток, нативные для Kubernetes метки `job=`, селекторы namespace и pod).
 
 ```promql
 # 1) "Are all three of my services being scraped right now?"
@@ -287,36 +287,36 @@ sum by (___) (rate(___[5m]))
 ___
 ```
 
-### 2.5 — Proof of work
+### 2.5 — Подтверждение
 
-Paste into `MONITORING.md`:
+Вставьте в `MONITORING.md`:
 
-- Your `servicemonitor-app-python.yaml` (full contents)
-- A screenshot of Prometheus → Status → Targets with `app-python` `UP`
-- Output of `kubectl get servicemonitor -A` (yours appears in the list)
-- The three PromQL queries + one-line readings
-- The five dashboard answers from 2.2 with screenshots
-- One-line explanation of the `Watchdog` alert
+- Ваш `servicemonitor-app-python.yaml` целиком
+- Скриншот Prometheus → Status → Targets, где `app-python` в статусе `UP`
+- Вывод `kubectl get servicemonitor -A` (ваш есть в списке)
+- Три запроса PromQL и чтения в одну строку
+- Пять ответов по дашбордам из 2.2 со скриншотами
+- Объяснение алерта `Watchdog` в одну строку
 
 ---
 
-## Task 3 — Init Containers & Sidecars (3 pts)
+## Задание 3 — Init-контейнеры и sidecar (3 балла)
 
-**Objective:** Use init containers to do setup work *before* the main container starts, then turn the same primitive into a sidecar by flipping one field.
+**Цель:** init-контейнерами сделать подготовку *до* старта основного контейнера, затем тем же примитивом получить sidecar. Для этого переключите одно поле.
 
-> 📚 **Init containers** run sequentially, each must exit `0` before the next, and **all** init containers must succeed before the app container starts. They're how you wait-for-dependency, fetch-a-config, or run-a-migration *without* baking that logic into your app image. A **sidecar** is `restartPolicy: Always` on an init container — GA since Kubernetes 1.33. Same list, different semantics: an init container *ran-to-completion*; a sidecar *keeps running* alongside the main container and is torn down with it.
+> 📚 **Init-контейнеры** идут по очереди. Каждый должен выйти с кодом `0`, прежде чем стартует следующий, и **все** init-контейнеры должны успешно закончиться, прежде чем стартует контейнер приложения. Так ждут зависимость, забирают конфиг или гоняют миграцию, *не* запекая эту логику в образ. **Sidecar** — это `restartPolicy: Always` на init-контейнере, GA с Kubernetes 1.33. Тот же список, другая семантика: init-контейнер *дошёл до конца*, sidecar *продолжает работать* рядом с основным контейнером и гасится вместе с ним.
 
-### 3.1 — Init container: download-then-serve
+### 3.1 — Init-контейнер: скачать, потом отдать
 
-`YOUR TASK`: in `k8s/init-demo.yaml`, write a single `kind: Pod` that proves an init container ran-to-completion *before* the main container started, and the main container *consumes* what the init container wrote.
+`ВАША ЗАДАЧА`: в `k8s/init-demo.yaml` напишите один `kind: Pod`. Он доказывает, что init-контейнер дошёл до конца *до* старта основного, и основной контейнер *потребляет* то, что записал init.
 
-The data flow is:
+Поток данных:
 
 ```
 init container → writes /work/index.html → emptyDir volume → main container reads /usr/share/nginx/html/index.html
 ```
 
-Shape is given; the lines that ARE the skill are blank.
+Форма задана. Строки, которые *и есть навык*, пустые.
 
 ```yaml
 apiVersion: v1
@@ -358,7 +358,7 @@ spec:
       emptyDir: {}
 ```
 
-Verify — `YOUR TASK` is to fill in two `kubectl` commands and one `curl`:
+Проверка. `ВАША ЗАДАЧА`: допишите две команды `kubectl` и один `curl`.
 
 ```bash
 kubectl apply -f k8s/init-demo.yaml
@@ -375,9 +375,9 @@ kubectl port-forward pod/initdemo ___
 curl -s localhost:___/___
 ```
 
-### 3.2 — Sidecar: same primitive, different restart policy
+### 3.2 — Sidecar: тот же примитив, другая политика рестарта
 
-`YOUR TASK`: add a **second** entry to `initContainers:` in the same Pod — but make it a *sidecar* (long-running, alongside the main container) by setting `restartPolicy: Always` on that init container only.
+`ВАША ЗАДАЧА`: добавьте **вторую** запись в `initContainers:` того же Pod. Сделайте её *sidecar* (долго живёт, рядом с основным контейнером): поставьте `restartPolicy: Always` только на этом init-контейнере.
 
 ```yaml
 spec:
@@ -400,7 +400,7 @@ spec:
         - { name: workdir, mountPath: /work }
 ```
 
-The sidecar entry **stays in `initContainers:`** — that's not a typo. Kubernetes 1.29 introduced the feature; 1.33 made it GA. A *sidecar* is just an init container with `restartPolicy: Always`; the API didn't move, the *semantic* did. Verify both behaviours coexist — `YOUR TASK` to write the three commands:
+Запись sidecar **остаётся в `initContainers:`**. Это не опечатка. Фичу ввели в Kubernetes 1.29, в 1.33 она стала GA. *Sidecar* — это init-контейнер с `restartPolicy: Always`. API не переехал, переехала *семантика*. Проверьте, что оба поведения живут вместе. `ВАША ЗАДАЧА`: напишите три команды.
 
 ```bash
 kubectl apply -f k8s/init-demo.yaml
@@ -417,54 +417,54 @@ kubectl logs initdemo -c ___
 kubectl get pod initdemo -o jsonpath='___'
 ```
 
-### 3.3 — Pick the right primitive
+### 3.3 — Выберите нужный примитив
 
-In `MONITORING.md`, answer (≤2 sentences each) with **init / sidecar / neither**:
+В `MONITORING.md` ответьте (не больше 2 предложений на пункт): **init / sidecar / ни то ни другое**.
 
-1. Wait for a Postgres Service to accept connections before the API starts.
-2. Stream the app's `/var/log/app.log` to stdout so the kubelet picks it up.
-3. Run a one-off DB migration on every chart upgrade.
-4. Refresh a JWT signing key every 10 minutes for the lifetime of the pod.
+1. Подождать, пока Service Postgres начнёт принимать соединения, и только потом стартовать API.
+2. Стримить `/var/log/app.log` приложения в stdout, чтобы его забрал kubelet.
+3. Прогнать разовую миграцию БД при каждом обновлении чарта.
+4. Обновлять ключ подписи JWT каждые 10 минут, пока живёт Pod.
 
-> 💡 The first one is the textbook trap: the wrong answer is "init container with `sleep` until the port opens" — fragile and hides the real fix. One of the four is **not** an init *or* a sidecar at all — it's a primitive you wrote in Lab 10. Explain which and why.
+> 💡 Первый пункт — классическая ловушка. Неверный ответ: «init-контейнер с `sleep`, пока порт не откроется». Это хрупко и прячет настоящее исправление. Один из четырёх — **вообще не** init и **не** sidecar. Это примитив, который вы писали в Lab 10. Напишите, какой и почему.
 
-### 3.4 — Proof of work
+### 3.4 — Подтверждение
 
-Paste into `MONITORING.md`:
+Вставьте в `MONITORING.md`:
 
-- The full `k8s/init-demo.yaml`
-- `kubectl get pod initdemo -o jsonpath='{.status.initContainerStatuses[0].state.terminated.reason}'` showing `Completed`
-- The `curl` against `localhost:8080/index.html` returning the string your init wrote
-- `kubectl logs initdemo -c log-tail` capture (a few lines is enough)
-- Your four-question pick-the-primitive answers
-
----
-
-## Task 4 — Documentation (2 pts)
-
-`YOUR TASK`: write `k8s/MONITORING.md` covering, in this order:
-
-1. **Chart selection** — pinned version, lean vs full profile, six-component table
-2. **Discovery** — your `monitoring-values.yaml` (selector widening + resources + retention), the `kubectl get prometheus -o jsonpath` proving the selector is wide, and a one-paragraph explanation of the **two-level selector pattern** in your own words
-3. **ServiceMonitor** — your `servicemonitor-app-python.yaml`, the Prometheus UI screenshot, the `up{...}` query
-4. **Dashboards** — the five Task 2 readings with screenshots, plus the `Watchdog` explanation
-5. **Init + sidecar** — the manifest, the `Completed` proof, the curl, the sidecar logs, the four pick-the-primitive answers
-6. **Challenges & learnings** — at least one real one (selector mismatch, missing named port, lean profile sizing, etc.)
-
-> 📸 Screenshots count. "It works on my machine" with no evidence scores zero for that item.
+- `k8s/init-demo.yaml` целиком
+- `kubectl get pod initdemo -o jsonpath='{.status.initContainerStatuses[0].state.terminated.reason}'` со значением `Completed`
+- `curl` к `localhost:8080/index.html`: в ответе строка, которую записал init
+- Захват `kubectl logs initdemo -c log-tail` (хватит нескольких строк)
+- Четыре ответа «выберите примитив»
 
 ---
 
-## Bonus Task — Custom Metric Through a Second ServiceMonitor (2 pts)
+## Задание 4 — Документация (2 балла)
 
-**Objective:** Ship a *custom business metric* from `app-python` and prove the operator scrapes it without any further config edits — the operator-native replacement for the hand-written `scrape_config` you used in Lab 8.
+`ВАША ЗАДАЧА`: напишите `k8s/MONITORING.md`. По порядку:
 
-Less hand-holding here.
+1. **Выбор чарта** — зафиксированная версия, профиль lean или full, таблица из шести компонентов
+2. **Обнаружение** — ваш `monitoring-values.yaml` (расширение селектора, resources, retention), `kubectl get prometheus -o jsonpath`, который показывает, что селектор широкий, и абзац своими словами про **двухуровневый паттерн селекторов**
+3. **ServiceMonitor** — ваш `servicemonitor-app-python.yaml`, скриншот UI Prometheus, запрос `up{...}`
+4. **Дашборды** — пять чтений из задания 2 со скриншотами и объяснение `Watchdog`
+5. **Init и sidecar** — манифест, доказательство `Completed`, curl, логи sidecar, четыре ответа «выберите примитив»
+6. **Сложности и выводы** — хотя бы одна настоящая (селектор не совпал, нет именованного порта, размер профиля lean и т.д.)
 
-`YOUR TASK`:
+> 📸 Скриншоты считаются. «У меня работает» без доказательств по этому пункту даёт ноль.
 
-1. **Add a bounded-cardinality business metric** to `app-python` using `prometheus_client`. Pick the metric **type** and **labels** yourself — but **bounded labels only**. Pass cardinality review: a `Counter` over a small enumeration (one of `/`, `/health`, `/info`), or a `Gauge` for a single global number. Fail it: anything with `user_id`, `request_id`, or unbounded path segments. **YOUR TASK** — write ≤ 10 Python lines and paste the diff into `MONITORING.md`.
-2. **Confirm your `app-python` Service has a NAMED port** for `/metrics`. If Lab 10 only exposes an un-named `port:`, add a second port — the SM matches by name:
+---
+
+## Бонус — Своя метрика через второй ServiceMonitor (2 балла)
+
+**Цель:** отдать из `app-python` *свою бизнес-метрику* и доказать, что оператор её собирает без дальнейших правок конфига. Это замена руками написанного `scrape_config` из Lab 8, уже нативная для оператора.
+
+Здесь вас меньше ведут за руку.
+
+`ВАША ЗАДАЧА`:
+
+1. **Добавьте в `app-python` бизнес-метрику с ограниченной кардинальностью** через `prometheus_client`. **Тип** метрики и **метки** выберите сами, но **метки только с ограниченным набором значений**. Пройдите ревью кардинальности: `Counter` по короткому перечислению (один из `/`, `/health`, `/info`) или `Gauge` на одно глобальное число. Провал: всё, где есть `user_id`, `request_id` или куски пути без верхней границы. **ВАША ЗАДАЧА** — напишите не больше 10 строк Python и вставьте diff в `MONITORING.md`.
+2. **Убедитесь, что у Service `app-python` есть ИМЕНОВАННЫЙ порт** для `/metrics`. Если Lab 10 открывает только безымянный `port:`, добавьте второй порт. SM совпадает по имени:
 
    ```yaml
    # Edit your chart's templates/service.yaml ports: block.
@@ -477,7 +477,7 @@ Less hand-holding here.
                                                       # on the same listener as the app endpoints)
    ```
 
-3. **Write a second ServiceMonitor (or edit the one from Task 2)** so it scrapes the new named port. Add a `relabelings:` block to set the `job` label to something readable. The shape:
+3. **Напишите второй ServiceMonitor (или поправьте тот из задания 2)**, чтобы он собирал новый именованный порт. Добавьте блок `relabelings:`, который ставит метке `job` читаемое значение. Форма:
 
    ```yaml
    spec:
@@ -491,21 +491,21 @@ Less hand-holding here.
            - ___
    ```
 
-4. **Verify** in Prometheus UI (Status → Targets) that the new endpoint is `UP` and the metric is queryable. **YOUR TASK** — paste the exact PromQL query you used to graph your custom metric over time (hint: `rate(<your-counter>[5m])` over the appropriate label aggregation).
+4. **Проверьте** в UI Prometheus (Status → Targets), что новый эндпоинт в `UP` и метрика запрашивается. **ВАША ЗАДАЧА** — вставьте точный запрос PromQL, которым строили график своей метрики во времени (подсказка: `rate(<your-counter>[5m])` с нужной агрегацией по меткам).
 
-Paste into `MONITORING.md`:
+Вставьте в `MONITORING.md`:
 
-- The Python diff adding the metric (≤ 10 lines)
-- The named-port block of your Service
-- The new/edited ServiceMonitor
-- Screenshot of Prometheus → Targets with the new endpoint `UP`
-- Screenshot of the Grafana panel graphing your custom metric
+- Diff на Python, который добавляет метрику (не больше 10 строк)
+- Блок именованного порта вашего Service
+- Новый или поправленный ServiceMonitor
+- Скриншот Prometheus → Targets, где новый эндпоинт в `UP`
+- Скриншот панели Grafana с графиком вашей метрики
 
-> 🧠 **Operator vs Lab 8 (the headline):** in Lab 8 you added a `- job_name: app` to `prometheus.yml`, restarted the container, and prayed. Here you add a `ServiceMonitor` object and the operator regenerates the scrape config for you — declaratively, reconciled, surviving pod churn and operator upgrades. Same outcome, Kubernetes-native plumbing.
+> 🧠 **Оператор и Lab 8 (главное).** В Lab 8 вы дописали `- job_name: app` в `prometheus.yml`, перезапустили контейнер и надеялись. Здесь вы добавляете объект `ServiceMonitor`, и оператор сам пересобирает конфиг сбора: декларативно, со сверкой. Это переживает текучку Pod и обновления оператора. Результат тот же, обвязка нативная для Kubernetes.
 
 ---
 
-## How to Submit
+## Как сдать
 
 ```bash
 git switch -c lab16
@@ -514,12 +514,12 @@ git commit -m "feat(lab16): kube-prometheus-stack + ServiceMonitor + init/sideca
 git push -u origin lab16
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab16` → `course-repo:master` *(reviewed)*
-- `your-fork:lab16` → `your-fork:master` *(merges into your own main when done)*
+- `your-fork:lab16` → `course-repo:master` *(на ревью)*
+- `your-fork:lab16` → `your-fork:master` *(вливается в ваш main, когда закончите)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 — chart version pinned, profile + components documented, all pods Running, CRDs present
@@ -531,115 +531,115 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 — Deploy the stack (2 pts)
-- ✅ Chart **version pinned** (not `latest`); installed into the `monitoring` namespace
-- ✅ All chosen pods reach `Running`/`Ready`; operator CRDs present (`servicemonitors`, `podmonitors`, `prometheuses`, …)
-- ✅ `serviceMonitorSelectorNilUsesHelmValues: false` (or equivalent) set so monitors are discovered cluster-wide
-- ✅ `kubectl get prometheus -o jsonpath='{...serviceMonitorSelector}'` returns `{}`
-- ✅ Six-component table filled in your own words
+### Задание 1 — Поставьте стек (2 балла)
+- ✅ **Версия чарта зафиксирована** (не `latest`); установка в namespace `monitoring`
+- ✅ Все выбранные Pod доходят до `Running`/`Ready`; CRD оператора на месте (`servicemonitors`, `podmonitors`, `prometheuses`, …)
+- ✅ Стоит `serviceMonitorSelectorNilUsesHelmValues: false` (или эквивалент), чтобы мониторы находились по всему кластеру
+- ✅ `kubectl get prometheus -o jsonpath='{...serviceMonitorSelector}'` возвращает `{}`
+- ✅ Таблица из шести компонентов заполнена своими словами
 
-### Task 2 — Grafana + ServiceMonitor (3 pts)
-- ✅ Grafana + Prometheus reachable via port-forward (Alertmanager only if you kept it)
-- ✅ Five dashboard answers with screenshots
-- ✅ **Your own** `ServiceMonitor` for `app-python` written from scratch (no copy from chart README)
-- ✅ Prometheus → Targets shows `app-python` `UP`
-- ✅ Three PromQL queries with one-line readings; `up{job=~"app-python|echo|health"}` = 1 for all
-- ✅ `Watchdog` alert explained
+### Задание 2 — Grafana и ServiceMonitor (3 балла)
+- ✅ Grafana и Prometheus доступны через port-forward (Alertmanager — только если оставили)
+- ✅ Пять ответов по дашбордам со скриншотами
+- ✅ **Свой** `ServiceMonitor` для `app-python` написан с нуля (не копия из README чарта)
+- ✅ В Prometheus → Targets у `app-python` статус `UP`
+- ✅ Три запроса PromQL с чтением в одну строку; `up{job=~"app-python|echo|health"}` = 1 для всех
+- ✅ Алерт `Watchdog` объяснён
 
-### Task 3 — Init + Sidecar (3 pts)
-- ✅ Init container writes a non-empty file to a shared `emptyDir`; main container serves it
+### Задание 3 — Init и sidecar (3 балла)
+- ✅ Init-контейнер пишет непустой файл в общий `emptyDir`; основной контейнер его отдаёт
 - ✅ `initContainerStatuses[0].state.terminated.reason` = `Completed`
-- ✅ `curl` against the main container returns the string the init wrote
-- ✅ Sidecar (`restartPolicy: Always` on a second init entry) is `Running` alongside the main container
-- ✅ Four pick-the-primitive answers correct
+- ✅ `curl` к основному контейнеру возвращает строку, которую записал init
+- ✅ Sidecar (`restartPolicy: Always` на второй записи init) в `Running` рядом с основным контейнером
+- ✅ Четыре ответа «выберите примитив» верные
 
-### Task 4 — Documentation (2 pts)
-- ✅ `MONITORING.md` covers all six required sections with evidence
-- ✅ Chart version + `monitoring-values.yaml` recorded
-- ✅ All screenshots present and legible
+### Задание 4 — Документация (2 балла)
+- ✅ `MONITORING.md` покрывает все шесть обязательных разделов, с доказательствами
+- ✅ Записаны версия чарта и `monitoring-values.yaml`
+- ✅ Все скриншоты на месте и читаются
 
-### Bonus — Custom metric (2 pts)
-- ✅ New bounded-cardinality business metric in `app-python`
-- ✅ Service exposes a **named** port for `/metrics`
-- ✅ New/edited ServiceMonitor scrapes it; appears `UP` in Targets
-- ✅ Metric graphed in Grafana
+### Бонус — Своя метрика (2 балла)
+- ✅ В `app-python` новая бизнес-метрика с ограниченной кардинальностью
+- ✅ Service открывает **именованный** порт для `/metrics`
+- ✅ Новый или поправленный ServiceMonitor её собирает; в Targets она `UP`
+- ✅ Метрика на графике в Grafana
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задание | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — Deploy stack | **2** | Chart pinned, components documented, all pods healthy, selector widened |
-| **Task 2** — ServiceMonitor + dashboards | **3** | SM written from scratch, target UP, dashboards answered |
-| **Task 3** — Init + sidecar | **3** | Both patterns proven in one pod, primitives picked correctly |
-| **Task 4** — Documentation | **2** | `MONITORING.md` complete with screenshots |
-| **Bonus** — Custom metric | **2** | Custom metric + named port + SM scraped + graphed |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задание 1** — Поставить стек | **2** | Версия чарта зафиксирована, компоненты описаны, все Pod здоровы, селектор расширен |
+| **Задание 2** — ServiceMonitor и дашборды | **3** | SM написан с нуля, цель UP, по дашбордам есть ответы |
+| **Задание 3** — Init и sidecar | **3** | Оба паттерна доказаны в одном Pod, примитивы выбраны верно |
+| **Задание 4** — Документация | **2** | `MONITORING.md` полный, со скриншотами |
+| **Бонус** — Своя метрика | **2** | Своя метрика, именованный порт, SM собирает, график есть |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
-**Grading:**
-- **10/10:** Stack healthy, ServiceMonitor written cleanly, init + sidecar both proven, thorough docs
-- **8–9/10:** Monitoring works end-to-end; minor gaps in dashboard answers or init evidence
-- **6–7/10:** Stack installs but ServiceMonitor relies on chart defaults, or sidecar variant missing
-- **<6/10:** Stack not healthy, scrape unverified, or `init-demo.yaml` not in repo
+**Оценивание:**
+- **10/10:** стек здоров, ServiceMonitor написан чисто, init и sidecar оба доказаны, документация подробная
+- **8–9/10:** мониторинг работает от начала до конца; мелкие пробелы в ответах по дашбордам или в доказательствах init
+- **6–7/10:** стек ставится, но ServiceMonitor опирается на дефолты чарта, или нет варианта sidecar
+- **<6/10:** стек нездоров, сбор не проверен или в репозитории нет `init-demo.yaml`
 
 ---
 
-## Resources
+## Материалы
 
 <details>
-<summary>📚 Documentation</summary>
+<summary>📚 Документация</summary>
 
-- [kube-prometheus-stack chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
-- [Prometheus Operator — design](https://prometheus-operator.dev/docs/getting-started/design/)
-- [ServiceMonitor & PodMonitor](https://prometheus-operator.dev/docs/developer/getting-started/)
-- [Selector defaults in the chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#prometheusspec)
-- [Prometheus 3.x docs](https://prometheus.io/docs/)
-- [Grafana docs](https://grafana.com/docs/)
-- [Init containers](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
-- [Sidecar containers (GA 1.33)](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
-- [USE method (Brendan Gregg)](https://www.brendangregg.com/usemethod.html) · [RED method (Tom Wilkie)](https://grafana.com/blog/the-red-method-how-to-instrument-your-services/)
+- [Чарт kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+- [Prometheus Operator — дизайн](https://prometheus-operator.dev/docs/getting-started/design/)
+- [ServiceMonitor и PodMonitor](https://prometheus-operator.dev/docs/developer/getting-started/)
+- [Селекторы по умолчанию в чарте](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#prometheusspec)
+- [Документация Prometheus 3.x](https://prometheus.io/docs/)
+- [Документация Grafana](https://grafana.com/docs/)
+- [Init-контейнеры](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
+- [Sidecar-контейнеры (GA 1.33)](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
+- [Метод USE (Brendan Gregg)](https://www.brendangregg.com/usemethod.html) · [Метод RED (Tom Wilkie)](https://grafana.com/blog/the-red-method-how-to-instrument-your-services/)
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
+<summary>⚠️ Типичные ловушки (с реальных пробных прогонов)</summary>
 
-- **ServiceMonitor in the wrong namespace.** By default a ServiceMonitor only selects Services in its **own** namespace. Put the SM in `monitoring/` while the Service lives in your app namespace and nothing matches. Fix: either put the SM in the app namespace, or add `spec.namespaceSelector.matchNames: [<app-ns>]` to the SM in `monitoring/`.
-- **Missing `release:` label on the ServiceMonitor.** The chart's default `serviceMonitorSelector` requires `release: <release-name>` on every monitor. If you didn't set `serviceMonitorSelectorNilUsesHelmValues: false` AND didn't add the `release:` label, the operator silently ignores your SM. `kubectl describe prometheus -n monitoring <release>` shows which monitors were skipped and why.
-- **Service port not named.** `endpoints.port` in a ServiceMonitor is the Service port **NAME** (a string), not a number. `port: 5000` looks valid and lints fine — but the operator can't resolve it and your target never appears. Always: `ports: [{ name: http, port: 80, targetPort: 5000 }]` and `endpoints: [{ port: http, ... }]`.
-- **Pre-existing Prometheus CRD conflict.** kube-prometheus-stack ships its own opinionated CRDs. If you already installed the upstream Prometheus Operator separately, or another Helm release of the same chart, the CRDs collide. Helm 4 will refuse the install with a "resource already exists" error. Clean uninstall: `helm uninstall <other-release> -n <ns>` AND `kubectl delete crd $(kubectl get crd -o name | grep monitoring.coreos.com)` before re-installing.
-- **Init container waiting for a Service with `sleep N` is a smell.** "Wait for the database" by polling is fragile (`sleep 5; nc -z db 5432; if [ $? -ne 0 ]; then sleep 10; fi` — works until it doesn't). The Kubernetes-native fix: use a **readiness gate** + a sidecar that flips the gate, or fix the app to retry its own DB connect on startup. Init containers should run *to completion*, not *until* something is true.
-- **Sidecar containers need Kubernetes ≥ 1.29 (beta) / 1.33 (GA).** `restartPolicy: Always` on an `initContainers[]` entry is a no-op on older clusters — the container becomes a regular init and exits when its command exits. Your k3d 1.36 has GA support; check `kubectl version` if you target a managed cluster older than 1.33.
-- **Lean profile + `node-exporter`-dependent dashboards.** If you disable `nodeExporter` and `kube-state-metrics` to fit a laptop, the "Node Exporter / Nodes" and "Kubernetes / Cluster" dashboards go blank. That's expected, not a bug. Swap in "Kubernetes / Compute Resources / Cluster" (KSM only) or stand up the full profile.
-- **Watchdog isn't an error.** kube-prometheus-stack ships an `Watchdog` `PrometheusRule` that *always fires* — its purpose is to *prove the alerting pipeline is working*. If `Watchdog` ever stops firing, your monitoring is broken. Many graders see "1 alert firing" on day 0 and panic; don't.
+- **ServiceMonitor не в том namespace.** По умолчанию ServiceMonitor выбирает Service только в **своём** namespace. Положите SM в `monitoring/`, а Service живёт в namespace приложения — совпадений не будет. Как починить: либо положите SM в namespace приложения, либо добавьте в SM в `monitoring/` поле `spec.namespaceSelector.matchNames: [<app-ns>]`.
+- **На ServiceMonitor нет метки `release:`.** Дефолтный `serviceMonitorSelector` чарта требует `release: <release-name>` на каждом мониторе. Если вы не поставили `serviceMonitorSelectorNilUsesHelmValues: false` и не добавили метку `release:`, оператор молча игнорирует ваш SM. `kubectl describe prometheus -n monitoring <release>` показывает, какие мониторы пропущены и почему.
+- **Порт Service без имени.** `endpoints.port` в ServiceMonitor — это **имя** порта Service (строка), а не число. `port: 5000` выглядит валидно, и линтер молчит, но оператор не может его разрешить, и цель так и не появляется. Всегда так: `ports: [{ name: http, port: 80, targetPort: 5000 }]` и `endpoints: [{ port: http, ... }]`.
+- **Конфликт с уже существующими CRD Prometheus.** kube-prometheus-stack везёт свои CRD со своим мнением. Если вы уже ставили upstream Prometheus Operator отдельно или другой Helm-релиз того же чарта, CRD сталкиваются. Helm 4 откажется ставить и напишет «resource already exists». Чистая зачистка: `helm uninstall <other-release> -n <ns>` и `kubectl delete crd $(kubectl get crd -o name | grep monitoring.coreos.com)`, и только потом ставьте снова.
+- **Init-контейнер, который ждёт Service через `sleep N`, — дурной запах.** «Подождать базу» опросом — хрупко (`sleep 5; nc -z db 5432; if [ $? -ne 0 ]; then sleep 10; fi`: работает, пока не перестанет). Нативное для Kubernetes исправление: **readiness gate** и sidecar, который этот gate переключает, или научите приложение само повторять коннект к БД на старте. Init-контейнер должен дойти *до конца*, а не крутиться, *пока* что-то не станет истинным.
+- **Sidecar нужны Kubernetes ≥ 1.29 (beta) / 1.33 (GA).** `restartPolicy: Always` на записи `initContainers[]` на старых кластерах ничего не меняет: контейнер становится обычным init и выходит, когда завершается команда. На вашем k3d 1.36 поддержка GA есть. Если целитесь в управляемый кластер старше 1.33, проверьте `kubectl version`.
+- **Профиль lean и дашборды, завязанные на `node-exporter`.** Выключите `nodeExporter` и `kube-state-metrics`, чтобы влезло на ноутбук, — дашборды "Node Exporter / Nodes" и "Kubernetes / Cluster" опустеют. Так и задумано, это не баг. Подставьте "Kubernetes / Compute Resources / Cluster" (только KSM) или поднимите полный профиль.
+- **Watchdog — не ошибка.** kube-prometheus-stack везёт `PrometheusRule` `Watchdog`, который *всегда горит*. Его задача — *доказать, что цепочка доставки алертов жива*. Если `Watchdog` когда-нибудь перестанет гореть, мониторинг сломан. Многие проверяющие в день 0 видят «1 alert firing» и пугаются. Не надо.
 
 </details>
 
 <details>
-<summary>📖 Learning Resources</summary>
+<summary>📖 Материалы для чтения</summary>
 
-- [Prometheus Operator docs — design notes on selectors](https://prometheus-operator.dev/docs/getting-started/design/)
-- [Kubernetes Sidecar Containers — GA blog (1.33)](https://kubernetes.io/blog/2025/04/01/kubernetes-v1-33-sidecar-containers-ga/)
-- *Cloud Native Observability with Prometheus* (2023) — Wakeling & Hartmann, Manning — chapter on the operator pattern
+- [Документация Prometheus Operator — заметки о дизайне селекторов](https://prometheus-operator.dev/docs/getting-started/design/)
+- [Sidecar-контейнеры Kubernetes — блог про GA (1.33)](https://kubernetes.io/blog/2025/04/01/kubernetes-v1-33-sidecar-containers-ga/)
+- *Cloud Native Observability with Prometheus* (2023) — Wakeling & Hartmann, Manning — глава про паттерн оператора
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-You've now built the full DevOps lifecycle on Kubernetes: an app (Labs 1–3), containers (Lab 2), CI/CD (Labs 3–5), config + logs + metrics (Labs 6–8), a cluster (Labs 9–12), GitOps and progressive delivery (Labs 13–14), stateful workloads (Lab 15), and operator-driven cluster monitoring (this lab). The observability stack you ran locally in Compose for Labs 7–8 is now operator-managed and Kubernetes-native — same metrics, same PromQL, discovered automatically through a CRD instead of a hand-edited config file.
+Вы собрали полный жизненный цикл DevOps на Kubernetes: приложение (Lab 1–3), контейнеры (Lab 2), CI/CD (Lab 3–5), конфиг, логи и метрики (Lab 6–8), кластер (Lab 9–12), GitOps и прогрессивную доставку (Lab 13–14), stateful-нагрузки (Lab 15) и мониторинг кластера через оператор (эта лабораторная). Стек наблюдаемости, который вы гоняли локально в Compose в Lab 7–8, теперь под оператором и нативен для Kubernetes. Те же метрики, тот же PromQL. Цели находятся сами через CRD, а не через файл конфига, правленый руками.
 
-**Optional electives (exam alternatives):**
+**Необязательные элективы (вместо экзамена):**
 
-- **Lab 17:** Deploy your Lab 1 service to **Cloudflare Workers** (V8 isolates on the edge)
-- **Lab 18:** Package it reproducibly with **Nix** flakes
+- **Lab 17:** выкатите сервис из Lab 1 на **Cloudflare Workers** (изоляты V8 на edge)
+- **Lab 18:** упакуйте его воспроизводимо через **Nix** flakes
 
 ---
 
-**Good luck!** 📊
+**Удачи!** 📊
 
-> **Remember:** with the operator you declare *what* to scrape; the platform handles *how*. If you wrote a ServiceMonitor by hand and never touched `prometheus.yml`, you got the lesson.
+> **Запомните:** с оператором вы объявляете, *что* собирать. *Как* — дело платформы. Если вы написали ServiceMonitor руками и ни разу не тронули `prometheus.yml`, урок усвоен.

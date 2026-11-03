@@ -1,38 +1,37 @@
-# `plumbing/` — Instructor-Maintained Services
+# `plumbing/` — сервисы на поддержке курса
 
-This directory contains small services the **course** ships and maintains. Students
-deploy them alongside their own service from Lab 9 onwards; students do **not** modify
-the source.
+В этом каталоге лежат небольшие сервисы, которые **курс** поставляет и поддерживает. Студенты
+выкатывают их рядом со своим сервисом начиная с Lab 9; исходники они **не** меняют.
 
-The directory is **not gitignored** — it's a first-class part of the course repo, like
-the lecture and lab markdown.
+Каталог **не в gitignore** — это полноценная часть репозитория курса, как
+markdown лекций и лаб.
 
-| Service | Port | Introduced in | Role |
+| Сервис | Порт | Появился в | Роль |
 |---------|------|---------------|------|
-| [`echo/`](./echo) | 8081 | Lab 9 | 2nd pod — makes `Service`, kube-DNS, label selectors meaningful |
-| [`health/`](./health) | 8082 | Lab 13 | 3rd pod — gives ArgoCD ApplicationSet enough targets to demonstrate the pattern |
+| [`echo/`](./echo) | 8081 | Lab 9 | 2-й Pod — чтобы `Service`, kube-DNS и label selectors имели смысл |
+| [`health/`](./health) | 8082 | Lab 13 | 3-й Pod — даёт ArgoCD ApplicationSet достаточно целей, чтобы показать паттерн |
 
-## Why two extra services?
+## Зачем ещё два сервиса?
 
-Through Lab 8 students run a **single** Python service. Modern DevOps is a
-multi-service game, so the curriculum introduces additional services at the moments
-where they *teach a concept*:
+До Lab 8 включительно студенты запускают **один** Python-сервис. Современный DevOps —
+игра на несколько сервисов, поэтому программа вводит дополнительные сервисы ровно тогда,
+когда они *объясняют понятие*:
 
-* **Lab 9 (Kubernetes Fundamentals)** — a `Service` + kube-DNS is only interesting
-  when there are two pods to mediate between. `echo` is the smallest such companion.
-* **Lab 13 (GitOps with ArgoCD)** — `ApplicationSet` and "App-of-Apps" patterns
-  only pay off at ≥ 3 apps. `health` provides the third.
+* **Lab 9 (основы Kubernetes)** — `Service` и kube-DNS интересны только
+  тогда, когда есть два Pod, между которыми они работают. `echo` — самый маленький такой напарник.
+* **Lab 13 (GitOps с ArgoCD)** — паттерны `ApplicationSet` и «App-of-Apps»
+  окупаются только при ≥ 3 приложениях. Третье даёт `health`.
 
-Both services are Go-based (fast cold start, tiny distroless image, ~15 MB). They
-expose Prometheus metrics so Labs 7-8-16's observability stack picks them up
-automatically.
+Оба сервиса на Go (быстрый холодный старт, крошечный distroless-образ, ~15 MB). Они
+отдают метрики Prometheus, и стек наблюдаемости из Labs 7-8-16 подхватывает их
+автоматически.
 
-## Building
+## Сборка
 
-Each service has its own `Dockerfile`. CI builds and publishes them to GHCR as the
-course evolves:
+У каждого сервиса свой `Dockerfile`. CI собирает их и публикует в GHCR по мере
+развития курса:
 
 * `ghcr.io/inno-devops-labs/echo:vX.Y.Z`
 * `ghcr.io/inno-devops-labs/health:vX.Y.Z`
 
-Labs reference these images by tag — students don't rebuild plumbing.
+Лабы ссылаются на эти образы по тегу — студенты не пересобирают plumbing.

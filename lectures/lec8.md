@@ -1,158 +1,158 @@
-# 📌 Lecture 8 — Metrics & Monitoring with Prometheus: From Guessing to Measuring
+# 📌 Lecture 8 — Метрики и мониторинг с Prometheus: от догадок к измерениям
 
-## 📍 Slide 1 – 📊 Welcome to the Metrics Pillar
+## 📍 Slide 1 – 📊 Добро пожаловать в столп метрик
 
-* 🌍 **Lecture 7 gave production eyes — logs.** This lecture gives it a *pulse* — metrics.
-* ⏱️ Logs answer *"what happened?"*. Metrics answer *"how much, how fast, how often?"* — every 15 seconds, forever.
-* 📊 **Prometheus** is the CNCF-graduated standard for metrics; it powers monitoring at Spotify, GitHub, DigitalOcean, and most Kubernetes deployments on Earth.
-* 🎯 Today: scrape model, metric types, PromQL, RED + USE methods, and the dashboard you'll build in Lab 8.
+* 🌍 **Lecture 7 дала проду глаза — логи.** Эта лекция даёт ему *пульс* — метрики.
+* ⏱️ Логи отвечают *«что случилось?»*. Метрики отвечают *«сколько, как быстро, как часто?»* — каждые 15 секунд, всегда.
+* 📊 **Prometheus** — стандарт CNCF со статусом graduated для метрик; на нём мониторинг Spotify, GitHub, DigitalOcean и большинства deployment Kubernetes на Земле.
+* 🎯 Сегодня: модель scrape, типы метрик, PromQL, методы RED и USE и дашборд, который соберёте в Lab 8.
 
 ```mermaid
 flowchart LR
-  App[📦 App /metrics] -->|🔄 scrape 15s| Prom[💾 Prometheus TSDB]
+  App[📦 Приложение /metrics] -->|🔄 scrape 15s| Prom[💾 Prometheus TSDB]
   Prom -->|PromQL| Graf[📊 Grafana]
-  Prom -->|alerts| AM[🚨 Alertmanager]
+  Prom -->|алерты| AM[🚨 Alertmanager]
 ```
 
-> 🔗 **Lab 8 tie-in:** you'll instrument your Lab 1 Python app with `prometheus_client`, deploy Prometheus 3.x + Grafana 13 alongside last week's Loki stack, write PromQL for the **RED method**, and ship a 6-panel dashboard.
+> 🔗 **Связка с Lab 8:** вы инструментируете Python-приложение из Lab 1 через `prometheus_client`, выкатите Prometheus 3.x + Grafana 13 рядом со стеком Loki с прошлой недели, напишете PromQL для **метода RED** и отдадите дашборд из 6 панелей.
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Slide 2 – 🎯 Чему научитесь
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Pick the right metric type — **counter, gauge, histogram, summary, native histogram** — for any signal |
-| 2 | 🔄 Explain why Prometheus is **pull-based** and what that buys you operationally |
-| 3 | 🐍 Instrument a Python service with `prometheus_client` and control **label cardinality** |
-| 4 | 🔍 Write **PromQL** for rates, percentiles, and per-service aggregations |
-| 5 | 📊 Design dashboards around the **RED** method (services) and **USE** method (resources) |
+| 1 | 🧠 Выбрать верный тип метрики — **counter, gauge, histogram, summary, native histogram** — под любой сигнал |
+| 2 | 🔄 Объяснить, почему Prometheus на **pull**, и что это даёт в эксплуатации |
+| 3 | 🐍 Инструментировать Python-сервис через `prometheus_client` и держать **кардинальность лейблов** |
+| 4 | 🔍 Писать **PromQL** для rate, перцентилей и агрегаций по сервисам |
+| 5 | 📊 Проектировать дашборды вокруг метода **RED** (сервисы) и метода **USE** (ресурсы) |
 
-**Tech stack pinned for May 2026:**
-* 💾 **Prometheus 3.12** (latest stable, May 2026) / **3.5 LTS** (supported through Jul 31 2026)
+**Стек зафиксирован на May 2026:**
+* 💾 **Prometheus 3.12** (последний стабильный, May 2026) / **3.5 LTS** (поддержка до Jul 31 2026)
 * 📊 **Grafana 13.0.1+security-01** (May 12 2026)
-* 🐍 **`prometheus_client` 0.23+** for Python (lab pins 0.23.1; 0.25 is latest)
-* 📦 **`prom/prometheus:v3.9.0`** container image used by Lab 8
+* 🐍 **`prometheus_client` 0.23+** для Python (лаба фиксирует 0.23.1; 0.25 — последний)
+* 📦 **`prom/prometheus:v3.9.0`** — образ контейнера, который использует Lab 8
 
-> 🆕 **Prometheus 3.x defaults** (vs 2.x): UTF-8 in metric/label names, **native histograms GA**, OTLP receiver built-in, new remote-write 2.0 protocol. Seven feature flags were promoted to defaults at 3.0.
+> 🆕 **Дефолты Prometheus 3.x** (против 2.x): UTF-8 в именах метрик и лейблов, **native histograms в статусе GA**, встроенный приёмник OTLP, новый протокол remote-write 2.0. Семь feature flags в 3.0 стали поведением по умолчанию.
 
 ---
 
-## 📍 Slide 3 – 🧱 Where Metrics Fit (Recap from Lec 7)
+## 📍 Slide 3 – 🧱 Где место метрик (напоминание из Lec 7)
 
 ```mermaid
 flowchart TD
-  Obs[🔍 Observability] --> Logs[📋 Logs<br/>what happened]
-  Obs --> Metrics[📊 Metrics<br/>how much, how fast]
-  Obs --> Traces[🔗 Traces<br/>where time went]
+  Obs[🔍 Наблюдаемость] --> Logs[📋 Логи<br/>что произошло]
+  Obs --> Metrics[📊 Метрики<br/>сколько и как быстро]
+  Obs --> Traces[🔗 Трейсы<br/>куда ушло время]
   Logs -.->|Lec 7 + Lab 7| Loki
   Metrics -.->|Lec 8 + Lab 8| Prom[Prometheus]
-  Traces -.->|SRE-Intro elective| OTel
+  Traces -.->|факультатив SRE-Intro| OTel
 ```
 
-* 📋 **Logs (Loki):** unbounded text, high cardinality, kept days–weeks, perfect for *forensics*
-* 📊 **Metrics (Prometheus):** numeric time series, low cardinality, kept months, perfect for *alerts + trends*
-* 🔗 **Traces:** request-level latency breakdown; out of Core scope, covered in the SRE-Intro elective
+* 📋 **Логи (Loki):** текст без верхней границы, высокая кардинальность, хранятся дни–недели, идеальны для *разбора*
+* 📊 **Метрики (Prometheus):** числовые временные ряды, низкая кардинальность, хранятся месяцы, идеальны для *алертов и трендов*
+* 🔗 **Трейсы:** разбивка латентности по запросу; вне трека Core, это факультатив SRE-Intro
 
-> 🔥 **Together, not instead.** A 5xx alert from Prometheus fires the page. A LogQL query in Grafana finds the stack trace. A trace tells you which downstream call was slow. Three pillars, one Grafana.
+> 🔥 **Вместе, а не вместо.** Алерт на 5xx из Prometheus поднимает пейдж. Запрос LogQL в Grafana находит stack trace. Трейс показывает, какой вызов дальше по цепочке был медленным. Три столпа, одна Grafana.
 
 ---
 
-## 📍 Slide 4 – 💸 Without Metrics You're Flying Blind
+## 📍 Slide 4 – 💸 Без метрик вы летите вслепую
 
-Logs alone don't answer the questions your boss asks at 09:00:
+Одних логов мало на вопросы, которые босс задаёт в 09:00:
 
-* *"How many users hit the API yesterday?"* — you need a counter.
-* *"Is the p95 latency creeping up week over week?"* — you need a histogram.
-* *"Are we close to running out of database connections?"* — you need a gauge.
-* *"Did the deploy 20 minutes ago change the error rate?"* — you need a graph, not a `grep`.
+* *«Сколько пользователей вчера попало в API?»* — нужен counter.
+* *«p95 латентности ползёт от недели к неделе?»* — нужна histogram.
+* *«Соединения с базой скоро кончатся?»* — нужен gauge.
+* *«Выкатка 20 минут назад изменила долю ошибок?»* — нужен график, не `grep`.
 
-| 🔥 Symptom | 💥 Cost |
+| 🔥 Симптом | 💥 Цена |
 |-----------|---------|
-| 🐢 No baseline | Can't tell normal from broken |
-| 📅 No trend | Can't predict capacity exhaustion |
-| 🚨 No alerts | Users (or Twitter) detect outages first |
-| 🤷 No attribution | Microservice slowdowns become unsolved mysteries |
+| 🐢 Нет базы | Норму не отличить от поломки |
+| 📅 Нет тренда | Не предсказать, когда кончится запас |
+| 🚨 Нет алертов | Аварию первыми видят пользователи (или Twitter) |
+| 🤷 Нет атрибуции | Тормоза микросервисов остаются загадкой |
 
-> 💬 **Brendan Gregg, Netflix:** *"You can't optimise what you can't measure, and you can't measure what you don't instrument."*
+> 💬 **Brendan Gregg, Netflix:** *«Нельзя оптимизировать то, что не измеряешь, и нельзя измерить то, что не инструментировал.»*
 
 ---
 
-## 📍 Slide 5 – 🔄 Pull vs Push — Why Prometheus Chose Pull
+## 📍 Slide 5 – 🔄 Pull против Push — почему Prometheus выбрал pull
 
 ```mermaid
 flowchart TB
-  subgraph Pull["🔄 Pull (Prometheus)"]
+  subgraph Pull["🔄 Модель pull (Prometheus)"]
     P[💾 Prometheus] -->|GET /metrics| T1[📦 svc-a]
     P -->|GET /metrics| T2[📦 svc-b]
   end
-  subgraph Push["📤 Push (StatsD, Graphite)"]
-    A1[📦 svc-a] -->|UDP| C[💾 Collector]
+  subgraph Push["📤 Модель push (StatsD, Graphite)"]
+    A1[📦 svc-a] -->|UDP| C[💾 Коллектор]
     A2[📦 svc-b] -->|UDP| C
   end
 ```
 
-| 🔧 Aspect | 🔄 Pull | 📤 Push |
+| 🔧 Аспект | 🔄 Pull | 📤 Push |
 |-----------|---------|---------|
-| Target health | **Free** — a failed scrape = `up == 0` alert | Hard — silence ≠ healthy |
-| Scrape rate control | Prometheus owns it | Each app decides (chaos) |
-| Service discovery | Native (K8s, EC2, Consul, files) | Apps must know the collector |
-| Firewall direction | Outbound from monitor | Inbound to collector (often blocked) |
-| Short-lived jobs | ⚠️ Need **Pushgateway** | Native fit |
+| Здоровье цели | **Бесплатно** — неудачный scrape = алерт `up == 0` | Тяжело — тишина ≠ здоровье |
+| Кто держит частоту scrape | Это решает Prometheus | Каждое приложение само (хаос) |
+| Service discovery | Нативно (K8s, EC2, Consul, файлы) | Приложения должны знать коллектор |
+| Направление файрвола | Исходящий от монитора | Входящий на коллектор (часто закрыт) |
+| Короткоживущие задачи | ⚠️ Нужен **Pushgateway** | Подходит само |
 
-> 🔥 **Rule of thumb:** pull for long-running services; push (via Pushgateway) only for cron-style jobs that finish before the next scrape. **Don't use Pushgateway as a metric proxy** — it's a hack for the batch-job case only.
+> 🔥 **Правило:** pull для долгоживущих сервисов; push (через Pushgateway) только для задач в стиле cron, которые кончаются раньше следующего scrape. **Не делайте из Pushgateway прокси метрик** — это костыль только для batch-задач.
 
 ---
 
-## 📍 Slide 6 – 🏗️ Prometheus Architecture
+## 📍 Slide 6 – 🏗️ Архитектура Prometheus
 
 ```mermaid
 flowchart LR
-  SD[🧭 Service Discovery<br/>K8s/EC2/files] --> Prom
-  T1[📦 App /metrics] -->|scrape| Prom[💾 Prometheus<br/>TSDB + PromQL]
+  SD[🧭 Обнаружение сервисов<br/>K8s/EC2/files] --> Prom
+  T1[📦 Приложение /metrics] -->|scrape| Prom[💾 Prometheus<br/>TSDB + PromQL]
   Exp[🔌 node_exporter<br/>blackbox_exporter] -->|scrape| Prom
-  PG[(📦 Pushgateway<br/>batch jobs)] -->|scrape| Prom
+  PG[(📦 Pushgateway<br/>пакетные задачи)] -->|scrape| Prom
   Prom --> Graf[📊 Grafana]
   Prom --> AM[🚨 Alertmanager]
   AM --> Slack[💬 Slack]
   AM --> PD[📟 PagerDuty]
-  Prom -->|remote_write| LTS[(☁️ Mimir/Thanos<br/>long-term storage)]
+  Prom -->|remote_write| LTS[(☁️ Mimir/Thanos<br/>долгое хранение)]
 ```
 
-| 🧱 Component | 🎯 Role |
+| 🧱 Компонент | 🎯 Роль |
 |-------------|---------|
-| 💾 **Prometheus server** | Scrapes, stores in TSDB, evaluates rules, serves PromQL |
-| 🔌 **Exporters** | Translate non-Prometheus systems (Postgres, Redis, Linux) into `/metrics` |
-| 🧭 **Service discovery** | Find targets dynamically (Kubernetes API, EC2 tags, Consul…) |
-| 🚨 **Alertmanager** | Deduplicate, group, route, silence alerts |
-| 📦 **Pushgateway** | Receive metrics from short-lived batch jobs (use sparingly) |
-| ☁️ **Mimir / Thanos** | Horizontal scale + multi-tenant long-term storage (Slide 19) |
+| 💾 **Сервер Prometheus** | Скрейпит, пишет в TSDB, считает правила, отдаёт PromQL |
+| 🔌 **Экспортеры** | Переводят системы без Prometheus (Postgres, Redis, Linux) в `/metrics` |
+| 🧭 **Service discovery** | Находит цели на лету (API Kubernetes, теги EC2, Consul…) |
+| 🚨 **Alertmanager** | Снимает дубли, группирует, маршрутизирует, глушит алерты |
+| 📦 **Pushgateway** | Принимает метрики короткоживущих batch-задач (используйте редко) |
+| ☁️ **Mimir / Thanos** | Горизонтальный масштаб и мультитенантное долгое хранение (слайд 19) |
 
 ---
 
-## 📍 Slide 7 – 🔌 Exporters: The Translation Layer
+## 📍 Slide 7 – 🔌 Экспортеры: слой перевода
 
-You will rarely run vanilla Prometheus alone. The ecosystem is dozens of **exporters** that expose existing systems on `/metrics`:
+Сам по себе голый Prometheus запускают редко. Экосистема — десятки **экспортеров**, которые выставляют существующие системы на `/metrics`:
 
-| 🔌 Exporter | 🎯 Exposes |
+| 🔌 Экспортер | 🎯 Что отдаёт |
 |-------------|-----------|
-| `node_exporter` | Linux host metrics (CPU, RAM, disk, network) |
-| `postgres_exporter` | Postgres replication lag, connections, slow queries |
-| `redis_exporter` | Redis ops/sec, memory, keyspace |
-| `blackbox_exporter` | Synthetic probes — HTTP/HTTPS/TCP/DNS/ICMP |
-| `cAdvisor` | Per-container CPU/memory (built into kubelet) |
-| `kube-state-metrics` | Kubernetes object state — deployment replicas, pod phase |
+| `node_exporter` | Метрики хоста Linux (CPU, RAM, диск, сеть) |
+| `postgres_exporter` | Лаг репликации Postgres, соединения, медленные запросы |
+| `redis_exporter` | Операции Redis в секунду, память, keyspace |
+| `blackbox_exporter` | Синтетические probe — HTTP/HTTPS/TCP/DNS/ICMP |
+| `cAdvisor` | CPU и память по контейнерам (встроен в kubelet) |
+| `kube-state-metrics` | Состояние объектов Kubernetes — реплики Deployment, фаза Pod |
 
-* 📦 **One exporter per dependency.** Lab 8 scrapes Loki and Grafana directly (both ship `/metrics` natively — no exporter needed).
-* 🐍 **For your own apps:** instrument with a **client library** (`prometheus_client` for Python) instead of writing an exporter.
+* 📦 **Один экспортер на зависимость.** Lab 8 скрейпит Loki и Grafana напрямую (оба отдают `/metrics` сами — экспортер не нужен).
+* 🐍 **Для своих приложений:** инструментируйте **клиентской библиотекой** (`prometheus_client` для Python), а не пишите экспортер.
 
-> 💡 **OpenMetrics** is the IETF-track spec born from the Prometheus exposition format — every exporter and client library speaks it.
+> 💡 **OpenMetrics** — спецификация на треке IETF, выросшая из формата exposition Prometheus. Этот формат понимают все экспортеры и клиентские библиотеки.
 
 ---
 
-## 📍 Slide 8 – 📊 Metric Types: Counter
+## 📍 Slide 8 – 📊 Типы метрик: counter
 
-A **counter** only ever increases. Reset to zero when the process restarts.
+**Counter** только растёт. В ноль падает, когда процесс перезапускается.
 
 ```python
 from prometheus_client import Counter
@@ -164,7 +164,7 @@ http_requests_total = Counter(
 http_requests_total.labels("GET", "/", "200").inc()
 ```
 
-**You almost never query the counter directly — you query its `rate()`:**
+**Сам counter почти никогда не запрашивают — берут его `rate()`:**
 
 ```promql
 # requests per second, last 5 minutes
@@ -174,13 +174,13 @@ rate(http_requests_total[5m])
 sum by (endpoint) (rate(http_requests_total{status=~"5.."}[5m]))
 ```
 
-> ⚠️ **Counters can reset** (pod restart). `rate()` and `increase()` handle the wraparound automatically — `irate()` and raw subtraction do **not**. Stick with `rate()` for graphs.
+> ⚠️ **Counter умеет сбрасываться** (рестарт Pod). `rate()` и `increase()` сами обрабатывают сброс — `irate()` и голое вычитание **нет**. Для графиков берите `rate()`.
 
 ---
 
-## 📍 Slide 9 – 📊 Metric Types: Gauge
+## 📍 Slide 9 – 📊 Типы метрик: gauge
 
-A **gauge** goes up *and* down. Snapshot of "right now".
+**Gauge** ходит *и* вверх, *и* вниз. Снимок «прямо сейчас».
 
 ```python
 from prometheus_client import Gauge
@@ -193,7 +193,7 @@ in_flight = Gauge("http_in_flight", "Concurrent requests")
 in_flight.track_inprogress()  # context-managed
 ```
 
-**Query patterns:**
+**Шаблоны запросов:**
 
 ```promql
 # current value across all instances
@@ -206,13 +206,13 @@ deriv(process_resident_memory_bytes[10m])
 topk(5, rate(container_memory_working_set_bytes[5m]))
 ```
 
-> 🎯 **Use a gauge for:** active connections, queue depth, temperature, memory in use, current replica count. **Anything that can shrink.**
+> 🎯 **Gauge берите для:** активных соединений, глубины очереди, температуры, занятой памяти, текущего числа реплик. **Всё, что умеет уменьшаться.**
 
 ---
 
-## 📍 Slide 10 – 📊 Metric Types: Histogram
+## 📍 Slide 10 – 📊 Типы метрик: histogram
 
-Counters tell you *how many*. Histograms tell you *how the values are distributed* — perfect for **latency**.
+Counter говорит, *сколько*. Histogram говорит, *как значения разложены* — самое то для **латентности**.
 
 ```python
 from prometheus_client import Histogram
@@ -226,12 +226,12 @@ with request_latency.labels("GET", "/api").time():
     handle_request()
 ```
 
-**A classic histogram exposes three families** of time series per bucket set:
-* `*_bucket{le="0.1"}` — cumulative count of observations ≤ 0.1s
-* `*_sum` — total time
-* `*_count` — total observations
+**Классическая histogram отдаёт три семейства** временных рядов на набор бакетов:
+* `*_bucket{le="0.1"}` — накопленное число наблюдений ≤ 0.1s
+* `*_sum` — суммарное время
+* `*_count` — всего наблюдений
 
-**The killer query — percentiles, server-side:**
+**Главный запрос — перцентили на стороне сервера:**
 
 ```promql
 # p95 latency, last 5 minutes
@@ -239,21 +239,21 @@ histogram_quantile(0.95,
   sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
 ```
 
-> ⚠️ **Bucket choice matters.** Buckets that don't bracket the real distribution give wildly wrong percentiles. Start with the SRE default `(.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10)` and tune from production data.
+> ⚠️ **Выбор бакетов решает.** Бакеты, которые не накрывают реальное распределение, дают дико кривые перцентили. Начните с SRE-набора по умолчанию `(.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10)` и подкрутите по данным прода.
 
 ---
 
-## 📍 Slide 11 – ✨ Native Histograms (Prometheus 3.x GA)
+## 📍 Slide 11 – ✨ Native histograms (GA в Prometheus 3.x)
 
-**Classic histograms** force you to pre-pick buckets. Get them wrong and your p99 lies to you. **Native histograms** (GA since Prometheus 3.x, stable in v3.8) fix this with **exponential bucket schemas** chosen automatically.
+**Классические histogram** заставляют заранее выбрать бакеты. Промахнётесь — p99 врёт. **Native histograms** (GA с Prometheus 3.x, стабильны в v3.8) чинят это **экспоненциальными схемами бакетов**, которые выбираются сами.
 
-| 🔧 Aspect | 📊 Classic Histogram | ✨ Native Histogram |
+| 🔧 Аспект | 📊 Классическая histogram | ✨ Native histogram |
 |-----------|---------------------|---------------------|
-| Buckets | Manually defined per metric | Auto, exponential, dynamic |
-| Time series per metric | One per bucket (10–20) | **One** |
-| Resolution | Fixed | Configurable schema (powers of 2) |
-| Storage | High (each bucket = a series) | ~5× cheaper |
-| `histogram_quantile()` | Works | Works — same function |
+| Бакеты | Руками, на каждую метрику | Сами, экспонента, динамика |
+| Временных рядов на метрику | По одному на бакет (10–20) | **Один** |
+| Разрешение | Фиксированное | Настраиваемая схема (степени 2) |
+| Хранение | Дорого (каждый бакет = ряд) | ~5× дешевле |
+| `histogram_quantile()` | Работает | Работает — та же функция |
 
 ```python
 # Python client (0.23+): opt in by passing `native_histogram_bucket_factor`
@@ -263,27 +263,27 @@ Histogram(
 )
 ```
 
-> 🆕 **In Prometheus 3.x they're a default-on feature** (the `native-histograms` flag was promoted to default at 3.0). Mix freely: a single metric can expose both classic *and* native — clients negotiate via the scrape protocol.
+> 🆕 **В Prometheus 3.x это включено по умолчанию** (флаг `native-histograms` стал дефолтом в 3.0). Совмещайте свободно: одна метрика может отдавать и классику, *и* native — клиенты договариваются через протокол scrape.
 
 ---
 
-## 📍 Slide 12 – 📊 Counter vs Gauge vs Histogram vs Summary
+## 📍 Slide 12 – 📊 Counter, gauge, histogram, summary
 
-| 📊 Type | ⬆️⬇️ Behaviour | 🎯 Use for | 🔍 Query with |
+| 📊 Тип | ⬆️⬇️ Поведение | 🎯 Для чего | 🔍 Чем запрашивать |
 |---------|----------------|-----------|----------------|
-| 🔢 **Counter** | Only up (resets on restart) | Events: requests, errors, bytes | `rate()`, `increase()` |
-| 📈 **Gauge** | Up and down | State: temperature, queue depth | direct, `avg()`, `max()` |
-| 📊 **Histogram (classic)** | Multiple time series per metric | Latency, size, durations | `histogram_quantile()` server-side |
-| ✨ **Native histogram** | One time series, auto buckets | Same as histogram, ~5× cheaper | `histogram_quantile()` — same fn |
-| 📐 **Summary** | Quantiles computed in-process | Legacy quantile reporting | Direct — but **can't aggregate across instances** |
+| 🔢 **Counter** | Только вверх (сброс при рестарте) | События: запросы, ошибки, байты | `rate()`, `increase()` |
+| 📈 **Gauge** | Вверх и вниз | Состояние: температура, глубина очереди | напрямую, `avg()`, `max()` |
+| 📊 **Histogram (классика)** | Несколько временных рядов на метрику | Латентность, размер, длительности | `histogram_quantile()` на сервере |
+| ✨ **Native histogram** | Один временной ряд, бакеты сами | То же, что histogram, ~5× дешевле | `histogram_quantile()` — та же функция |
+| 📐 **Summary** | Квантили считаются в процессе | Старый способ отдать квантили | Напрямую — но **нельзя агрегировать между инстансами** |
 
-> 🔥 **Default to histograms (native if Prometheus 3.x).** Summaries are last-resort: their pre-computed quantiles can't be merged across pods, so they break the moment you scale past one replica.
+> 🔥 **По умолчанию берите histogram (native, если Prometheus 3.x).** Summary — крайний случай: заранее посчитанные квантили не сливаются между Pod, поэтому всё ломается, как только реплик становится больше одной.
 
 ---
 
-## 📍 Slide 13 – 🐍 Instrumenting the Lab 1 Python App
+## 📍 Slide 13 – 🐍 Инструментируем Python-приложение из Lab 1
 
-Two-file change to add metrics to your Flask/FastAPI service:
+Правка в двух файлах, чтобы добавить метрики в сервис на Flask/FastAPI:
 
 ```python
 # app.py
@@ -323,13 +323,13 @@ def metrics():
 prometheus-client==0.23.1
 ```
 
-> 🔗 **Lab 8 deliverable:** the `/metrics` endpoint above plus one **business metric** (e.g. `devops_info_endpoint_calls`) — graded under Task 1.
+> 🔗 **Результат Lab 8:** эндпоинт `/metrics` выше плюс одна **бизнес-метрика** (например, `devops_info_endpoint_calls`) — оценка в Task 1.
 
 ---
 
-## 📍 Slide 14 – 🏷️ Label Cardinality — The #1 Way to OOM Prometheus
+## 📍 Slide 14 – 🏷️ Кардинальность лейблов — способ №1 уложить Prometheus в OOM
 
-Each unique label combination = one **time series**. A series costs ~3–5 KB in memory. Do the maths.
+Каждая уникальная комбинация лейблов = один **временной ряд**. Ряд стоит ~3–5 KB памяти. Посчитайте.
 
 ```python
 # ❌ MELT YOUR PROMETHEUS — one series per user, forever
@@ -339,25 +339,25 @@ REQS.labels(user_id=u, request_id=r).inc()
 REQS.labels(method="GET", endpoint="/api", status="200").inc()
 ```
 
-| ✅ Good label (bounded) | ❌ Bad label (unbounded) |
+| ✅ Хороший лейбл (есть граница) | ❌ Плохой лейбл (границы нет) |
 |------------------------|--------------------------|
-| `method` (8 values) | `user_id` (millions) |
-| `endpoint` (dozens, normalised) | `request_id` (one per call) |
-| `status_code` (~10) | `email`, `path` with IDs |
+| `method` (8 значений) | `user_id` (миллионы) |
+| `endpoint` (десятки, нормализован) | `request_id` (один на вызов) |
+| `status_code` (~10) | `email`, `path` с id |
 | `env="prod"` (3) | `timestamp`, `trace_id` |
 
-**Targets:**
-* 📊 **<1000** unique label combinations per metric is healthy.
-* 🚨 **>100,000** and you're a few hours from an OOM.
-* 🛡️ Track your series count with `prometheus_tsdb_head_series` and alert on growth.
+**Ориентиры:**
+* 📊 **<1000** уникальных комбинаций лейблов на метрику — здорово.
+* 🚨 **>100,000** — и до OOM несколько часов.
+* 🛡️ Следите за числом рядов через `prometheus_tsdb_head_series` и алертите на рост.
 
-> 🔥 **The rule:** if a value is unique per request or per user, **it doesn't go in a label**. Same lesson as Loki (Lec 7), same blast radius.
+> 🔥 **Правило:** если значение уникально на запрос или на пользователя, **в лейбл ему нельзя**. Тот же урок, что у Loki (Lec 7), тот же радиус поражения.
 
 ---
 
-## 📍 Slide 15 – 🔍 PromQL Part 1: Instant vs Range Vectors
+## 📍 Slide 15 – 🔍 PromQL, часть 1: мгновенный вектор и вектор диапазона
 
-Every PromQL expression returns one of four types. The two you'll use constantly:
+Каждое выражение PromQL возвращает один из четырёх типов. Два вы будете использовать постоянно:
 
 ```promql
 # 🎯 Instant vector — one sample per series, at evaluation time
@@ -367,26 +367,26 @@ http_requests_total{status="500"}
 http_requests_total[5m]
 ```
 
-You **can't graph a range vector directly** — you must collapse it with a function (`rate`, `avg_over_time`, …):
+**Вектор диапазона нельзя нарисовать напрямую** — его надо свернуть функцией (`rate`, `avg_over_time`, …):
 
 ```promql
 # req/sec averaged over 5-minute windows
 rate(http_requests_total[5m])
 ```
 
-| 🔧 Operator | 🎯 Meaning |
+| 🔧 Оператор | 🎯 Смысл |
 |-------------|-----------|
-| `{label="v"}` / `{label!="v"}` | Exact match / negation |
-| `{label=~"re"}` / `{label!~"re"}` | Regex / negated regex |
-| `[5m]`, `[1h]` | Lookback window for range vectors |
-| `offset 1h` | Shift the query back in time |
-| `@ 1700000000` | Pin evaluation to a Unix timestamp |
+| `{label="v"}` / `{label!="v"}` | Точное совпадение / отрицание |
+| `{label=~"re"}` / `{label!~"re"}` | Регулярка / регулярка с отрицанием |
+| `[5m]`, `[1h]` | Окно назад для вектора диапазона |
+| `offset 1h` | Сдвинуть запрос в прошлое |
+| `@ 1700000000` | Зафиксировать вычисление на Unix-времени |
 
-> 💡 **Rule of thumb:** the range `[Xm]` should be ≥ **4× the scrape interval** so each evaluation has enough samples. With 15s scrapes, `[1m]` is the minimum that doesn't lie.
+> 💡 **Правило:** окно `[Xm]` должно быть ≥ **4× интервала scrape**, чтобы на каждое вычисление хватало семплов. При scrape раз в 15s `[1m]` — минимум, который не врёт.
 
 ---
 
-## 📍 Slide 16 – 🔍 PromQL Part 2: Aggregation & rate()
+## 📍 Slide 16 – 🔍 PromQL, часть 2: агрегация и rate()
 
 ```promql
 # Total req/s across the whole fleet
@@ -408,21 +408,21 @@ sum(rate(http_requests_total{status=~"5.."}[5m]))
   / sum(rate(http_requests_total[5m]))
 ```
 
-| 🔧 Aggregator | 🎯 Use case |
+| 🔧 Агрегатор | 🎯 Когда |
 |---------------|-------------|
-| `sum`, `avg`, `min`, `max` | Combine series |
-| `count` | Number of series matching |
-| `topk(N, expr)` / `bottomk` | The N highest/lowest |
-| `quantile(0.5, expr)` | Fleet-level percentile |
-| `group by (l) / without (l)` | Drop or keep label dimensions |
+| `sum`, `avg`, `min`, `max` | Сложить ряды |
+| `count` | Сколько рядов совпало |
+| `topk(N, expr)` / `bottomk` | N самых больших / самых маленьких |
+| `quantile(0.5, expr)` | Перцентиль по флоту |
+| `group by (l) / without (l)` | Убрать или оставить измерения лейбла |
 
-> ⚠️ **Don't average percentiles.** `avg(histogram_quantile(...))` is mathematical nonsense. Always `histogram_quantile()` *outside* the `sum by (le, …)`.
+> ⚠️ **Не усредняйте перцентили.** `avg(histogram_quantile(...))` — математический бред. Всегда `histogram_quantile()` *снаружи* `sum by (le, …)`.
 
 ---
 
-## 📍 Slide 17 – 🔍 PromQL Part 3: Recording Rules
+## 📍 Slide 17 – 🔍 PromQL, часть 3: recording rules
 
-Some queries are slow. Some you need many times a day. **Recording rules** evaluate a PromQL expression on a schedule and store the result as a new metric — like a materialised view.
+Некоторые запросы медленные. Некоторые нужны много раз в день. **Recording rules** считают выражение PromQL по расписанию и кладут результат в новую метрику — как материализованное представление.
 
 ```yaml
 # prometheus.rules.yml
@@ -444,21 +444,21 @@ groups:
             sum by (job, le) (rate(http_request_duration_seconds_bucket[5m])))
 ```
 
-* 🏷️ **Naming convention:** `level:metric:operation` — e.g. `job:http_requests:rate5m`. The colons are intentional and reserved for recording rules.
-* 🚀 **Dashboards stay fast** because they query the pre-computed series, not the raw histogram buckets.
-* 🚨 **Alert rules** use the same syntax (`alert:` instead of `record:`) and fire to Alertmanager when their expression is non-empty for `for: Xm`.
+* 🏷️ **Имена:** `level:metric:operation` — например, `job:http_requests:rate5m`. Двоеточия здесь нарочно и зарезервированы под recording rules.
+* 🚀 **Дашборды остаются быстрыми**, потому что читают уже посчитанный ряд, а не сырые бакеты histogram.
+* 🚨 **Правила алертов** используют тот же синтаксис (`alert:` вместо `record:`) и уходят в Alertmanager, когда выражение непустое в течение `for: Xm`.
 
 ---
 
-## 📍 Slide 18 – 🔴 The RED Method (Tom Wilkie, Weaveworks, 2015)
+## 📍 Slide 18 – 🔴 Метод RED (Tom Wilkie, Weaveworks, 2015)
 
-**For every request-driven service, monitor three things:**
+**У каждого сервиса на запросах мониторьте три вещи:**
 
-| 🔧 Metric | 🎯 Question | 📝 PromQL |
+| 🔧 Метрика | 🎯 Вопрос | 📝 PromQL |
 |-----------|-------------|------------|
-| 🔴 **R**ate | How busy? | `sum by (svc) (rate(http_requests_total[5m]))` |
-| 🟡 **E**rrors | How often failing? | `sum by (svc) (rate(http_requests_total{status=~"5.."}[5m]))` |
-| 🔵 **D**uration | How slow? | `histogram_quantile(0.95, sum by (svc, le) (rate(http_request_duration_seconds_bucket[5m])))` |
+| 🔴 **R**ate | Насколько загружен? | `sum by (svc) (rate(http_requests_total[5m]))` |
+| 🟡 **E**rrors | Как часто падает? | `sum by (svc) (rate(http_requests_total{status=~"5.."}[5m]))` |
+| 🔵 **D**uration | Насколько медленный? | `histogram_quantile(0.95, sum by (svc, le) (rate(http_request_duration_seconds_bucket[5m])))` |
 
 ```mermaid
 flowchart LR
@@ -467,23 +467,23 @@ flowchart LR
   D[🔵 Duration] --> D2[p50/p95/p99]
 ```
 
-* 📊 **Why these three?** They map directly to the user's experience: *"is the service up, is it correct, is it fast?"*
-* 🪞 **Mirror the Four Golden Signals** from the Google SRE book (Rate + Errors + Latency + Saturation) — RED drops saturation because that's the **USE** method's job.
-* 🎯 **If you only monitor three things per service, monitor these.**
+* 📊 **Почему эти три?** Они прямо про опыт пользователя: *«сервис жив, отвечает верно, отвечает быстро?»*
+* 🪞 **Зеркало четырёх золотых сигналов** из книги Google SRE (Rate + Errors + Latency + Saturation) — RED не берёт saturation, это работа метода **USE**.
+* 🎯 **Если у сервиса смотрите только три вещи — смотрите эти.**
 
-> 📖 First presented by **Tom Wilkie at the London Prometheus meetup, 2015** while he was at Weaveworks. Now standard practice across CNCF.
+> 📖 Впервые показал **Tom Wilkie на лондонском митапе Prometheus, 2015**, когда он был в Weaveworks. Сейчас это обычная практика по всему CNCF.
 
 ---
 
-## 📍 Slide 19 – 📊 The USE Method (Brendan Gregg, 2012)
+## 📍 Slide 19 – 📊 Метод USE (Brendan Gregg, 2012)
 
-**RED** is for services. **USE** is for **resources** — CPU, RAM, disk, network, file descriptors.
+**RED** — для сервисов. **USE** — для **ресурсов**: CPU, RAM, диск, сеть, файловые дескрипторы.
 
-| 🔧 Metric | 🎯 Question | 📝 Example |
+| 🔧 Метрика | 🎯 Вопрос | 📝 Пример |
 |-----------|-------------|-----------|
-| 📊 **U**tilisation | How busy is the resource? | CPU at 80% |
-| 🪣 **S**aturation | How much extra work is queued? | run-queue length > cores |
-| ❌ **E**rrors | Are there error events? | disk I/O errors, NIC drops |
+| 📊 **U**tilisation | Насколько ресурс занят? | CPU на 80% |
+| 🪣 **S**aturation | Сколько лишней работы стоит в очереди? | длина run-queue больше числа ядер |
+| ❌ **E**rrors | Есть события ошибок? | ошибки дискового I/O, дропы на NIC |
 
 ```promql
 # Node CPU utilisation (node_exporter)
@@ -496,15 +496,15 @@ rate(node_vmstat_pswpin[5m])
 rate(node_disk_io_errors_total[5m])
 ```
 
-> 📖 Published by **Brendan Gregg (then Joyent, now Netflix/Intel) in 2012** as *"Thinking Methodically about Performance"* (ACM Queue). The companion checklists at brendangregg.com/usemethod.html are still the gold-standard tour of Linux performance counters.
+> 📖 Опубликовал **Brendan Gregg (тогда Joyent, сейчас Netflix/Intel) в 2012** как *"Thinking Methodically about Performance"* (ACM Queue). Чеклисты-спутники на brendangregg.com/usemethod.html до сих пор золотой стандарт обхода счётчиков производительности Linux.
 
-**🎯 The recipe:** **RED for every service. USE for every resource. Together they cover both halves of every incident.**
+**🎯 Рецепт:** **RED на каждый сервис. USE на каждый ресурс. Вместе они закрывают обе половины любого инцидента.**
 
 ---
 
-## 📍 Slide 20 – 📊 Grafana Dashboards for Metrics
+## 📍 Slide 20 – 📊 Дашборды Grafana для метрик
 
-Same Grafana from Lab 7 — add Prometheus as a second data source:
+Та же Grafana из Lab 7 — добавьте Prometheus вторым источником данных:
 
 ```yaml
 # grafana/provisioning/datasources/datasources.yml
@@ -518,21 +518,21 @@ datasources:
     url: http://loki:3100
 ```
 
-**Panel-design principles (same as Lec 7):**
-* 🎯 **One question per dashboard** — *"Is api healthy?"*, not *"show me everything"*.
-* 🚦 **Stat panels on top** — red/green at a glance.
-* 📈 **Time-series in the middle** — RED metrics, last hour, with thresholds.
-* 🔥 **Heatmap at the bottom** — latency distribution (use `*_bucket` series straight to the heatmap panel).
-* 🔁 **Template variables** for `$service`, `$env`, `$instance` — one dashboard, many slices.
-* 🔗 **Drill-down from a metric spike** to the matching LogQL query (Grafana lets you data-source-link).
+**Принципы панелей (как в Lec 7):**
+* 🎯 **Один вопрос на дашборд** — *«api здоров?»*, а не *«покажи всё»*.
+* 🚦 **Stat-панели сверху** — красный/зелёный с одного взгляда.
+* 📈 **Временные ряды посередине** — метрики RED, последний час, с порогами.
+* 🔥 **Тепловая карта снизу** — распределение латентности (ряды `*_bucket` сразу в панель Heatmap).
+* 🔁 **Переменные шаблона** для `$service`, `$env`, `$instance` — один дашборд, много срезов.
+* 🔗 **Провал из всплеска метрики** в подходящий запрос LogQL (в Grafana это связь между источниками).
 
-> 💡 **Heatmaps reveal what averages hide.** A p99 of 800ms can be "everyone is slow" or "1% of users are abandoned" — the heatmap shows which.
+> 💡 **Тепловая карта показывает то, что прячет среднее.** p99 в 800ms может значить «тормозят все» или «брошен 1% пользователей» — тепловая карта показывает, что из двух.
 
 ---
 
-## 📍 Slide 21 – 📊 Lab 8's Dashboard Panels (PromQL)
+## 📍 Slide 21 – 📊 Панели дашборда Lab 8 (PromQL)
 
-The six (+) panels graded under Task 3:
+Шесть (и больше) панелей, оценка в Task 3:
 
 ```promql
 # 1️⃣ Request rate per endpoint
@@ -555,107 +555,107 @@ http_requests_in_progress
 up{job="app"}
 ```
 
-| Panel | Vis | Answers |
+| Панель | Вид | Отвечает |
 |-------|-----|---------|
-| 1 | Time series | *"How busy?"* |
-| 2 | Time series | *"How often failing?"* |
-| 3 | Time series | *"How slow at the 95th?"* |
-| 4 | Heatmap | *"What does the long tail look like?"* |
-| 5 | Gauge | *"How many in flight right now?"* |
-| 6 | Stat | *"Are we even alive?"* |
+| 1 | Временной ряд | *«Насколько загружены?»* |
+| 2 | Временной ряд | *«Как часто падаем?»* |
+| 3 | Временной ряд | *«Насколько медленно на 95-м?»* |
+| 4 | Тепловая карта | *«Как выглядит длинный хвост?»* |
+| 5 | Gauge | *«Сколько сейчас в полёте?»* |
+| 6 | Stat | *«Мы вообще живы?»* |
 
-> 🔗 **Evidence required:** screenshots of all panels with live traffic from a `curl` loop hitting your app — graded under Lab 8 Task 3.
+> 🔗 **Нужно доказательство:** скриншоты всех панелей с живым трафиком от цикла `curl` в ваше приложение — оценка в Lab 8 Task 3.
 
 ---
 
-## 📍 Slide 22 – 🏭 Production: Federation, remote_write, Mimir
+## 📍 Slide 22 – 🏭 Прод: федерация, remote_write, Mimir
 
-Lab 8 runs **one Prometheus container** with 15-day retention. Production needs four upgrades:
+Lab 8 запускает **один контейнер Prometheus** с хранением 15 дней. В проде нужны четыре апгрейда:
 
-| 🔧 Concern | 🪜 Lab default | 🏭 Production |
+| 🔧 Тема | 🪜 В лабе | 🏭 В проде |
 |-----------|----------------|---------------|
-| Storage | Local TSDB, 15 days | **`remote_write` to Mimir / Thanos** (years, multi-tenant) |
-| HA | Single Prometheus | **Two Prometheus replicas** scraping the same targets; Alertmanager dedupes |
-| Scale | Single binary | **Federation** — leaf Prometheus per cluster, global Prometheus aggregates |
-| Retention | 15 d local | Local 24 h + Mimir for long-term (cheap object storage) |
-| Cardinality guard | None | `remote_write` `relabel_configs` to drop high-card series before they ship |
+| Хранение | Локальный TSDB, 15 дней | **`remote_write` в Mimir / Thanos** (годы, мультитенантность) |
+| HA | Один Prometheus | **Две реплики Prometheus** скрейпят одни и те же цели; Alertmanager снимает дубли |
+| Масштаб | Один бинарник | **Федерация** — листовой Prometheus на кластер, глобальный Prometheus агрегирует |
+| Срок хранения | 15 дней локально | Локально 24 ч + Mimir на долгий срок (дешёвое объектное хранилище) |
+| Защита кардинальности | Нет | `remote_write` `relabel_configs`, чтобы выбросить ряды с высокой кардинальностью до отправки |
 
 ```mermaid
 flowchart LR
-  P1[💾 Prom EU<br/>scrape only] -->|remote_write| M[(☁️ Grafana Mimir<br/>multi-tenant LTS)]
+  P1[💾 Prom EU<br/>только scrape] -->|remote_write| M[(☁️ Grafana Mimir<br/>мультиарендный LTS)]
   P2[💾 Prom US] -->|remote_write| M
   P3[💾 Prom APAC] -->|remote_write| M
-  M --> Graf[📊 Global Grafana]
+  M --> Graf[📊 Глобальная Grafana]
 ```
 
-> 🆕 **Mimir** (Grafana Labs, AGPL/open) replaces Cortex and scales to **1B+ active series**. **Thanos** (CNCF) is the sidecar-based alternative — pick Thanos if you already run vanilla Prometheus, Mimir if you're starting fresh.
+> 🆕 **Mimir** (Grafana Labs, AGPL/open) заменяет Cortex и тянет **1B+ активных рядов**. **Thanos** (CNCF) — альтернатива на sidecar. Берите Thanos, если уже крутите обычный Prometheus; Mimir — если начинаете с нуля.
 
 ---
 
-## 📍 Slide 23 – 🌍 Prometheus in the Wild
+## 📍 Slide 23 – 🌍 Prometheus в дикой природе
 
-* 🎵 **SoundCloud** — birthplace; open-sourced 2012, inspired by Google's internal **Borgmon**.
-* ☁️ **DigitalOcean** — ~1B active series across regional Prometheus + Cortex/Mimir.
-* 🐙 **GitHub** — Prometheus + Grafana for infra; the public status page is Prometheus alerts dressed up.
-* 🚀 **SpaceX** — telemetry pipelines feed Prometheus + custom TSDB for engine and avionics monitoring.
-* 🎬 **Netflix** — **Atlas** (their in-house TSDB) for product metrics, Prometheus widely for infra; Brendan Gregg's USE method came out of this team.
-* 🏛️ **CNCF** — Prometheus was the **second project to graduate** (Aug 2018, after Kubernetes). The exposition format begat **OpenMetrics**, now an IETF draft.
+* 🎵 **SoundCloud** — родина; открыли код в 2012, вдохновлён внутренним **Borgmon** в Google.
+* ☁️ **DigitalOcean** — ~1B активных рядов на региональных Prometheus + Cortex/Mimir.
+* 🐙 **GitHub** — Prometheus + Grafana для инфры; публичная status page — это приодетые алерты Prometheus.
+* 🚀 **SpaceX** — пайплайны телеметрии кормят Prometheus и свой TSDB для мониторинга двигателей и авионики.
+* 🎬 **Netflix** — **Atlas** (их внутренний TSDB) для продуктовых метрик, Prometheus широко для инфры; метод USE Brendan Gregg вышел из этой команды.
+* 🏛️ **CNCF** — Prometheus был **вторым проектом со статусом graduated** (Aug 2018, после Kubernetes). Формат exposition породил **OpenMetrics**, сейчас это черновик IETF.
 
-> 🔥 **Common pattern:** Prometheus scrapes locally for fast queries and alerting; everything ships to a long-term store (Mimir / Thanos / VictoriaMetrics / Cortex) for cross-region dashboards.
-
----
-
-## 📍 Slide 24 – 🎯 Key Takeaways
-
-1. 📊 **Metrics are the second pillar.** Logs say *what*, metrics say *how much / how fast*. Use both.
-2. 🔄 **Pull beats push for services** — Prometheus owns the scrape, target health is free.
-3. 📈 **Counter, gauge, histogram, summary, native histogram** — pick by the *question*, not the *value*. Counters need `rate()`. Histograms unlock server-side percentiles. Native histograms (Prom 3.x GA) are ~5× cheaper than classic.
-4. 🏷️ **Label cardinality is the foot-gun.** No user IDs, no request IDs, no timestamps. <1000 series per metric.
-5. 🔍 **PromQL = stream selector → range vector → aggregation → quantile.** Recording rules pre-compute the expensive queries.
-6. 🔴 **RED** (Wilkie, 2015) for **services** — Rate, Errors, Duration.
-7. 📊 **USE** (Gregg, 2012) for **resources** — Utilisation, Saturation, Errors.
-8. 🆕 **Prometheus 3.x** ships UTF-8 names, native histograms GA, OTLP receiver, remote-write 2.0 — modernise when you upgrade.
-
-> 💡 **You can't fix what you can't measure — and you can't measure what you don't instrument.**
+> 🔥 **Общий шаблон:** Prometheus скрейпит локально для быстрых запросов и алертов; всё уезжает в долгое хранилище (Mimir / Thanos / VictoriaMetrics / Cortex) для дашбордов между регионами.
 
 ---
 
-## 📍 Slide 25 – 🚀 What Comes Next
+## 📍 Slide 24 – 🎯 Что забрать с собой
 
-**📚 Next lecture: *Kubernetes Fundamentals*** — Pods, Deployments, Services, the kubectl basics, and why every observability concept from Lec 7–8 gets rebuilt as a CRD.
+1. 📊 **Метрики — второй столп.** Логи говорят *что*, метрики говорят *сколько / как быстро*. Нужны оба.
+2. 🔄 **Для сервисов pull лучше push** — scrape принадлежит Prometheus, здоровье цели бесплатное.
+3. 📈 **Counter, gauge, histogram, summary, native histogram** — выбирайте по *вопросу*, не по *числу*. Counter нужен `rate()`. Histogram открывает перцентили на сервере. Native histograms (GA в Prom 3.x) ~5× дешевле классики.
+4. 🏷️ **Кардинальность лейблов — выстрел в ногу.** Никаких id пользователя, id запроса, меток времени. <1000 рядов на метрику.
+5. 🔍 **PromQL = селектор → вектор диапазона → агрегация → квантиль.** Recording rules заранее считают дорогие запросы.
+6. 🔴 **RED** (Wilkie, 2015) для **сервисов** — Rate, Errors, Duration.
+7. 📊 **USE** (Gregg, 2012) для **ресурсов** — Utilisation, Saturation, Errors.
+8. 🆕 **Prometheus 3.x** приносит имена в UTF-8, native histograms GA, приёмник OTLP, remote-write 2.0 — при апгрейде переходите на это.
 
-* ☸️ Pods, ReplicaSets, Deployments, Services
-* 🔄 Self-healing & rolling updates
-* 🌐 Service discovery & ClusterIP / NodePort / LoadBalancer
-* 🧪 Lab 9: deploy your Lab 1 Python app + Lab 7/8 monitoring to a real Kubernetes cluster
+> 💡 **Нельзя починить то, что не измеряешь, — и нельзя измерить то, что не инструментировал.**
 
-**🔬 Lab 8 deliverables (this week):** add `prometheus_client` to your Python app, deploy `prom/prometheus:v3.9.0` + Grafana 13 alongside Lab 7's Loki stack, write PromQL for the RED method, ship a 6+ panel dashboard, harden for production (healthchecks, resource limits, retention, volumes). Bonus 2.5 pts: extend the Ansible role from Lab 6/7 to template the whole stack.
+---
+
+## 📍 Slide 25 – 🚀 Что дальше
+
+**📚 Следующая лекция: *Основы Kubernetes*** — Pod, Deployment, Service, база kubectl и почему каждая идея наблюдаемости из Lec 7–8 пересобирается в CRD.
+
+* ☸️ Pod, ReplicaSet, Deployment, Service
+* 🔄 Самовосстановление и rolling update
+* 🌐 Service discovery и ClusterIP / NodePort / LoadBalancer
+* 🧪 Lab 9: выкатите Python-приложение из Lab 1 и мониторинг из Lab 7/8 на настоящий кластер Kubernetes
+
+**🔬 Результаты Lab 8 (на этой неделе):** добавьте `prometheus_client` в Python-приложение, выкатите `prom/prometheus:v3.9.0` + Grafana 13 рядом со стеком Loki из Lab 7, напишите PromQL для метода RED, отдайте дашборд из 6+ панелей, укрепите под прод (health-проверки, лимиты ресурсов, retention, тома). Бонус 2.5 балла: расширьте роль Ansible из Lab 6/7 так, чтобы она шаблоном собирала весь стек.
 
 ```mermaid
 flowchart LR
-  L7[📋 Lab 7<br/>Loki: logs] --> L8[📊 Lab 8<br/>Prometheus: metrics] --> L9[☸️ Lab 9<br/>K8s basics] --> L16[🚀 Lab 16<br/>kube-prometheus on K8s]
+  L7[📋 Lab 7<br/>Loki: логи] --> L8[📊 Lab 8<br/>Prometheus: метрики] --> L9[☸️ Lab 9<br/>основы K8s] --> L16[🚀 Lab 16<br/>kube-prometheus на K8s]
 ```
 
-> 🆕 **Lab 16 preview:** today's docker-compose stack will become a **`kube-prometheus-stack` Helm chart** (~v85, May 2026) with **ServiceMonitor** and **PodMonitor** CRDs auto-discovering targets — same metrics, same PromQL, Kubernetes-native plumbing.
+> 🆕 **Превью Lab 16:** сегодняшний стек на docker-compose станет Helm-чартом **`kube-prometheus-stack`** (~v85, May 2026) с CRD **ServiceMonitor** и **PodMonitor**, которые сами находят цели — те же метрики, тот же PromQL, обвязка средствами Kubernetes.
 
-**👋 See you in Lecture 9.**
+**👋 До встречи в Lecture 9.**
 
 ---
 
-## 📚 Resources & Further Reading
+## 📚 Материалы и что почитать
 
-**📕 Books:**
-* *Prometheus: Up & Running* — **Julien Pivotto & Brian Brazil** (O'Reilly, 2nd ed. 2023). The reference; Brazil is a core dev, Pivotto a server maintainer.
-* *Site Reliability Engineering* — Beyer et al. — Ch. 6 (Monitoring) and Ch. 10 (Practical Alerting). Free at sre.google/books.
-* *Observability Engineering* — Majors, Fong-Jones, Miranda (O'Reilly, 2022) — places metrics in the wider three-pillars picture.
+**📕 Книги:**
+* *Prometheus: Up & Running* — **Julien Pivotto & Brian Brazil** (O'Reilly, 2nd ed. 2023). Главный справочник; Brazil — разработчик ядра, Pivotto — мейнтейнер сервера.
+* *Site Reliability Engineering* — Beyer et al. — гл. 6 (Monitoring) и гл. 10 (Practical Alerting). Бесплатно на sre.google/books.
+* *Observability Engineering* — Majors, Fong-Jones, Miranda (O'Reilly, 2022) — ставит метрики в общую картину трёх столпов.
 
-**🔗 Links:**
-* 🌐 [prometheus.io/docs](https://prometheus.io/docs/) — official docs (3.x)
-* 🌐 [Prometheus 3.0 announcement](https://prometheus.io/blog/2024/11/14/prometheus-3-0/) — UTF-8, native histograms, OTLP
-* 🌐 [PromQL basics](https://prometheus.io/docs/prometheus/latest/querying/basics/)
-* 🌐 [RED method by Tom Wilkie (Grafana Labs blog)](https://grafana.com/blog/the-red-method-how-to-instrument-your-services/)
-* 🌐 [USE method by Brendan Gregg](https://www.brendangregg.com/usemethod.html)
-* 🌐 [Grafana Mimir](https://grafana.com/oss/mimir/) — horizontally scalable Prometheus storage
-* 🌐 [kube-prometheus-stack Helm chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) — Lab 16 preview
+**🔗 Ссылки:**
+* 🌐 [prometheus.io/docs](https://prometheus.io/docs/) — официальная документация (3.x)
+* 🌐 [Анонс Prometheus 3.0](https://prometheus.io/blog/2024/11/14/prometheus-3-0/) — UTF-8, native histograms, OTLP
+* 🌐 [Основы PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/)
+* 🌐 [Метод RED от Tom Wilkie (блог Grafana Labs)](https://grafana.com/blog/the-red-method-how-to-instrument-your-services/)
+* 🌐 [Метод USE от Brendan Gregg](https://www.brendangregg.com/usemethod.html)
+* 🌐 [Grafana Mimir](https://grafana.com/oss/mimir/) — горизонтально масштабируемое хранилище Prometheus
+* 🌐 [Helm-чарт kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) — превью Lab 16
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 7–9 leaderboard window.
+**🎓 Квиз:** квиз после лекции идёт в окно таблицы лидеров недель 7–9.

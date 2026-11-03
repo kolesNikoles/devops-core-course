@@ -1,58 +1,58 @@
-# Lab 8 — Metrics & Monitoring with Prometheus
+# Lab 8 — Метрики и мониторинг с Prometheus
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-Metrics%20%26%20Monitoring-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Prometheus%203.11%20|%20Grafana%2013%20|%20prometheus--client-informational)
 
-> **Goal:** instrument your Lab 1 Python app with Prometheus metrics, deploy Prometheus 3.x next to last week's Loki stack to scrape them, and design a Grafana dashboard around the **RED method**.
-> **Deliverable:** a PR from `lab08` adding the `/metrics` endpoint + instrumentation to `app_python/`, a `prometheus` service in `monitoring/docker-compose.yml`, `monitoring/prometheus/prometheus.yml`, a 6-panel RED dashboard JSON, and `monitoring/docs/LAB08.md` with the evidence captures.
+> **Цель:** инструментируйте Python-приложение из Lab 1 метриками Prometheus, поставьте Prometheus 3.x рядом со стеком Loki с прошлой недели, чтобы он забирал эти метрики, и спроектируйте дашборд Grafana вокруг **метода RED**.
+> **Что сдаёте:** PR из `lab08`: эндпоинт `/metrics` и инструментация в `app_python/`, сервис `prometheus` в `monitoring/docker-compose.yml`, файл `monitoring/prometheus/prometheus.yml`, JSON дашборда RED на 6 панелей и `monitoring/docs/LAB08.md` со снятыми доказательствами.
 
 ---
 
-## Overview
+## Обзор
 
-In Lab 7 you gave your service eyes (logs). This week you give it a **pulse** (metrics). You'll:
-- Instrument an HTTP service with `prometheus_client` — declaring a **Counter**, a **Histogram**, and a `/metrics` endpoint
-- Wire **Prometheus** into the Lab 7 Compose stack so it pulls `/metrics` from your app every few seconds
-- Write **PromQL** for the **RED method** (Rate / Errors / Duration) — you write the queries, not copy them
-- Design a Grafana dashboard around the three RED questions plus saturation
-- Harden the stack: retention, resource limits, health checks, persistence
+В Lab 7 у сервиса появились глаза (логи). На этой неделе вы даёте ему **пульс** (метрики). Вы:
+- Инструментируете HTTP-сервис библиотекой `prometheus_client`: объявляете **Counter**, **Histogram** и эндпоинт `/metrics`
+- Подключаете **Prometheus** к Compose-стеку Lab 7, чтобы он забирал `/metrics` у приложения каждые несколько секунд
+- Пишете **PromQL** для **метода RED** (Rate / Errors / Duration). Запросы ваши, из лекции их не копируют
+- Проектируете дашборд Grafana вокруг трёх вопросов RED и saturation (насыщение)
+- Укрепляете стек: retention (срок хранения), лимиты ресурсов, health-проверки, персистентность
 
-> ⚠️ **Scope:** single-binary Prometheus on the local Docker host. No Alertmanager, no `remote_write`, no Mimir — those are post-Core territory. The skill is **instrumentation + PromQL**, not running federated Prometheus.
+> ⚠️ **Границы:** Prometheus в режиме single-binary на локальном Docker-хосте. Без Alertmanager, без `remote_write`, без Mimir. Это уже за пределами Core. Навык здесь — **инструментирование и PromQL**, а не федерация Prometheus.
 
-> ✨ **Prometheus 3.x note.** This lab uses Prometheus 3.11.3 (current stable May 2026; 3.5 LTS is supported through Jul 2026). Versus 2.x it defaults to UTF-8 metric/label names, ships an OTLP receiver, and promotes **native histograms to GA**. You'll use classic histograms in the required tasks and may opt into native histograms as a stretch.
-
----
-
-## Project State
-
-**You should have from previous labs:**
-- `app_python/` from Lab 1 — Flask/FastAPI service with `/` and `/health`
-- A working Docker image of it from Lab 2
-- The `monitoring/` compose stack from Lab 7 — `loki`, `alloy`, `grafana`, `app`, all on a `logging` network
-- The JSON-logging upgrade to `app_python/` from Lab 7 (this lab adds *another* layer to the same `app.py`)
-
-**This lab adds:**
-- A `/metrics` endpoint + `Counter` + `Histogram` instrumentation in `app_python/app.py`
-- `monitoring/prometheus/prometheus.yml` — YOU fill it from the scaffold
-- A `prometheus` service in `monitoring/docker-compose.yml` (extends Lab 7, doesn't replace it)
-- `monitoring/grafana/dashboards/lab08.json` — your exported 6-panel RED dashboard
-- `monitoring/docs/LAB08.md` — submission report
-
-By Lab 16 you'll redeploy this as `kube-prometheus-stack` on k3d with `ServiceMonitor` CRDs auto-discovering targets. Everything you learn this week — metric types, cardinality, PromQL, RED — carries forward unchanged.
+> ✨ **Заметка про Prometheus 3.x.** В лабораторной Prometheus 3.11.3 (актуальный stable на май 2026; ветка 3.5 LTS поддерживается до июля 2026). По сравнению с 2.x имена метрик и меток по умолчанию в UTF-8, в комплекте приёмник OTLP, а **native histograms доведены до GA**. В обязательных заданиях берите классические гистограммы. Native histograms можно включить сверх программы.
 
 ---
 
-## Setup
+## Состояние проекта
 
-Versions used in this lab — pin these in your compose file and `requirements.txt`:
+**Из прошлых лабораторных у вас уже должно быть:**
+- `app_python/` из Lab 1 — сервис на Flask/FastAPI с `/` и `/health`
+- Рабочий Docker-образ из Lab 2
+- Compose-стек `monitoring/` из Lab 7: `loki`, `alloy`, `grafana`, `app`, все в сети `logging`
+- Доработка JSON-логирования в `app_python/` из Lab 7 (эта лабораторная кладёт *ещё один* слой в тот же `app.py`)
 
-| Component | Tag / Version | Notes |
+**Эта лабораторная добавляет:**
+- Эндпоинт `/metrics` и инструментацию `Counter` + `Histogram` в `app_python/app.py`
+- `monitoring/prometheus/prometheus.yml` — заполняете вы, начиная с каркаса
+- Сервис `prometheus` в `monitoring/docker-compose.yml` (стек Lab 7 расширяется, а не заменяется)
+- `monitoring/grafana/dashboards/lab08.json` — ваш экспортированный дашборд RED на 6 панелей
+- `monitoring/docs/LAB08.md` — отчёт для сдачи
+
+К Lab 16 вы задеплоите это как `kube-prometheus-stack` на k3d: CRD `ServiceMonitor` сами находят таргеты. Всё с этой недели — типы метрик, кардинальность, PromQL, RED — переносится как есть.
+
+---
+
+## Подготовка
+
+Версии в этой лабораторной. Зафиксируйте их в compose-файле и в `requirements.txt`:
+
+| Компонент | Тег / версия | Заметки |
 |---|---|---|
-| `prom/prometheus` | `v3.11.3` | Current stable (May 2026); `v3.5.0` LTS is also acceptable |
-| `grafana/grafana` | `13.0.1` | Already in your Lab 7 stack |
-| `prometheus-client` (Python) | `0.23.1` | `0.23+` minimum; `0.25.x` is the latest patch line |
+| `prom/prometheus` | `v3.11.3` | Актуальный stable (май 2026); `v3.5.0` LTS тоже подходит |
+| `grafana/grafana` | `13.0.1` | Уже есть в стеке Lab 7 |
+| `prometheus-client` (Python) | `0.23.1` | Минимум `0.23+`; `0.25.x` — последняя линия патчей |
 
 ```bash
 docker --version           # 28.x or 29.x
@@ -60,7 +60,7 @@ docker compose version     # v2.x
 python --version           # 3.12+
 ```
 
-Directory layout you'll build:
+Дерево каталогов, которое вы соберёте:
 
 ```
 app_python/
@@ -78,46 +78,46 @@ monitoring/
     └── LAB08.md                      # your submission report
 ```
 
-Course-repo plumbing for this lab:
-- `labs/lab8/prometheus/prometheus.yml` — **scaffold** with YOUR-TASK markers. Copy it into `monitoring/prometheus/prometheus.yml` and fill the blanks.
+Каркас из репозитория курса для этой лабораторной:
+- `labs/lab8/prometheus/prometheus.yml` — **каркас** с маркерами ВАША ЗАДАЧА. Скопируйте его в `monitoring/prometheus/prometheus.yml` и заполните пропуски.
 
 ---
 
-## Task 1 — Instrument the Python app (3 pts)
+## Задание 1 — Инструментируйте Python-приложение (3 балла)
 
-### 1.1 — Read first, write second
+### 1.1 — Сначала прочитайте, потом пишите
 
-Read these before you touch `app.py` — they answer the questions the instrumentation asks of you:
-- [Prometheus metric types](https://prometheus.io/docs/concepts/metric_types/) — Counter / Gauge / Histogram / Summary
-- [Instrumentation best practices](https://prometheus.io/docs/practices/instrumentation/) — the "low cardinality" rule and metric naming
+Прочитайте это до правок в `app.py`. Здесь ответы на вопросы, которые ставит инструментация:
+- [Типы метрик Prometheus](https://prometheus.io/docs/concepts/metric_types/) — Counter / Gauge / Histogram / Summary
+- [Практики инструментирования](https://prometheus.io/docs/practices/instrumentation/) — правило низкой кардинальности и имена метрик
 - [`prometheus_client` (Python)](https://github.com/prometheus/client_python) — Counter, Histogram, `generate_latest`, `CONTENT_TYPE_LATEST`
 
-`YOUR TASK`: in `docs/LAB08.md`, answer these three questions in 2–4 sentences each. You'll come back and revise after Task 3:
+`ВАША ЗАДАЧА`: в `docs/LAB08.md` ответьте на три вопроса, по 2–4 предложения на каждый. После задания 3 вернётесь и поправите:
 
-1. When do you reach for a **Counter** vs a **Histogram**? Give one example of each from *your own* app.
-2. Why do you query `rate(counter[5m])` instead of the counter's raw value? (Hint: counters reset on process restart.)
-3. What is **label cardinality**, and why would `user_id` or `request_id` as a label eventually OOM Prometheus?
+1. Когда брать **Counter**, а когда **Histogram**? По одному примеру каждого из *вашего* приложения.
+2. Зачем запрашивать `rate(counter[5m])`, а не сырое значение счётчика? (Подсказка: при рестарте процесса счётчик обнуляется.)
+3. Что такое **кардинальность меток** и почему метка `user_id` или `request_id` со временем уложит Prometheus в OOM?
 
-### 1.2 — Add the client library
+### 1.2 — Добавьте клиентскую библиотеку
 
-Add the exact pin to `app_python/requirements.txt`:
+Добавьте точный пин в `app_python/requirements.txt`:
 
 ```txt
 prometheus-client==0.23.1
 ```
 
-Rebuild your Lab 2 image so the dependency lands in the container.
+Пересоберите образ из Lab 2, чтобы зависимость попала в контейнер.
 
-### 1.3 — Define the metrics (`YOUR TASK`)
+### 1.3 — Опишите метрики (`ВАША ЗАДАЧА`)
 
-You'll add **two** metrics to `app_python/app.py`. The lecture (slides 8, 10, 13) names them, gives the labels, and shows the SRE-default bucket set. Your job is to declare them, give them sensible **help strings**, and pick the right label set — bounded enumerations only.
+В `app_python/app.py` вы добавите **две** метрики. Лекция (слайды 8, 10, 13) даёт имена, метки и набор бакетов, который SRE берёт по умолчанию. Ваша работа: объявить метрики, написать внятные **строки help** и выбрать набор меток. Только ограниченные перечисления.
 
-`YOUR TASK`: declare two module-level metrics:
+`ВАША ЗАДАЧА`: объявите две метрики на уровне модуля:
 
-| Variable | Type | Metric name | Labels | Notes |
+| Переменная | Тип | Имя метрики | Метки | Заметки |
 |---|---|---|---|---|
-| `REQUESTS` | `Counter` | `app_requests_total` | `method`, `endpoint`, `status` | Counts every HTTP request your service answers |
-| `LATENCY` | `Histogram` | `app_request_duration_seconds` | `method`, `endpoint` | Buckets the request duration. Use the SRE defaults: `(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)` |
+| `REQUESTS` | `Counter` | `app_requests_total` | `method`, `endpoint`, `status` | Считает каждый HTTP-запрос, на который сервис ответил |
+| `LATENCY` | `Histogram` | `app_request_duration_seconds` | `method`, `endpoint` | Раскладывает длительность запроса по бакетам. Набор SRE по умолчанию: `(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)` |
 
 ```python
 # app.py — add to your Lab 1 service (Flask shown; adapt to FastAPI middleware)
@@ -141,11 +141,11 @@ LATENCY = Histogram(
 )
 ```
 
-> ⚠️ **Cardinality is the #1 way to OOM Prometheus.** Each unique label combination is its own time series (~3–5 KB of RAM). Labels must be *bounded* enumerations: `method` (~8), `endpoint` (dozens, normalised), `status` (~10). **Never** put `user_id`, `request_id`, raw paths, emails, or timestamps in a label. Same lesson as Loki (Lec 7), same blast radius.
+> ⚠️ **Кардинальность — способ №1 уложить Prometheus в OOM.** Каждая уникальная комбинация меток — свой временной ряд (~3–5 КБ RAM). Метки должны быть *ограниченными* перечислениями: `method` (~8), `endpoint` (десятки, нормализованные), `status` (~10). В метку **нельзя** класть `user_id`, `request_id`, сырые пути, адреса почты и метки времени. Тот же урок, что у меток Loki (Lecture 7), тот же радиус поражения.
 
-### 1.4 — Wire the hooks (`YOUR TASK`)
+### 1.4 — Подключите хуки (`ВАША ЗАДАЧА`)
 
-Flask gives you `before_request` (fires before the handler runs) and `after_request` (fires after — gets the `Response` object). The pattern is *start a timer in before, increment + observe in after*. The bodies are yours to write.
+У Flask есть `before_request` (срабатывает до обработчика) и `after_request` (срабатывает после и получает объект `Response`). Схема: *засечь время в before, в after увеличить счётчик и вызвать observe*. Тела функций пишете вы.
 
 ```python
 @app.before_request
@@ -173,17 +173,17 @@ def metrics():
     )
 ```
 
-Hints — *not* full code:
-- **`request.url_rule.rule`** is `"/health"` or `"/"` for matched routes. It's `None` for 404s — fall back to `"unknown"` so cardinality stays bounded.
-- **Cast the status** to `str(response.status_code)`. A label value must be a string.
-- **FastAPI** equivalent: one `@app.middleware("http")` coroutine bracketing `await call_next(request)` with `time.perf_counter()`; expose `/metrics` with `Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)`.
+Подсказки, *не* готовый код:
+- **`request.url_rule.rule`** для совпавшего маршрута равен `"/health"` или `"/"`. На 404 там `None`. Подставьте `"unknown"`, чтобы кардинальность осталась ограниченной.
+- **Статус приводите** к `str(response.status_code)`. Значение метки — строка.
+- **Эквивалент на FastAPI:** одна корутина `@app.middleware("http")`. Она оборачивает `await call_next(request)` вызовами `time.perf_counter()`. Эндпоинт `/metrics` отдайте так: `Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)`.
 
-### 1.5 — Test locally
+### 1.5 — Проверьте локально
 
-You can test in either of two ways — pick one and be consistent:
+Два способа. Выберите один и дальше держитесь его:
 
-- **In the Lab 7 Compose stack** (recommended): rebuild + restart just the `app` service so the new image + `prometheus-client` are running on `localhost:8080`.
-- **Standalone Python**: `pip install -r requirements.txt` into a venv first, then `python app.py`.
+- **Через Compose-стек Lab 7** (так лучше): пересоберите и перезапустите только сервис `app`, чтобы новый образ с `prometheus-client` слушал `localhost:8080`.
+- **Отдельный процесс Python:** сначала `pip install -r requirements.txt` в venv, потом `python app.py`.
 
 ```bash
 # Option A — through the Compose stack (recommended; matches Task 2 below).
@@ -200,7 +200,7 @@ for i in $(seq 1 5);  do curl -s localhost:8080/health > /dev/null; done
 curl -s localhost:8080/metrics | grep -E "^app_(requests_total|request_duration)"
 ```
 
-The output is the Prometheus text exposition format. **Illustrative — your counts will differ:**
+Вывод — текстовый формат экспозиции Prometheus. **Пример. Ваши счётчики будут другими:**
 
 ```
 app_requests_total{endpoint="/",method="GET",status="200"} 20.0
@@ -211,34 +211,34 @@ app_request_duration_seconds_count{endpoint="/",method="GET"} 20.0
 app_request_duration_seconds_sum{endpoint="/",method="GET"} 0.0421
 ```
 
-**Sanity check:** call `curl -s localhost:8080/metrics > /tmp/m1.txt`, hit a route, `curl -s localhost:8080/metrics > /tmp/m2.txt`, diff. The total should **increase by exactly 1** for the route you hit — and the `endpoint="/metrics"` line should **not** exist. If `/metrics` is counting itself, your exclude in §1.4 is wrong.
+**Короткая проверка:** снимите `curl -s localhost:8080/metrics > /tmp/m1.txt`, дёрните маршрут, снимите `curl -s localhost:8080/metrics > /tmp/m2.txt`, сделайте diff. Для маршрута, который вы дёрнули, сумма должна **вырасти ровно на 1**. Строки `endpoint="/metrics"` быть не должно. Если `/metrics` считает сам себя, исключение в §1.4 написано неверно.
 
-### 1.6 — Proof of work
+### 1.6 — Доказательство работы
 
-**Paste into `docs/LAB08.md`:**
+**Вставьте в `docs/LAB08.md`:**
 
-- Full `curl -s localhost:8080/metrics | grep ^app_` output showing both `app_requests_total{...}` and `app_request_duration_seconds_{bucket,sum,count}` lines, with your real counts.
-- The "no self-counting" proof: `curl -s localhost:8080/metrics | grep -c 'endpoint="/metrics"'` returning `0`.
-- The metric-definition + hook code (snippet, not the whole file) committed to `app_python/app.py`.
-- Your three written answers from §1.1.
+- Полный вывод `curl -s localhost:8080/metrics | grep ^app_`: и строки `app_requests_total{...}`, и `app_request_duration_seconds_{bucket,sum,count}`, с вашими реальными числами.
+- Доказательство, что сервис не считает сам себя: `curl -s localhost:8080/metrics | grep -c 'endpoint="/metrics"'` возвращает `0`.
+- Код объявления метрик и хуков (фрагмент, не весь файл), закоммиченный в `app_python/app.py`.
+- Три письменных ответа из §1.1.
 
 ---
 
-## Task 2 — Deploy Prometheus & wire the scrape (3 pts)
+## Задание 2 — Задеплойте Prometheus и настройте scrape (3 балла)
 
-### 2.1 — Understand the pull model
+### 2.1 — Разберитесь с pull-моделью
 
-`YOUR TASK`: be able to answer these in `docs/LAB08.md` §3 (write the answers now, revise after §2.4):
+`ВАША ЗАДАЧА`: сумейте ответить на это в §3 файла `docs/LAB08.md` (ответы напишите сейчас, после §2.4 поправьте):
 
-1. Why does a *failed scrape* give you target health "for free" (`up == 0`), where a push model can't?
-2. What's the difference between a **job**, a **target**, and the **scrape interval**?
-3. In Docker Compose, why must Prometheus scrape `app:8080` (service name) and **not** `localhost:8080`?
+1. Почему *сорвавшийся scrape* (Prometheus сам забирает метрики) даёт здоровье таргета само собой (`up == 0`), а push-модель так не умеет?
+2. Чем **job** отличается от **target** и от **интервала scrape**?
+3. Почему в Docker Compose Prometheus должен снимать метрики с `app:8080` (имя сервиса) и не должен ходить на `localhost:8080`?
 
-### 2.2 — Add the Prometheus service (`YOUR TASK`)
+### 2.2 — Добавьте сервис Prometheus (`ВАША ЗАДАЧА`)
 
-**File:** `monitoring/docker-compose.yml` (extend the Lab 7 stack — don't replace it)
+**Файл:** `monitoring/docker-compose.yml` (расширьте стек Lab 7, не подменяйте его)
 
-Prometheus joins the same `logging` network so it can reach Loki, Grafana, and your `app` by service name. The image + ports are given (so versions are pinned); the volumes, command flags, healthcheck, and network membership are your job.
+Prometheus садится в ту же сеть `logging` и по имени сервиса достучится до Loki, Grafana и `app`. Образ и порты заданы, версии зафиксированы. Тома, флаги команды, healthcheck и членство в сети — ваша работа.
 
 ```yaml
   # add to monitoring/docker-compose.yml, alongside loki/alloy/grafana/app from Lab 7
@@ -268,26 +268,26 @@ volumes:
   prometheus-data:                       # add alongside loki-data / grafana-data from Lab 7
 ```
 
-Notes — don't skip these, they're the *why* behind the blanks:
+Заметки. Не пропускайте: это *зачем* у пропусков.
 
-- **`--config.file=`** must point at where you mounted `prometheus.yml` (typically `/etc/prometheus/prometheus.yml`). Mismatched paths give a clean "open ...: no such file" line in `docker compose logs prometheus` on startup — read the logs first when it won't come up.
-- **Retention is a Prometheus CLI flag, not a config-file setting** (this is the most-Googled Prometheus 3.x footgun). `retention.time` (e.g. `15d`) AND `retention.size` (e.g. `2GB`) — whichever triggers first wins. Document your choices in §4.
-- **TSDB volume:** without persistence, every `docker compose down` wipes your metrics history. Mount a named volume at `/prometheus` so dashboards don't go blank after a restart.
-- **`logging` network** is the one from Lab 7. Putting Prometheus on a different network means it can't resolve `app` / `loki` / `grafana` — and you'd be debugging DNS instead of scraping.
+- **`--config.file=`** указывает на место, куда смонтирован `prometheus.yml` (обычно `/etc/prometheus/prometheus.yml`). Пути разъехались — при старте `docker compose logs prometheus` пишет чистую строку «open ...: no such file». Сервис не поднимается — сначала читайте логи.
+- **Retention — это флаг CLI Prometheus, а не ключ в файле конфига** (самая загугленная ловушка Prometheus 3.x). Нужны и `retention.time` (например, `15d`), и `retention.size` (например, `2GB`). Срабатывает то, что наступит раньше. Выбор запишите в §4.
+- **Том TSDB.** Без персистентности каждый `docker compose down` стирает историю метрик. Смонтируйте именованный том на `/prometheus`, чтобы после рестарта дашборды не пустели.
+- **Сеть `logging`** — та самая из Lab 7. Prometheus в другой сети не зарезолвит `app` / `loki` / `grafana`. Отлаживать придётся DNS, а не scrape.
 
-### 2.3 — Fill the scrape config (`YOUR TASK`)
+### 2.3 — Заполните конфиг scrape (`ВАША ЗАДАЧА`)
 
-**File:** `monitoring/prometheus/prometheus.yml`
+**Файл:** `monitoring/prometheus/prometheus.yml`
 
-The structure (one `global` block, one `scrape_configs` list, one job per target) is non-negotiable Prometheus. The skill is **what cadence to scrape at**, **which hostname:port each target lives on**, and **what to name each job** (because the name shows up in every dashboard label and every alert).
+Структура жёсткая: один блок `global`, один список `scrape_configs`, один job на таргет. Так устроен Prometheus. Навык в другом: **как часто снимать**, **на каком hostname:port живёт каждый таргет** и **как назвать каждый job** (имя видно в каждой метке дашборда и в каждом алерте).
 
-Start from the scaffold:
+Начните с каркаса:
 
 ```bash
 cp labs/lab8/prometheus/prometheus.yml monitoring/prometheus/prometheus.yml
 ```
 
-What you're filling in (the scaffold has the same blanks):
+Что вы заполняете (в каркасе те же пропуски):
 
 ```yaml
 global:
@@ -315,23 +315,23 @@ scrape_configs:
       - targets:          # YOUR TASK: Grafana's HTTP port on the logging network
 ```
 
-Notes:
-- `metrics_path:` defaults to `/metrics`, so omit it.
-- **Service names are hostnames** on a Compose user-defined network — `loki:3100`, `grafana:3000`, `app:8080`. The Prometheus self-scrape is the only one using `localhost` because that traffic stays inside the Prometheus container.
-- **Choose `scrape_interval` deliberately.** Too short (1s) burns CPU and inflates TSDB; too long (60s) makes percentile graphs jagged. The reference submission uses `5s` for a low-traffic lab; `15s` is the production default. Document your choice in §3.
+Заметки:
+- `metrics_path:` по умолчанию равен `/metrics`, поле можно не писать.
+- **Имя сервиса — это hostname** в пользовательской сети Compose: `loki:3100`, `grafana:3000`, `app:8080`. Self-scrape Prometheus — единственный таргет на `localhost`, потому что этот трафик не выходит из контейнера Prometheus.
+- **`scrape_interval` выбирайте сами.** Слишком короткий (1 с) жжёт CPU и раздувает TSDB. Слишком длинный (60 с) делает графики перцентилей рваными. Эталонная сдача для тихой лабораторной берёт `5s`. В проде по умолчанию `15s`. Выбор запишите в §3.
 
 <details>
-<summary>💡 Optional second target — the course `echo` plumbing</summary>
+<summary>💡 Второй таргет по желанию — обвязка `echo` из курса</summary>
 
-The repo ships a tiny Go service at `plumbing/echo` (you'll meet it again in Lab 9) that already exposes its own metrics on `/metrics`. Adding it gives your dashboard a second instrumented service — useful when you build the `sum by (job)` panels:
+В репозитории есть маленький Go-сервис `plumbing/echo` (снова встретите его в Lab 9). Свои метрики он уже отдаёт на `/metrics`. Добавите его — на дашборде появится второй инструментированный сервис. Это удобно для панелей `sum by (job)`:
 
-Add an `echo` service (`build: ../plumbing/echo`, port `8081`, on the `logging` network) and a fifth scrape job pointing at `echo:8081`. Same pattern, no new concepts.
+Добавьте сервис `echo` (`build: ../plumbing/echo`, порт `8081`, сеть `logging`) и пятый scrape job на `echo:8081`. Тот же приём, новых идей нет.
 
-Not required for full marks; nice for the dashboard polish in Task 3.
+Для полного балла не требуется. Для аккуратного дашборда в задании 3 — в самый раз.
 
 </details>
 
-### 2.4 — Bring it up and verify
+### 2.4 — Поднимите стек и проверьте
 
 ```bash
 cd monitoring
@@ -339,7 +339,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Verify the proof-of-work commands you'll paste in §2.5:
+Проверьте команды, вывод которых вставите в §2.5:
 
 ```bash
 # Prometheus is up
@@ -356,52 +356,52 @@ curl -s localhost:9090/api/v1/targets \
 # prometheus: up
 ```
 
-**Troubleshooting decision tree:**
-- Target **down** → service name wrong, port wrong, or that service isn't running. `docker compose logs prometheus | grep -i scrape` shows the actual URL Prometheus tried.
-- **No target at all** for a job → YAML indentation error in `prometheus.yml`. `docker compose logs prometheus` shows the parse error on startup.
-- Target **unknown** → wait one `scrape_interval` and refresh; the first scrape hasn't happened yet.
+**Дерево диагностики:**
+- Таргет **down** → неверное имя сервиса, неверный порт, или сервис не запущен. `docker compose logs prometheus | grep -i scrape` показывает URL, который Prometheus реально пробовал.
+- У job **нет таргета вообще** → сломаны отступы YAML в `prometheus.yml`. Ошибку разбора на старте пишет `docker compose logs prometheus`.
+- Таргет **unknown** → подождите один `scrape_interval` и обновите страницу. Первый scrape ещё не прошёл.
 
-### 2.5 — Proof of work
+### 2.5 — Доказательство работы
 
-**Paste into `docs/LAB08.md`:**
+**Вставьте в `docs/LAB08.md`:**
 
-- `docker compose ps` showing `prometheus` `Up` and `(healthy)` (the latter after start_period elapses).
-- The exact `curl -s localhost:9090/api/v1/targets | jq ...` output from above — every job line must say `up`, with **`app: up`** clearly present. (This is the headline grading criterion for Task 2.)
-- Screenshot of `http://localhost:9090/targets` confirming the same (UI version of the above).
-- Your three written answers from §2.1.
+- Вывод `docker compose ps`: `prometheus` в состоянии `Up` и `(healthy)` (второе — после того как истечёт start_period).
+- Точный вывод `curl -s localhost:9090/api/v1/targets | jq ...` сверху. В каждой строке job должно быть `up`, и строка **`app: up`** хорошо видна. Это главный критерий оценки задания 2.
+- Скриншот `http://localhost:9090/targets` с той же картиной (тот же факт в UI).
+- Три письменных ответа из §2.1.
 
 ---
 
-## Task 3 — Grafana RED dashboard (2 pts)
+## Задание 3 — Дашборд RED в Grafana (2 балла)
 
-### 3.1 — Add Prometheus as a data source
+### 3.1 — Подключите Prometheus как источник данных
 
-In the Grafana from Lab 7:
+В Grafana из Lab 7:
 
 1. **Connections → Data sources → Add data source → Prometheus**.
-2. URL: `http://prometheus:9090` — the service name on the `logging` network.
-3. **Save & Test** → should report green.
+2. URL: `http://prometheus:9090` — имя сервиса в сети `logging`.
+3. **Save & Test** → ответ должен быть зелёным.
 
-> The bonus track provisions this automatically; doing it by hand once teaches you what the provisioning YAML encodes.
+> Бонусный трек прописывает источник сам. Один раз руками — и станет ясно, что именно кодирует provisioning YAML.
 
-### 3.2 — Write the PromQL (`YOUR TASK`)
+### 3.2 — Напишите PromQL (`ВАША ЗАДАЧА`)
 
-This is the heart of the lab. The lecture (slides 16, 18, 21) covers every function you need; you write the queries yourself.
+Здесь сердце лабораторной. Лекция (слайды 16, 18, 21) покрывает все нужные функции. Запросы пишете вы.
 
-For each row, write a PromQL expression that answers the question. Verify by running it in **Explore** (Prometheus data source) against real traffic — generate some first:
+На каждую строку — выражение PromQL, которое отвечает на вопрос. Проверьте его в **Explore** (источник Prometheus) на живом трафике. Сначала нагоните трафик:
 
 ```bash
 for i in $(seq 1 200); do curl -s localhost:8080/ > /dev/null; curl -s localhost:8080/health > /dev/null; done
 ```
 
-| Question (RED) | Hint — one named function | Constraint |
+| Вопрос (RED) | Подсказка: одна именная функция | Ограничение |
 |---|---|---|
-| **Q1 — Rate.** Requests per second, broken down per endpoint. | `rate` | `sum by (endpoint) (...)` to keep `endpoint`, drop the rest |
-| **Q2 — Errors.** 5xx requests per second, per endpoint. | `rate` with a `status=~"5.."` matcher | Same shape as Q1; the matcher goes **inside** the selector before `rate` |
-| **Q3 — Duration.** p95 latency per endpoint. | `histogram_quantile` | The `sum by (endpoint, le)` goes **inside** `histogram_quantile`; never the reverse |
-| **Q4 — Error ratio.** 5xx as a *fraction* of total requests. | Two `rate`s, divided | No grouping — single number; multiply by 100 for a percentage if you like |
+| **Q1 — Rate.** Запросов в секунду, в разбивке по endpoint. | `rate` | `sum by (endpoint) (...)`, чтобы оставить `endpoint` и отбросить остальное |
+| **Q2 — Errors.** Запросов 5xx в секунду, по endpoint. | `rate` с матчером `status=~"5.."` | Та же форма, что у Q1; матчер стоит **внутри** селектора, до `rate` |
+| **Q3 — Duration.** Латентность p95 по endpoint. | `histogram_quantile` | `sum by (endpoint, le)` стоит **внутри** `histogram_quantile`; собирать наоборот нельзя |
+| **Q4 — Error ratio.** 5xx как *доля* всех запросов. | Два `rate`, деление | Без группировки — одно число; умножьте на 100, если нужен процент |
 
-`YOUR TASK`: write all four queries. Don't copy from the lecture verbatim — match them to *your* metric names from §1.3.
+`ВАША ЗАДАЧА`: напишите все четыре запроса. Лекцию дословно не копируйте. Подгоните их под *ваши* имена метрик из §1.3.
 
 ```promql
 # Q1 — Rate (requests/sec per endpoint)
@@ -417,44 +417,44 @@ ___                              # YOUR TASK: histogram_quantile OUTSIDE sum by 
 ___                              # YOUR TASK: rate(5xx) / rate(total) — no grouping
 ```
 
-Notes (don't skip):
+Заметки. Не пропускайте:
 
-- **`rate()`** handles counter resets (process restarts); `irate()` and raw subtraction do **not**. Stick with `rate()` for graphs.
-- **Range floor:** with `scrape_interval: 5s`, `rate(...[1m])` is the floor that doesn't lie. With `15s`, use `[5m]` or longer.
-- **Never average a percentile.** `histogram_quantile()` goes *outside* the `sum by (le, …)`, never inside an `avg()`. Try the wrong nesting once and read Prometheus's error — it's instructive.
-- **Use the lecture's metric name shape** if you're stuck on naming (`http_requests_total` etc.) — but Q1–Q4 must match the metric names you actually exposed in §1.3.
+- **`rate()`** переживает обнуление счётчика (рестарт процесса). `irate()` и вычитание сырых значений этого не делают. На графиках берите `rate()`.
+- **Нижняя граница окна:** при `scrape_interval: 5s` честный минимум — `rate(...[1m])`. При `15s` берите `[5m]` или длиннее.
+- **Перцентиль не усредняют.** `histogram_quantile()` стоит *снаружи* `sum by (le, …)`, внутри `avg()` ему не место. Один раз соберите вложенность наоборот и прочитайте ошибку Prometheus. Это полезнее абзаца теории.
+- **Застряли на имени** — возьмите форму из лекции (`http_requests_total` и похожие). Q1–Q4 всё равно должны совпасть с именами метрик, которые вы реально отдали в §1.3.
 
-### 3.3 — Build the dashboard — 6 panels
+### 3.3 — Соберите дашборд: 6 панелей
 
-Each panel answers one question. PromQL queries 1, 2, 3, 5, 6 are described below; panel 4 (heatmap) is one you write yourself in §3.2-extended.
+Каждая панель отвечает на один вопрос. Запросы PromQL для панелей 1, 2, 3, 5 и 6 описаны ниже. Панель 4 (heatmap) вы пишете сами, это продолжение §3.2.
 
-| # | Panel | Visualisation | Query source | Answers |
+| # | Панель | Визуализация | Откуда запрос | Отвечает на |
 |---|-------|---------------|---|---|
-| 1 | **Request rate** | Time series | Your Q1 | *How busy?* |
-| 2 | **Error rate** | Time series | Your Q2 | *How often failing?* |
-| 3 | **p95 latency** | Time series | Your Q3 | *How slow at the 95th?* |
-| 4 | **Latency heatmap** | Heatmap | YOUR TASK — same `_bucket` series, but `sum by (le)` *without* `histogram_quantile` (the heatmap panel computes percentiles itself) | *What does the long tail look like?* |
-| 5 | **In-flight or total** | Gauge / Stat | `sum(rate(<your counter>[1m]))` | *How busy right now?* |
-| 6 | **Service uptime** | Stat | `up{job="<your app job name>"}` | *Are we alive?* |
+| 1 | **Частота запросов** | Time series | Ваш Q1 | *Насколько загружены?* |
+| 2 | **Частота ошибок** | Time series | Ваш Q2 | *Как часто падаем?* |
+| 3 | **Латентность p95** | Time series | Ваш Q3 | *Насколько медленно на 95-м?* |
+| 4 | **Тепловая карта латентности** | Heatmap | ВАША ЗАДАЧА — тот же ряд `_bucket`, но `sum by (le)` *без* `histogram_quantile` (перцентили считает сама панель heatmap) | *Как выглядит длинный хвост?* |
+| 5 | **В работе или всего** | Gauge / Stat | `sum(rate(<your counter>[1m]))` | *Насколько загружены прямо сейчас?* |
+| 6 | **Аптайм сервиса** | Stat | `up{job="<your app job name>"}` | *Мы живы?* |
 
-`YOUR TASK`: write panel 4's PromQL yourself — it's the only one not covered by Q1–Q4. The hint: the heatmap **does not** call `histogram_quantile`; it visualises the bucket counts directly. Same `sum by (le) (rate(...))` shape, no quantile wrapper.
+`ВАША ЗАДАЧА`: PromQL панели 4 напишите сами. Это единственная панель, которую не закрывают Q1–Q4. Подсказка: heatmap **не** вызывает `histogram_quantile`. Он рисует счётчики бакетов как есть. Форма та же: `sum by (le) (rate(...))`, без обёртки квантиля.
 
-**How to build (Grafana 13):**
-1. **Dashboards → New → New dashboard → Add visualization** → pick the **Prometheus** data source.
-2. Paste the PromQL; set the visualisation type from the table; title each panel **after the question it answers** ("Errors per second by endpoint" beats "Query 2").
-3. Set sensible units: panel 1 = `req/s`; panel 3 = `seconds`; panels 2 = `req/s` with a threshold so non-zero errors turn the panel red.
-4. Use `{{endpoint}}` (or `{{job}}`) in the legend so the lines are labelled, not "Series 1".
-5. **Save dashboard**, then **Share → Export → Save to file**, commit to `monitoring/grafana/dashboards/lab08.json`.
+**Как собрать (Grafana 13):**
+1. **Dashboards → New → New dashboard → Add visualization** → источник **Prometheus**.
+2. Вставьте PromQL. Тип визуализации — из таблицы. Название панели — **по вопросу, на который она отвечает** («Ошибок в секунду по endpoint» сильнее, чем «Запрос 2»).
+3. Единицы: панель 1 = `req/s`; панель 3 = `seconds`; панель 2 = `req/s` и порог, чтобы ненулевые ошибки красили панель красным.
+4. В легенде `{{endpoint}}` (или `{{job}}`), чтобы линии были подписаны, а не назывались «Series 1».
+5. **Save dashboard**, затем **Share → Export → Save to file**. Коммит в `monitoring/grafana/dashboards/lab08.json`.
 
-> 💡 Want a head start on infrastructure panels? Import community dashboard **ID 3662** (Prometheus self-stats) via **Dashboards → New → Import** and bind it to your Prometheus data source. Your *own* 6-panel RED dashboard is what's graded.
+> 💡 Нужен задел по инфраструктурным панелям? Импортируйте дашборд сообщества **ID 3662** (self-stats Prometheus) через **Dashboards → New → Import** и привяжите его к своему источнику Prometheus. На оценку идёт *ваш* дашборд RED из 6 панелей.
 
-### 3.4 — Proof of work
+### 3.4 — Доказательство работы
 
-**Paste into `docs/LAB08.md`:**
+**Вставьте в `docs/LAB08.md`:**
 
-- Screenshot of the 6-panel dashboard with **live data on every panel** (generate fresh traffic right before the screenshot — empty panels = no credit).
-- The PromQL queries Q1–Q4 + the panel-4 heatmap query in a markdown table, each labelled with the question it answers.
-- A real PromQL response from your own traffic, captured via the HTTP API (so the grader sees *your* numbers, not just a screenshot). Run the four queries through `/api/v1/query` and capture the output:
+- Скриншот дашборда из 6 панелей с **живыми данными на каждой** (свежий трафик — прямо перед скриншотом; пустая панель баллов не даёт).
+- Запросы PromQL Q1–Q4 и запрос heatmap панели 4 в markdown-таблице. У каждого подписан вопрос, на который он отвечает.
+- Настоящий ответ PromQL с вашего трафика, снятый через HTTP API (проверяющий должен видеть *ваши* числа, а не только скриншот). Прогоните четыре запроса через `/api/v1/query` и сохраните вывод:
   ```bash
   curl -s --get http://localhost:9090/api/v1/query \
        --data-urlencode 'query=___' \
@@ -464,17 +464,17 @@ Each panel answers one question. PromQL queries 1, 2, 3, 5, 6 are described belo
   # [{"metric":{"endpoint":"/"},"value":[1716894123.456,"127"]},
   #  {"metric":{"endpoint":"/health"},"value":[1716894123.456,"54"]}]
   ```
-- The committed JSON file path: `monitoring/grafana/dashboards/lab08.json`.
+- Путь к закоммиченному JSON: `monitoring/grafana/dashboards/lab08.json`.
 
 ---
 
-## Task 4 — Production readiness (1 pt)
+## Задание 4 — Готовность к проду (1 балл)
 
-Harden the stack so it isn't a toy. Everything here builds on the `prometheus` service you wrote in §2.2 — the blanks are already there, this task is where you *justify* the values you picked.
+Укрепите стек. Всё здесь опирается на сервис `prometheus`, который вы написали в §2.2. Пропуски уже стоят в файле. В этом задании вы *обосновываете* выбранные значения.
 
-### 4.1 — Resource limits
+### 4.1 — Лимиты ресурсов
 
-`YOUR TASK`: add `deploy.resources` to the `prometheus` service. Pick sane numbers — Prometheus's RAM scales with active series count; for this lab a couple of hundred MiB is generous. Document the numbers + your reasoning in `LAB08.md`.
+`ВАША ЗАДАЧА`: добавьте `deploy.resources` сервису `prometheus`. Числа берите разумные. RAM Prometheus растёт вместе с числом активных рядов. Для этой лабораторной пары сотен MiB с запасом. Числа и рассуждение запишите в `LAB08.md`.
 
 ```yaml
     deploy:
@@ -489,11 +489,11 @@ Harden the stack so it isn't a toy. Everything here builds on the `prometheus` s
 
 ### 4.2 — Retention
 
-You stubbed the retention flags in §2.2. Document **why both** `retention.time` AND `retention.size` matter in `LAB08.md`: time is the SLA-driven knob, size is the defence-in-depth one against runaway cardinality.
+Флаги retention вы наметили в §2.2. В `LAB08.md` объясните, зачем нужны **оба**, `retention.time` и `retention.size`. Время — ручка, которую задаёт SLA. Размер — защита в глубину на случай, если кардинальность разбежится.
 
-### 4.3 — Health check & persistence
+### 4.3 — Health-проверка и персистентность
 
-The healthcheck block from §2.2 should be filled in. Verify it works:
+Блок healthcheck из §2.2 должен быть заполнен. Проверьте, что он работает:
 
 ```bash
 docker compose ps                              # prometheus reports (healthy) once start_period elapses
@@ -504,64 +504,64 @@ curl -s 'http://localhost:9090/api/v1/query?query=app_requests_total' | jq '.dat
 #  exactly 0 means either the volume wasn't mounted or `down -v` was used by mistake)
 ```
 
-### 4.4 — Proof of work
+### 4.4 — Доказательство работы
 
-**Paste into `docs/LAB08.md`:**
+**Вставьте в `docs/LAB08.md`:**
 
-- `docker compose ps` output showing **all** services healthy, including `prometheus (healthy)`.
-- Output of the `down` → `up` → query sequence above proving metric history survived.
-- Your resource-limit values + one-sentence reasoning for each.
-
----
-
-## Task 5 — Documentation (1 pt)
-
-`YOUR TASK`: write `monitoring/docs/LAB08.md` with these sections, in order:
-
-1. **Architecture** — a Mermaid diagram of `app → Prometheus → Grafana`, alongside the Lab 7 log path (so the same Grafana shows both pillars).
-2. **Setup** — how to deploy (`docker compose up -d`) and the verification commands from §2.4.
-3. **Instrumentation** — the metric names + types + labels you added, plus your answers from §1.1.
-4. **Scrape config** — your job names, your `scrape_interval`, the pull model (answer the §2.1 questions).
-5. **Dashboard** — the table from §3.4: question → PromQL → screenshot.
-6. **Production config** — retention rationale, resource limits, healthcheck, persistence proof.
-7. **Metrics vs logs** — one paragraph: when you'd reach for Prometheus vs the Lab 7 LogQL query.
-8. **Challenges & solutions** — at least one real one (not "I was new to Prometheus").
-
-Include config snippets (not whole files) and the captures from Tasks 1–4. Keep it readable — this is the artefact your future on-call self will read at 3 am.
+- Вывод `docker compose ps`: **все** сервисы healthy, включая `prometheus (healthy)`.
+- Вывод цепочки `down` → `up` → query сверху. История метрик пережила рестарт.
+- Ваши значения лимитов и по одному предложению, почему каждое такое.
 
 ---
 
-## Bonus Task — Ansible automation (2 pts)
+## Задание 5 — Документация (1 балл)
 
-Extend the `roles/monitoring` role from Lab 6/7 so a single playbook deploys **logs + metrics** together.
+`ВАША ЗАДАЧА`: напишите `monitoring/docs/LAB08.md` с такими разделами, по порядку:
 
-`YOUR TASK`: update the role to:
+1. **Архитектура** — диаграмма Mermaid: `app → Prometheus → Grafana`, рядом путь логов из Lab 7 (одна Grafana показывает оба столпа).
+2. **Запуск** — как поднять стек (`docker compose up -d`) и команды проверки из §2.4.
+3. **Инструментирование** — имена метрик, типы и метки, которые вы добавили, плюс ответы из §1.1.
+4. **Конфиг scrape** — имена job, ваш `scrape_interval`, pull-модель (ответы на вопросы §2.1).
+5. **Дашборд** — таблица из §3.4: вопрос → PromQL → скриншот.
+6. **Продакшен-конфиг** — зачем такой retention, лимиты ресурсов, healthcheck, доказательство персистентности.
+7. **Метрики и логи** — один абзац: когда вы пойдёте в Prometheus, а когда в запрос LogQL из Lab 7.
+8. **Трудности и решения** — хотя бы одна настоящая (формулировка «я только познакомился с Prometheus» не считается).
 
-- **Template** `prometheus/prometheus.yml` from Jinja2 — scrape interval, retention, **and the target list** become role variables (defined in `defaults/main.yml`). The same template renders correctly whether you have 4 targets or 14.
-- **Extend** the templated `docker-compose.yml` from Lab 7 with the `prometheus` service + `prometheus-data` volume.
-- **Provision** the Prometheus data source into Grafana via `grafana/provisioning/datasources/`.
-- **Provision** your exported RED dashboard JSON via `grafana/provisioning/dashboards/`.
-- **Wait** for Prometheus `:9090/-/healthy` before reporting success — same pattern as the Lab 7 readiness wait, just a different URL.
-- Be **idempotent**: a second run reports `changed=0`.
+Включите фрагменты конфигов (не файлы целиком) и снятое из заданий 1–4. Пишите так, чтобы это читалось: в 3 часа ночи файл откроет ваш будущий дежурный.
 
-Less hand-holding than Tasks 1–5: figure out the variable names, the template structure, and the readiness polling yourself. Lab 7's bonus already covered the `docker_compose_v2` deploy mechanics + the readiness loop pattern.
+---
 
-**Variables you'll need at minimum** (don't quote-and-paste — declare in your `defaults/main.yml`):
-- `prometheus_version` (e.g. `v3.11.3`), `prometheus_port` (`9090`)
+## Бонусное задание — автоматизация на Ansible (2 балла)
+
+Расширьте роль `roles/monitoring` из Lab 6 и Lab 7, чтобы один playbook выкатывал **логи и метрики** вместе.
+
+`ВАША ЗАДАЧА`: обновите роль так, чтобы она:
+
+- **Шаблонизировала** `prometheus/prometheus.yml` через Jinja2. Интервал scrape, retention **и список таргетов** становятся переменными роли (они живут в `defaults/main.yml`). Один и тот же шаблон верно рисует и 4 таргета, и 14.
+- **Дописала** шаблон `docker-compose.yml` из Lab 7: сервис `prometheus` и том `prometheus-data`.
+- **Положила provisioning** источника данных Prometheus в Grafana через `grafana/provisioning/datasources/`.
+- **Положила provisioning** экспортированного JSON дашборда RED через `grafana/provisioning/dashboards/`.
+- **Дождалась** Prometheus на `:9090/-/healthy`, и только потом сообщала об успехе. Тот же приём, что ожидание готовности в Lab 7, другой URL.
+- Была **идемпотентной**: второй прогон даёт `changed=0`.
+
+Подсказок меньше, чем в заданиях 1–5. Имена переменных, устройство шаблона и опрос готовности придумайте сами. Бонус Lab 7 уже закрыл механику деплоя через `docker_compose_v2` и цикл ожидания готовности.
+
+**Переменные, без которых не обойтись** (цитатой не копируйте — объявите в своём `defaults/main.yml`):
+- `prometheus_version` (например, `v3.11.3`), `prometheus_port` (`9090`)
 - `prometheus_retention_time` (`15d`), `prometheus_retention_size` (`2GB`)
 - `prometheus_scrape_interval` (`15s`)
-- `prometheus_targets` — a list of `{job, targets}` dicts, so a Jinja2 `{% for %}` renders the scrape config
+- `prometheus_targets` — список словарей `{job, targets}`, чтобы `{% for %}` в Jinja2 собрал конфиг scrape
 
-**Evidence (paste into `docs/LAB08.md`):**
+**Доказательства (вставьте в `docs/LAB08.md`):**
 
-- First-run output (changes > 0) and second-run output (`changed=0`).
-- The **rendered** (not template) `prometheus.yml` from a real run.
-- Screenshot of Grafana showing **both** data sources (Loki + Prometheus) working with traffic.
-- Path: `ansible/roles/monitoring/` + `ansible/playbooks/deploy-monitoring.yml`.
+- Вывод первого прогона (changes > 0) и второго (`changed=0`).
+- **Отрендеренный** (не шаблон) `prometheus.yml` с реального прогона.
+- Скриншот Grafana: **оба** источника (Loki и Prometheus) работают на трафике.
+- Путь: `ansible/roles/monitoring/` + `ansible/playbooks/deploy-monitoring.yml`.
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab08
@@ -573,12 +573,12 @@ git commit -m "feat(lab08): prometheus metrics + RED dashboard"
 git push -u origin lab08
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab08` → `course-repo:master` *(reviewed)*
-- `your-fork:lab08` → `your-fork:master` *(merges into your own main)*
+- `your-fork:lab08` → `course-repo:master` *(на ревью)*
+- `your-fork:lab08` → `your-fork:master` *(вливается в ваш main)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 done — Counter + Histogram + /metrics + before/after hooks; /metrics excluded from self-counting
@@ -591,140 +591,140 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 — Instrumentation (3 pts)
-- ✅ `app_requests_total` Counter with labels `method, endpoint, status` declared
-- ✅ `app_request_duration_seconds` Histogram with labels `method, endpoint` declared, SRE-default buckets
-- ✅ `before_request` / `after_request` hooks observe **every** non-`/metrics` request
-- ✅ `/metrics` returns valid Prometheus text format with the right `Content-Type`
-- ✅ `/metrics` does **not** count itself (`grep -c 'endpoint="/metrics"' = 0`)
-- ✅ Three written answers from §1.1 in `LAB08.md`
+### Задание 1 — Инструментирование (3 балла)
+- ✅ Объявлен Counter `app_requests_total` с метками `method, endpoint, status`
+- ✅ Объявлен Histogram `app_request_duration_seconds` с метками `method, endpoint` и бакетами SRE по умолчанию
+- ✅ Хуки `before_request` / `after_request` видят **каждый** запрос, кроме `/metrics`
+- ✅ `/metrics` отдаёт корректный текстовый формат Prometheus и верный `Content-Type`
+- ✅ `/metrics` сам себя **не** считает (`grep -c 'endpoint="/metrics"' = 0`)
+- ✅ В `LAB08.md` есть три письменных ответа из §1.1
 
-### Task 2 — Prometheus scrape (3 pts)
-- ✅ `prometheus` service added on the `logging` network with retention flags + healthcheck
-- ✅ `prometheus.yml` has `global` + 4 scrape jobs filled from the scaffold
-- ✅ `curl -s localhost:9090/api/v1/targets | jq` shows **every** job `up`, with `app: up` clearly present
-- ✅ Three written answers from §2.1 in `LAB08.md`
+### Задание 2 — Scrape Prometheus (3 балла)
+- ✅ Сервис `prometheus` добавлен в сеть `logging`, с флагами retention и healthcheck
+- ✅ В `prometheus.yml` заполнены `global` и 4 scrape job из каркаса
+- ✅ `curl -s localhost:9090/api/v1/targets | jq` показывает **каждый** job в состоянии `up`, и `app: up` хорошо видно
+- ✅ В `LAB08.md` есть три письменных ответа из §2.1
 
-### Task 3 — RED dashboard (2 pts)
-- ✅ 6 panels with appropriate visualisations; titles describe the question, not the query
-- ✅ Q1–Q4 PromQL + panel-4 heatmap query all written by the student (not copy-pasted from the lecture)
-- ✅ A real PromQL response from the student's own traffic captured via `/api/v1/query`
-- ✅ Dashboard JSON committed to `monitoring/grafana/dashboards/lab08.json`
+### Задание 3 — Дашборд RED (2 балла)
+- ✅ 6 панелей с подходящими визуализациями; заголовок описывает вопрос, а не запрос
+- ✅ PromQL для Q1–Q4 и запрос heatmap панели 4 написаны студентом (из лекции не скопированы)
+- ✅ Настоящий ответ PromQL с трафика студента снят через `/api/v1/query`
+- ✅ JSON дашборда закоммичен в `monitoring/grafana/dashboards/lab08.json`
 
-### Task 4 — Production config (1 pt)
-- ✅ Resource limits + reservations on `prometheus`
-- ✅ Retention flags (`time` and `size`) set on the command line
-- ✅ Healthcheck reports `(healthy)`; metric history survives `down`/`up`
+### Задание 4 — Продакшен-конфиг (1 балл)
+- ✅ У `prometheus` есть лимиты ресурсов и reservations
+- ✅ Флаги retention (`time` и `size`) заданы в командной строке
+- ✅ Healthcheck показывает `(healthy)`; история метрик переживает `down` / `up`
 
-### Task 5 — Docs (1 pt)
-- ✅ All 8 sections present in `monitoring/docs/LAB08.md`
-- ✅ Research answers in the student's own words, not lecture quotes
+### Задание 5 — Документация (1 балл)
+- ✅ В `monitoring/docs/LAB08.md` есть все 8 разделов
+- ✅ Ответы своими словами студента, не цитаты из лекции
 
-### Bonus — Ansible (2 pts)
-- ✅ `prometheus.yml` templated from a `prometheus_targets` list variable
-- ✅ Data source + dashboard provisioned (no clicks in the Grafana UI)
-- ✅ Deploy is idempotent — second run `changed=0`
-- ✅ Readiness wait blocks success until Prometheus + Grafana respond
-- ✅ Both data sources visible in Grafana
+### Бонус — Ansible (2 балла)
+- ✅ `prometheus.yml` шаблонизируется из переменной-списка `prometheus_targets`
+- ✅ Источник данных и дашборд приезжают provisioning-ом (в UI Grafana кликать не нужно)
+- ✅ Деплой идемпотентный: второй прогон даёт `changed=0`
+- ✅ Ожидание готовности не пускает успех, пока Prometheus и Grafana не ответят
+- ✅ Оба источника видны в Grafana
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задание | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — Instrumentation | **3** | Counter + Histogram declared correctly; hooks observe non-`/metrics` requests; valid exposition format |
-| **Task 2** — Prometheus scrape | **3** | Service in compose, scrape config filled, `/api/v1/targets` shows `app: up` |
-| **Task 3** — RED dashboard | **2** | 6 panels with student-written PromQL; real query response captured; JSON committed |
-| **Task 4** — Production config | **1** | Limits, retention, healthcheck, persistence |
-| **Task 5** — Docs | **1** | All 8 sections, captures present, answers in student's own words |
-| **Bonus** — Ansible | **2** | Idempotent templated deployment of the full logs+metrics stack |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задание 1** — Инструментирование | **3** | Counter и Histogram объявлены верно; хуки видят запросы кроме `/metrics`; формат экспозиции корректный |
+| **Задание 2** — Scrape Prometheus | **3** | Сервис в compose, конфиг scrape заполнен, `/api/v1/targets` показывает `app: up` |
+| **Задание 3** — Дашборд RED | **2** | 6 панелей с PromQL, который написал студент; снят настоящий ответ запроса; JSON закоммичен |
+| **Задание 4** — Продакшен-конфиг | **1** | Лимиты, retention, healthcheck, персистентность |
+| **Задание 5** — Документация | **1** | Все 8 разделов, снятые данные на месте, ответы своими словами студента |
+| **Бонус** — Ansible | **2** | Идемпотентный деплой из шаблонов всего стека логов и метрик |
+| **Итого** | **12** | 10 основных + 2 бонуса |
 
 ---
 
-## Resources
+## Материалы
 
 <details>
 <summary>📊 Prometheus</summary>
 
-- [Prometheus overview](https://prometheus.io/docs/introduction/overview/)
-- [Prometheus 3.0 announcement](https://prometheus.io/blog/2024/11/14/prometheus-3-0/) — UTF-8, native histograms, OTLP
-- [Configuration reference](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
+- [Обзор Prometheus](https://prometheus.io/docs/introduction/overview/)
+- [Анонс Prometheus 3.0](https://prometheus.io/blog/2024/11/14/prometheus-3-0/) — UTF-8, native histograms, OTLP
+- [Справочник конфигурации](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)
 - [`scrape_config`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config)
-- [Metric types](https://prometheus.io/docs/concepts/metric_types/)
+- [Типы метрик](https://prometheus.io/docs/concepts/metric_types/)
 - [Native histograms](https://prometheus.io/docs/specs/native_histograms/)
 
 </details>
 
 <details>
-<summary>🐍 Python instrumentation</summary>
+<summary>🐍 Инструментирование на Python</summary>
 
 - [`prometheus_client` (GitHub)](https://github.com/prometheus/client_python)
-- [Python instrumentation guide](https://prometheus.io/docs/guides/python/)
-- [Instrumentation best practices](https://prometheus.io/docs/practices/instrumentation/)
-- [Metric naming](https://prometheus.io/docs/practices/naming/)
+- [Руководство по инструментированию на Python](https://prometheus.io/docs/guides/python/)
+- [Практики инструментирования](https://prometheus.io/docs/practices/instrumentation/)
+- [Имена метрик](https://prometheus.io/docs/practices/naming/)
 
 </details>
 
 <details>
-<summary>📈 PromQL & Grafana</summary>
+<summary>📈 PromQL и Grafana</summary>
 
-- [PromQL basics](https://prometheus.io/docs/prometheus/latest/querying/basics/)
-- [PromQL examples](https://prometheus.io/docs/prometheus/latest/querying/examples/)
-- [Grafana Prometheus data source](https://grafana.com/docs/grafana/latest/datasources/prometheus/)
-- [Dashboard provisioning](https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards)
-
-</details>
-
-<details>
-<summary>📚 Observability methods</summary>
-
-- [RED method (Tom Wilkie, Grafana)](https://grafana.com/blog/the-red-method-how-to-instrument-your-services/)
-- [USE method (Brendan Gregg)](https://www.brendangregg.com/usemethod.html)
-- [The Four Golden Signals (Google SRE)](https://sre.google/sre-book/monitoring-distributed-systems/)
+- [Основы PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/)
+- [Примеры PromQL](https://prometheus.io/docs/prometheus/latest/querying/examples/)
+- [Источник данных Prometheus в Grafana](https://grafana.com/docs/grafana/latest/datasources/prometheus/)
+- [Провижининг дашбордов](https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards)
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
+<summary>📚 Методы наблюдаемости</summary>
 
-- **The `/metrics` self-counting trap.** If your `after_request` hook records the response to `/metrics` itself, every scrape increments `app_requests_total{endpoint="/metrics",...}` — and on a 5-second scrape interval that's twelve fake "requests per minute" that drown out your real traffic. **Always** exclude the `/metrics` path before incrementing; verify with `curl … | grep -c 'endpoint="/metrics"'` returning `0`. This is the #1 instrumentation bug — the ref submission's grading notes explicitly check for it.
-- **Label cardinality = Prometheus OOM.** Each unique label combination is a time series (~3–5 KB RAM each). Putting `user_id`, `request_id`, `trace_id`, raw paths with IDs (`/user/123`), emails, or timestamps in a label is the fastest way to crash the ingester. **Use `request.url_rule.rule`** for the `endpoint` label — `request.path` includes `/user/123` and `/user/456` as two distinct series; the rule `/user/<id>` collapses them. Same lesson as Loki labels in Lab 7.
-- **Counter vs Gauge confusion.** A counter only goes up (and resets to 0 on process restart). If you find yourself wanting `.dec()` or `.set()`, you reached for a counter when you needed a gauge. Conversely: querying a counter's raw value gives you "lifetime requests since boot" — almost never what you want. Always wrap with `rate()` or `increase()`.
-- **Histogram bucket choice.** The default `prometheus_client` histogram buckets max out at **10 seconds**. If you're measuring database queries that can take 30 s, every slow query falls into the `+Inf` bucket and your p99 is a lie. Bucket your histograms for the *expected* range with one bucket past the tolerance ceiling — start with the SRE defaults `(.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10)` and tune from production data. Buckets too narrow on the low end is the symmetric trap: every fast request lands in the smallest bucket and you can't tell 1ms from 50µs.
-- **Compose service-name DNS.** Prometheus scrapes targets by hostname over HTTP. Inside the `logging` Compose network, the hostname is the **service name** (`app`, `loki`, `grafana`) — **not** `localhost` and **not** the host IP. The only target legitimately on `localhost` is Prometheus's self-scrape (because that traffic stays inside the Prometheus container). Get this wrong and `up{job="app"}` returns 0 with no obvious error in the UI; check `docker compose logs prometheus | grep -i scrape`.
-- **Retention is a CLI flag, not a config-file setting.** This catches everyone migrating from a 2.x article. `retention_period` in `prometheus.yml` is **ignored** — set `--storage.tsdb.retention.time=15d` and `--storage.tsdb.retention.size=2GB` on the `command:` list instead. Both can be present; whichever triggers first wins.
-- **`scrape_interval` mismatch with PromQL window.** With `scrape_interval: 15s`, `rate(...[15s])` is degenerate (one or zero samples) and the graph is empty. The minimum query range that gives meaningful output is `≥ 4× scrape_interval`. With 5s scrapes → `[1m]` is safe; with 15s scrapes → `[5m]` is the floor.
-- **`histogram_quantile` outside, `sum by (le)` inside — never the reverse.** The killer percentile query is `histogram_quantile(0.95, sum by (endpoint, le) (rate(*_bucket[5m])))`. Wrapping `histogram_quantile` *inside* an aggregator (e.g. `avg(histogram_quantile(...))`) is mathematical nonsense — averaging quantiles doesn't give you a quantile. Try it once, read the result, internalise.
-- **`prometheus-client` >=0.23 emits `# HELP`, `# TYPE`, and `# UNIT`** — and Prometheus parses all three. If you wrote your own ad-hoc `/metrics` text by hand and skipped the `# TYPE` line, Prometheus silently treats every series as an untyped gauge, and `rate()` on it returns NaN. Always use `generate_latest()`.
+- [Метод RED (Tom Wilkie, Grafana)](https://grafana.com/blog/the-red-method-how-to-instrument-your-services/)
+- [Метод USE (Brendan Gregg)](https://www.brendangregg.com/usemethod.html)
+- [Четыре золотых сигнала (Google SRE)](https://sre.google/sre-book/monitoring-distributed-systems/)
 
 </details>
 
 <details>
-<summary>🛠️ Dev tools worth knowing</summary>
+<summary>⚠️ Частые ловушки (из реальных пробных прогонов)</summary>
 
-- [`promtool`](https://prometheus.io/docs/prometheus/latest/command-line/promtool/) — ships in the Prometheus image; `promtool check config /etc/prometheus/prometheus.yml` validates before reload
-- [`hey`](https://github.com/rakyll/hey) — generate steady traffic against your app to populate dashboards (`hey -n 5000 -c 10 http://localhost:8080/`)
-- [`jq`](https://jqlang.github.io/jq/) — for parsing `/api/v1/targets` and `/api/v1/query` responses on the CLI
+- **Ловушка: `/metrics` считает сам себя.** Если хук `after_request` пишет ответ на сам `/metrics`, каждый scrape увеличивает `app_requests_total{endpoint="/metrics",...}`. При интервале scrape 5 секунд это двенадцать фальшивых «запросов в минуту», и они топят настоящий трафик. Путь `/metrics` **всегда** исключайте до инкремента. Проверка: `curl … | grep -c 'endpoint="/metrics"'` возвращает `0`. Это баг инструментирования №1. В заметках к оценке эталонной сдачи его проверяют явно.
+- **Кардинальность меток = OOM Prometheus.** Каждая уникальная комбинация меток — временной ряд (~3–5 КБ RAM на ряд). Метка со значением `user_id`, `request_id`, `trace_id`, сырой путь с id (`/user/123`), почта или метка времени — самый быстрый способ уронить ingester. Для метки `endpoint` **берите `request.url_rule.rule`**. `request.path` оставляет `/user/123` и `/user/456` двумя разными рядами. Правило `/user/<id>` схлопывает их в один. Тот же урок, что метки Loki в Lab 7.
+- **Путаница Counter и Gauge.** Counter только растёт (и обнуляется при рестарте процесса). Если хочется `.dec()` или `.set()`, вы взяли counter там, где нужен gauge. Сырое значение counter — это «сколько запросов прошло с загрузки». На графике это почти никогда не нужно. Всегда оборачивайте в `rate()` или `increase()`.
+- **Выбор бакетов гистограммы.** Бакеты гистограммы `prometheus_client` по умолчанию заканчиваются на **10 секундах**. Если вы меряете запросы к базе, которые могут идти 30 с, каждый медленный запрос падает в бакет `+Inf`, и p99 врёт. Бакетите гистограмму под *ожидаемый* диапазон и оставьте один бакет за потолком допуска. Старт — набор SRE `(.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10)`, дальше подкрутка по данным из прода. Симметричная ловушка — бакеты слишком узкие снизу: каждый быстрый запрос садится в самый маленький бакет, и 1 мс не отличить от 50 мкс.
+- **DNS по имени сервиса в Compose.** Prometheus ходит к таргетам по hostname через HTTP. Внутри сети Compose `logging` hostname — это **имя сервиса** (`app`, `loki`, `grafana`). Не `localhost` и не IP хоста. Единственный законный `localhost` — self-scrape Prometheus: трафик не выходит из его контейнера. Ошибётесь здесь — `up{job="app"}` вернёт 0, и в UI явной ошибки не будет. Смотрите `docker compose logs prometheus | grep -i scrape`.
+- **Retention — флаг CLI, а не настройка в файле.** На этом спотыкаются все, кто переносит статью про 2.x. Ключ `retention_period` в `prometheus.yml` **игнорируется**. Ставьте `--storage.tsdb.retention.time=15d` и `--storage.tsdb.retention.size=2GB` в списке `command:`. Оба флага могут стоять вместе. Срабатывает тот, который наступит раньше.
+- **`scrape_interval` и окно PromQL разъехались.** При `scrape_interval: 15s` выражение `rate(...[15s])` вырождено: одна точка или ноль, график пустой. Минимальное окно с осмысленным результатом — `≥ 4× scrape_interval`. Scrape раз в 5 с → спокойно `[1m]`. Scrape раз в 15 с → пол это `[5m]`.
+- **`histogram_quantile` снаружи, `sum by (le)` внутри. Наоборот собирать нельзя.** Рабочий запрос перцентиля: `histogram_quantile(0.95, sum by (endpoint, le) (rate(*_bucket[5m])))`. Завернуть `histogram_quantile` *внутрь* агрегатора (например, `avg(histogram_quantile(...))`) — математический нонсенс. Среднее квантилей квантилем не становится. Соберите так один раз, посмотрите на результат, запомните.
+- **`prometheus-client` версии >=0.23 пишет `# HELP`, `# TYPE` и `# UNIT`.** Prometheus разбирает все три строки. Свой текст `/metrics` руками, без строки `# TYPE`, Prometheus молча считает нетипизированным gauge, и `rate()` по нему вернёт NaN. Всегда берите `generate_latest()`.
+
+</details>
+
+<details>
+<summary>🛠️ Инструменты, которые стоит знать</summary>
+
+- [`promtool`](https://prometheus.io/docs/prometheus/latest/command-line/promtool/) — лежит в образе Prometheus; `promtool check config /etc/prometheus/prometheus.yml` проверяет конфиг до reload
+- [`hey`](https://github.com/rakyll/hey) — ровный трафик на приложение, чтобы наполнить дашборды (`hey -n 5000 -c 10 http://localhost:8080/`)
+- [`jq`](https://jqlang.github.io/jq/) — разбор ответов `/api/v1/targets` и `/api/v1/query` в CLI
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-| Lab | What it adds to this service |
+| Lab | Что это добавляет сервису |
 |---:|---|
-| 9 | k3d Kubernetes — deploy your instrumented app + the `echo` plumbing service as Pods, scrape via a sidecar |
-| 10 | Helm 4 chart — package the app + Prometheus values |
-| 12 | ConfigMaps + PVCs — re-mount Prometheus config from a ConfigMap; persist TSDB on a PVC |
-| 16 | `kube-prometheus-stack` Helm chart with `ServiceMonitor` CRDs auto-discovering your app — same PromQL, K8s-native plumbing |
+| 9 | k3d Kubernetes: задеплойте инструментированное приложение и обвязку `echo` как Pod, scrape через sidecar |
+| 10 | Helm-чарт Helm 4: упакуйте приложение и values для Prometheus |
+| 12 | ConfigMap и PVC: конфиг Prometheus заново из ConfigMap; TSDB лежит на PVC |
+| 16 | Helm-чарт `kube-prometheus-stack` с CRD `ServiceMonitor`, которые сами находят приложение. Тот же PromQL, обвязка уже родная для K8s |
 
 ---
 
-**Good luck!** 🚀
+**Удачи!** 🚀
 
-> **Remember:** Counters need `rate()`. Percentiles need `histogram_quantile()` *outside* the `sum by (le)`. A label must never be unique per request or per user. **RED for every service. USE for every resource.** And `/metrics` should never count itself.
+> **Запомните:** счётчикам нужен `rate()`. Перцентилям нужен `histogram_quantile()` *снаружи* `sum by (le)`. Метка не должна быть уникальной на каждый запрос и на каждого пользователя. **RED — каждому сервису. USE — каждому ресурсу.** И `/metrics` не должен считать сам себя.

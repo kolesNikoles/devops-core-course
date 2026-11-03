@@ -1,62 +1,62 @@
-# Lab 9 — Kubernetes Fundamentals on k3d
+# Lab 9 — Основы Kubernetes на k3d
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-Kubernetes-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Kubernetes%201.36%20%7C%20k3d-informational)
 
-> **Goal:** stand up a local k3d cluster (1 server + 2 agents), deploy **two** services side by side — your Lab 2 Python image and the course's Go `echo` plumbing — and prove they can talk to each other through `Service` + kube-DNS.
-> **Deliverable:** a PR from `lab09` adding `k8s/` (Deployment + Service manifests for both services + the bonus Ingress) and `k8s/docs/LAB09.md` with the evidence captures.
+> **Цель:** поднять локальный кластер k3d (1 server + 2 agents), выкатить **два** сервиса рядом — ваш образ Python из Lab 2 и служебный Go-сервис `echo` курса — и доказать, что они ходят друг к другу через `Service` и kube-DNS.
+> **Что сдать:** PR из `lab09`, который добавляет `k8s/` (манифесты Deployment и Service для обоих сервисов плюс бонусный Ingress) и `k8s/docs/LAB09.md` со снятыми выводами.
 
 ---
 
-## Overview
+## Обзор
 
-In this lab you will practice:
-- Driving a cluster with `kubectl get / describe / logs / exec / apply / rollout`
-- **Writing Deployment + Service manifests from the API up** — picking the right `apiVersion/kind`, getting the label/selector triangle right, sizing requests/limits, wiring probes at a cheap endpoint
-- Reading the K8s networking model: `Service` virtual IP → kube-DNS short name → endpoints list → pod IPs
-- Importing locally-built images into a k3d cluster's containerd
-- Scaling, rolling out, and rolling back a `Deployment`
+В этой лабораторной вы потренируетесь:
+- Управлять кластером командами `kubectl get / describe / logs / exec / apply / rollout`
+- **Писать манифесты Deployment и Service прямо по API** — выбрать верный `apiVersion/kind`, собрать треугольник меток и селекторов, задать requests/limits, повесить probe (проверку живости и готовности) на дешёвый эндпоинт
+- Читать сетевую модель K8s: виртуальный IP `Service` → короткое имя kube-DNS → список endpoints → IP Pod'ов
+- Импортировать локально собранные образы в containerd кластера k3d
+- Масштабировать `Deployment`, выкатывать новую версию и откатывать её
 
-> ⚠️ **Scope:** plain YAML only — Helm comes in Lab 10. No persistent volumes, no secrets, no metrics scraping yet — those come in Labs 11, 12, 16. Don't reach for `kubectl edit` and don't templatize anything; learn the raw API first.
+> ⚠️ **Границы:** только обычный YAML. Helm будет в Lab 10. Пока без persistent volumes, без secrets и без сбора метрик: это Labs 11, 12 и 16. Не лезьте в `kubectl edit` и ничего не шаблонизируйте. Сначала выучите сырой API.
 
-> 🪨 **Pedagogical core.** Through Lab 8 you ran **one** service. With one service, "why a stable IP and DNS name?" is genuinely hard to answer. This lab runs **two**. From inside your `web` pod you will `curl http://echo/ping` and get back `pong` — that single round-trip exercises kube-DNS, label selectors, and Service load-balancing all at once. **If you only take one capture, take that one.**
-
----
-
-## Project State
-
-**You should have from previous labs:**
-- `app_python/` from Lab 1 — Flask/FastAPI service with `/` and `/health`
-- A working container image of it from Lab 2 (pushed to GHCR / Docker Hub, **or** built locally and tagged)
-- Familiarity with `docker compose up` (Labs 6–8) — you've felt its limits
-
-**This lab adds:**
-- `k8s/web-deployment.yaml` — **you write** (Deployment for your Lab 2 image)
-- `k8s/web-service.yaml` — **you write** (Service in front of `web`)
-- `k8s/echo-deployment.yaml` — **you write** (Deployment for the course's `echo` plumbing)
-- `k8s/echo-service.yaml` — **you write** (ClusterIP Service for `echo`)
-- `k8s/ingress.yaml` — **you write** (Traefik Ingress, bonus only)
-- `k8s/docs/LAB09.md` — your submission report
-
-By Lab 10 you re-package all of these as a single **Helm 4** chart; by Lab 13 ArgoCD deploys them via an `ApplicationSet`. So get the labels/selectors right *now* — they propagate everywhere.
-
-Course-repo plumbing for this lab:
-- `plumbing/echo/` — the Go HTTP service you deploy in Task 3. **Do not modify.** The pre-built image is published by the course CI to `ghcr.io/inno-devops-labs/echo:v1`. See `plumbing/echo/README.md` for the endpoint list.
+> 🪨 **Педагогическое ядро.** До Lab 8 у вас работал **один** сервис. С одним сервисом на вопрос «зачем стабильный IP и DNS-имя?» честно ответить трудно. Здесь сервисов **два**. Изнутри Pod'а `web` вы выполните `curl http://echo/ping` и получите `pong`. Один запрос туда-обратно сразу проверяет kube-DNS, селекторы меток и балансировку Service. **Если снимете только один вывод, снимайте этот.**
 
 ---
 
-## Setup
+## Состояние проекта
 
-Versions used in this lab — pin these where you have a choice:
+**К этому моменту у вас должно быть:**
+- `app_python/` из Lab 1 — сервис на Flask/FastAPI с `/` и `/health`
+- Рабочий образ контейнера из Lab 2 (запушен в GHCR или Docker Hub, **или** собран локально и протегирован)
+- Опыт с `docker compose up` (Labs 6–8): вы уже упёрлись в его потолок
 
-| Component | Version | Released |
+**Эта лабораторная добавляет:**
+- `k8s/web-deployment.yaml` — **вы пишете** (Deployment для образа из Lab 2)
+- `k8s/web-service.yaml` — **вы пишете** (Service перед `web`)
+- `k8s/echo-deployment.yaml` — **вы пишете** (Deployment для служебного `echo` курса)
+- `k8s/echo-service.yaml` — **вы пишете** (ClusterIP Service для `echo`)
+- `k8s/ingress.yaml` — **вы пишете** (Ingress через Traefik, только бонус)
+- `k8s/docs/LAB09.md` — ваш отчёт к сдаче
+
+К Lab 10 вы упакуете всё это в один Helm-чарт на **Helm 4**; к Lab 13 ArgoCD выкатит их через `ApplicationSet`. Метки и селекторы должны быть верными *уже сейчас*: дальше они расползутся везде.
+
+Служебный код курса для этой лабораторной:
+- `plumbing/echo/` — Go HTTP-сервис, который вы выкатите в Задании 3. **Не меняйте его.** Готовый образ публикует CI курса в `ghcr.io/inno-devops-labs/echo:v1`. Список эндпоинтов — в `plumbing/echo/README.md`.
+
+---
+
+## Подготовка
+
+Версии в этой лабораторной. Фиксируйте их там, где выбор за вами:
+
+| Компонент | Версия | Релиз |
 |---|---|---|
-| Kubernetes (k3s) | `v1.36.1-k3s1` | Apr 22 2026 (1.36 "Haru") |
+| Kubernetes (k3s) | `v1.36.1-k3s1` | 22 апреля 2026 (1.36 «Haru») |
 | k3d | 5.7+ | — |
-| kubectl | 1.36.x (match the cluster) | — |
-| `echo` plumbing image | `ghcr.io/inno-devops-labs/echo:v1` | published by course CI |
+| kubectl | 1.36.x (вровень с кластером) | — |
+| образ служебного `echo` | `ghcr.io/inno-devops-labs/echo:v1` | публикует CI курса |
 
 ```bash
 docker --version           # 28.x or 29.x — k3d runs k3s inside Docker
@@ -64,9 +64,9 @@ k3d version                # 5.7+
 kubectl version --client   # 1.36.x — match the cluster you'll create
 ```
 
-> ⚠️ **Do not use Docker Desktop's bundled Kubernetes.** It lags upstream and you will get version-skew surprises mid-lab.
+> ⚠️ **Не берите Kubernetes, вшитый в Docker Desktop.** Он отстаёт от upstream, и посреди лабораторной вылезет version skew.
 
-Create the directory layout (you'll fill the files yourself):
+Создайте дерево каталогов (файлы заполните сами):
 
 ```
 k8s/
@@ -81,21 +81,21 @@ k8s/
 
 ---
 
-## Task 1 — Local k3d cluster (2 pts)
+## Задание 1 — Локальный кластер k3d (2 балла)
 
-### 1.1 — Why k3d, not minikube / kind / Docker Desktop
+### 1.1 — Почему k3d, а не minikube / kind / Docker Desktop
 
-In `docs/LAB09.md` answer in 2–3 sentences each:
+В `docs/LAB09.md` ответьте на каждый вопрос в 2–3 предложениях:
 
-1. What does k3d actually run inside Docker, and how is that different from minikube's VM-based approach?
-2. Why does this lab need **multi-node** (`--agents 2`)? What's visible at 3 nodes that isn't visible at 1?
-3. Which ingress controller and LoadBalancer implementation does k3d ship by default, and what would change in your Bonus Ingress if you swapped k3d for kind?
+1. Что k3d на самом деле запускает внутри Docker и чем это отличается от minikube, который поднимает виртуалку?
+2. Зачем этой лабораторной **несколько нод** (`--agents 2`)? Что видно на 3 нодах и не видно на одной?
+3. Какой ingress-контроллер и какую реализацию LoadBalancer k3d привозит по умолчанию и что изменится в бонусном Ingress, если заменить k3d на kind?
 
-(Lecture 9 slide 13 + the [k3d docs](https://k3d.io/) cover this.)
+(Это есть на слайде 13 Lecture 9 и в [документации k3d](https://k3d.io/).)
 
-### 1.2 — Create the cluster
+### 1.2 — Создайте кластер
 
-`YOUR TASK`: bring up a cluster named `devops` with **1 server + 2 agents** on Kubernetes **1.36.1**, mapping the LoadBalancer ports `80→8080` and `443→8443` on your host so the bonus Ingress is reachable.
+`ВАША ЗАДАЧА`: поднимите кластер с именем `devops`, **1 server + 2 agents**, Kubernetes **1.36.1**. Пробросьте порты LoadBalancer `80→8080` и `443→8443` на хост, чтобы бонусный Ingress открывался.
 
 ```bash
 # YOUR TASK lines below:
@@ -110,9 +110,9 @@ k3d cluster create devops \
   -p "___:443@loadbalancer"
 ```
 
-> 💡 k3s image tags **append** `-k3s1` to the upstream K8s version. Pick the newest `v1.36.x-k3s1` tag from [`rancher/k3s` on Docker Hub](https://hub.docker.com/r/rancher/k3s/tags).
+> 💡 Теги образов k3s **дописывают** `-k3s1` к версии upstream K8s. Возьмите самый свежий тег `v1.36.x-k3s1` у [`rancher/k3s` на Docker Hub](https://hub.docker.com/r/rancher/k3s/tags).
 
-### 1.3 — Verify
+### 1.3 — Проверьте
 
 ```bash
 kubectl config use-context k3d-devops    # k3d sets this automatically — sanity-check
@@ -121,26 +121,26 @@ kubectl cluster-info
 kubectl get nodes -o wide                # YOUR TASK: expect exactly THREE nodes — 1 server + 2 agents
 ```
 
-> 💡 If `kubectl` prints a `WARNING: version difference between client (1.34) and server (1.36) exceeds the supported version skew`, it's a warning, not an error — the lab still passes. To silence it, install kubectl 1.36.x to match the cluster.
+> 💡 Если `kubectl` печатает `WARNING: version difference between client (1.34) and server (1.36) exceeds the supported version skew`, это предупреждение, а не ошибка: лабораторная всё равно засчитается. Чтобы заглушить его, поставьте kubectl 1.36.x вровень с кластером.
 
-### 1.4 — Proof of work
+### 1.4 — Доказательство работы
 
-**Paste into `docs/LAB09.md`:**
+**Вставьте в `docs/LAB09.md`:**
 
-- The 3-question research answers from §1.1
-- `kubectl version` showing client + server `1.36.x`
-- `kubectl get nodes -o wide` showing **3** nodes, all `Ready`, all `v1.36.1+k3s1`
-- Your `k3d cluster create` command (so the grader can re-create your environment)
+- Ответы на три вопроса из §1.1
+- `kubectl version`, где client и server показывают `1.36.x`
+- `kubectl get nodes -o wide` с **3** нодами, все `Ready`, все `v1.36.1+k3s1`
+- Вашу команду `k3d cluster create` (чтобы проверяющий смог поднять ваше окружение заново)
 
 ---
 
-## Task 2 — Deploy your `web` service (3 pts)
+## Задание 2 — Выкатите сервис `web` (3 балла)
 
-This is the manifest-writing skill. The shape below shows you which fields a `Deployment` requires; the **values** are yours to derive from the K8s API + your Lab 1/2 work.
+Здесь навык — писать манифесты. Каркас ниже показывает, какие поля требует `Deployment`. **Значения** выводите сами из API K8s и из работы Lab 1 и Lab 2.
 
-### 2.1 — The Deployment
+### 2.1 — Deployment
 
-`YOUR TASK`: write `k8s/web-deployment.yaml`. Three labels-and-selectors must agree across this file (Deployment metadata, `spec.selector.matchLabels`, and `spec.template.metadata.labels`) — that label triangle is the #1 K8s YAML error. The Service in §2.2 will select the same label.
+`ВАША ЗАДАЧА`: напишите `k8s/web-deployment.yaml`. Три набора меток и селекторов в этом файле должны совпасть (metadata у Deployment, `spec.selector.matchLabels` и `spec.template.metadata.labels`). Этот треугольник меток — ошибка №1 в YAML для K8s. Service из §2.2 выберет ту же метку.
 
 ```yaml
 # k8s/web-deployment.yaml
@@ -198,19 +198,19 @@ spec:
             periodSeconds: ___        # YOUR TASK: fail fast — readiness gates traffic
 ```
 
-**Why each blank matters (read this before filling them in):**
+**Почему важен каждый пропуск (прочитайте, прежде чем заполнять):**
 
-- **`apiVersion` / `kind`** — Deployment lives in `apps/v1` (the *only* GA group/version for it). `Pod` is `v1`, `Service` is `v1`. Memorize the table; you'll write it from muscle by Lab 13.
-- **The label triangle** — `metadata.labels`, `spec.selector.matchLabels`, and `spec.template.metadata.labels` are three *separate* dicts that all need the same key/value pair. The selector is **immutable after creation**; if you mis-key it you must `kubectl delete` and re-apply.
-- **`imagePullPolicy`** — `Always` re-pulls every restart; **fails on k3d for locally-built images** because the registry doesn't have them. `IfNotPresent` uses what's already in containerd (which is what `k3d image import` populates). `Never` is the paranoid version. Pick deliberately.
-- **`resources.requests`** — the **scheduler** reads these to pick a node. Set too low and noisy neighbours starve you; too high and your pods sit `Pending` because no node has the headroom.
-- **`resources.limits.memory`** — past this, the kernel OOMKills the container. Set tightly so a leak shows up as a restart, not a node-wide swap death. **CPU** limits cause silent throttling — be more lenient there.
-- **Probes** — `livenessProbe` failing = container restarted. `readinessProbe` failing = pod pulled from the Service endpoints list (no restart). Both pointing at the app's root `/` is the single most common production foot-gun (slow page = restart loop = outage). Pick a `/health` or `/healthz` that returns 200 with no DB calls.
-- **`strategy.rollingUpdate.maxUnavailable: 0`** is what guarantees zero downtime in Task 4. The default (25%) means one of your three pods is gone during the update.
+- **`apiVersion` / `kind`** — Deployment живёт в `apps/v1` (*единственная* GA-группа и версия для него). `Pod` — это `v1`, `Service` — это `v1`. Выучите таблицу: к Lab 13 будете писать её руками, не глядя.
+- **Треугольник меток.** `metadata.labels`, `spec.selector.matchLabels` и `spec.template.metadata.labels` — три *отдельных* словаря, и во всех нужна одна и та же пара ключ/значение. Селектор **не меняется после создания**: ошиблись в ключе — делайте `kubectl delete` и apply заново.
+- **`imagePullPolicy`.** `Always` тянет образ заново на каждом рестарте и **на k3d падает для локально собранных образов**: в registry их нет. `IfNotPresent` берёт то, что уже лежит в containerd (туда как раз кладёт `k3d image import`). `Never` — вариант для параноиков. Выбирайте сознательно.
+- **`resources.requests`.** Их читает **планировщик**, чтобы выбрать ноду. Занизите — шумные соседи отберут у вас ресурсы. Завысите — Pod'ы встанут в `Pending`: ни на одной ноде нет запаса.
+- **`resources.limits.memory`.** Выше этой черты ядро убивает контейнер по OOM. Ставьте плотно: утечка должна проявиться рестартом, а не смертью всей ноды в swap. Лимиты **CPU** дают тихий throttling. Здесь оставляйте запас.
+- **Probe.** Упавший `livenessProbe` = контейнер перезапущен. Упавший `readinessProbe` = Pod вынут из списка endpoints у Service (без рестарта). Оба на корне `/` приложения — самая частая ловушка в проде (медленная страница = цикл рестартов = простой). Берите `/health` или `/healthz`, который отдаёт 200 и не ходит в БД.
+- **`strategy.rollingUpdate.maxUnavailable: 0`** как раз гарантирует нулевой простой в Задании 4. По умолчанию (25%) во время обновления одного из трёх Pod'ов просто нет.
 
-### 2.2 — The Service
+### 2.2 — Service
 
-`YOUR TASK`: write `k8s/web-service.yaml`. Choose the **Service type** that makes the app reachable from your laptop without a port-forward (lecture 9 slide 9 has the table; on k3d it's the development-friendly one).
+`ВАША ЗАДАЧА`: напишите `k8s/web-service.yaml`. Выберите **тип Service**, при котором приложение открывается с ноутбука без port-forward (таблица на слайде 9 Lecture 9; на k3d это вариант, удобный для разработки).
 
 ```yaml
 # k8s/web-service.yaml
@@ -232,30 +232,30 @@ spec:
       # nodePort: ___                 # OPTIONAL: pin it (30000–32767), or let K8s pick
 ```
 
-**Why each blank matters:**
+**Почему важен каждый пропуск:**
 
-- **Service `name`** — this is what kube-DNS resolves inside the cluster. `curl http://web/` from any other pod hits this Service. Pick something short and stable; renaming a Service is a footgun (DNS clients cache).
-- **`type`** — `ClusterIP` (default) is internal-only; `NodePort` exposes a high port on every node; `LoadBalancer` provisions a cloud LB (klipper-lb on k3d). For local dev a NodePort works once you've mapped the host port; `LoadBalancer` works on k3d too thanks to klipper. Pick one, justify it.
-- **`port` vs `targetPort`** — `port` is what *clients* hit on the Service IP; `targetPort` is what the **container** listens on. Mismatched here = endpoints exist but no connectivity. Don't blindly set them equal — they're different concepts.
-- **Named ports** — `ports[].name: http` (and `targetPort: http` referencing the container's `ports[].name`) is **not optional polish**. Lab 16's `ServiceMonitor.spec.endpoints[].port` is a **string** (the port *name*), not a number — a bare numeric port silently fails to resolve and the operator skips your service. Set the name now or rewrite this Service later.
-- **`selector`** — must match the pod labels exactly. `kubectl get endpoints web` is your debugging oracle: if it's empty, your selector doesn't match any pod.
+- **`name` у Service** — это имя резолвит kube-DNS внутри кластера. `curl http://web/` из любого другого Pod'а попадает в этот Service. Имя короткое и стабильное: переименовать Service — ловушка, DNS-клиенты кэшируют.
+- **`type`.** `ClusterIP` (по умолчанию) виден только внутри. `NodePort` открывает высокий порт на каждой ноде. `LoadBalancer` заказывает облачный балансировщик (на k3d это klipper-lb). Для локальной разработки NodePort работает, когда порт хоста уже проброшен. `LoadBalancer` на k3d тоже работает благодаря klipper. Выберите один и обоснуйте.
+- **`port` и `targetPort`.** `port` — куда *клиенты* стучатся на IP Service. `targetPort` — на каком порту слушает **контейнер**. Перепутали — endpoints есть, а связи нет. Не ставьте их равными по привычке: это разные вещи.
+- **Именованные порты.** `ports[].name: http` (и `targetPort: http`, который ссылается на `ports[].name` контейнера) — **не украшение**. В Lab 16 поле `ServiceMonitor.spec.endpoints[].port` — это **строка** (*имя* порта), а не число. Голый числовой порт молча не резолвится, и оператор пропускает ваш сервис. Задайте имя сейчас, иначе этот Service придётся переписывать.
+- **`selector`.** Должен точно совпасть с метками Pod'а. `kubectl get endpoints web` — главная подсказка при отладке: список пуст, значит селектор не попал ни в один Pod.
 
-### 2.3 — Load your image and apply
+### 2.3 — Загрузите образ и примените
 
-**Two paths** — pick one based on whether your Lab 2 image is public on GHCR:
+**Два пути.** Выбирайте по тому, лежит ли образ из Lab 2 публично на GHCR:
 
-**Path A — GHCR (recommended).** Your `ghcr.io/<you>/devops-info-service:1.0.0` is public (per Lab 2 §7). k3d's containerd pulls it directly; **no `k3d image import` needed**. Skip to `kubectl apply`.
+**Путь A — GHCR (рекомендуется).** Ваш `ghcr.io/<you>/devops-info-service:1.0.0` публичный (Lab 2, §7). containerd в k3d тянет его сам. **`k3d image import` не нужен.** Переходите к `kubectl apply`.
 
-**Path B — Local build only.** Your image only exists in your laptop's Docker (`devops-info-service:lab02-multi` or similar) — k3d's containerd has never heard of it. You **must** import it:
+**Путь B — только локальная сборка.** Образ есть только в Docker на ноутбуке (`devops-info-service:lab02-multi` или похожий). containerd в k3d про него не знает. Его **нужно** импортировать:
 
 ```bash
 docker images | grep devops-info-service         # confirm the tag exists locally
 k3d image import ___ --cluster devops            # YOUR TASK: paste the exact `<name>:<tag>` from above
 ```
 
-> 💡 The k3d nodes run k3s in their own containers with their own containerd — your laptop's Docker daemon is invisible to them. `k3d image import` is how you bridge that gap (it `docker save | docker load`s into each k3d node). If `kubectl get pods` shows `ErrImagePull`/`ImagePullBackOff` and you're sure the tag is right, you forgot this step.
+> 💡 Ноды k3d запускают k3s в собственных контейнерах, у каждого свой containerd. Демон Docker на ноутбуке им не виден. `k3d image import` — мост через этот разрыв (он делает `docker save | docker load` в каждую ноду k3d). Если `kubectl get pods` показывает `ErrImagePull`/`ImagePullBackOff`, а тег точно верный, вы пропустили этот шаг.
 
-Once the image is reachable (either path):
+Когда образ доступен любым из путей:
 
 ```bash
 kubectl apply -f k8s/web-deployment.yaml
@@ -266,40 +266,40 @@ kubectl get pods -l app=web -o wide            # YOUR TASK: confirm pods spread 
 kubectl get endpoints web                      # MUST list 3 pod IPs once readiness passes
 ```
 
-> 💡 **Debug ladder when this doesn't work first time:**
-> 1. `kubectl get pods` — `ImagePullBackOff` = registry/credentials/`imagePullPolicy` wrong; `CrashLoopBackOff` = the container exits, look at logs.
-> 2. `kubectl describe pod <name>` — bottom **Events** section has the real failure.
-> 3. `kubectl logs <pod-name>` — your app's stdout.
-> 4. `kubectl get endpoints web` — empty list = selector/label mismatch (the label triangle is wrong).
+> 💡 **Лестница отладки, если с первого раза не взлетело:**
+> 1. `kubectl get pods` — `ImagePullBackOff` значит кривой registry, креды или `imagePullPolicy`; `CrashLoopBackOff` значит контейнер завершается, смотрите логи.
+> 2. `kubectl describe pod <name>` — внизу, в секции **Events**, настоящая причина.
+> 3. `kubectl logs <pod-name>` — stdout вашего приложения.
+> 4. `kubectl get endpoints web` — пустой список значит, что селектор не совпал с метками (треугольник меток сломан).
 
-### 2.4 — Proof of work
+### 2.4 — Доказательство работы
 
-**Paste into `docs/LAB09.md`:**
+**Вставьте в `docs/LAB09.md`:**
 
-- `kubectl get deploy,rs,pods,svc,endpoints -l app=web` — must show **3/3** ready and **3 endpoint IPs**
-- `kubectl get pods -l app=web -o wide` — the **NODE** column must show all 3 nodes represented (proves multi-node scheduling — this is half the reason you ran `--agents 2`)
-- A `kubectl port-forward svc/web 8080:80` + `curl -s localhost:8080/health` capture proving the Service is wired to a working app
-- Your `imagePullPolicy` choice + 1 sentence justifying it
-- Your resource requests/limits + 1 sentence justifying them
+- `kubectl get deploy,rs,pods,svc,endpoints -l app=web` — должно быть **3/3** ready и **3 IP в endpoints**
+- `kubectl get pods -l app=web -o wide` — в колонке **NODE** должны встретиться все 3 ноды (это доказательство планирования на несколько нод и половина причины, зачем вы ставили `--agents 2`)
+- Вывод `kubectl port-forward svc/web 8080:80` плюс `curl -s localhost:8080/health`: Service смотрит на живое приложение
+- Выбранный `imagePullPolicy` и одно предложение, зачем он
+- Ваши requests/limits и одно предложение, зачем такие
 
 ---
 
-## Task 3 — Deploy the `echo` plumbing service (2 pts)
+## Задание 3 — Выкатите служебный сервис `echo` (2 балла)
 
-The 2nd service. Read `plumbing/echo/README.md` for the endpoint contract — you do **not** build or modify this code.
+Второй сервис. Контракт эндпоинтов читайте в `plumbing/echo/README.md`. Этот код вы **не** собираете и **не** правите.
 
-| Path | Behaviour |
+| Путь | Поведение |
 |---|---|
-| `GET /ping` | Returns `pong\n` — your headline smoke test in Task 4 |
-| `* /echo` | JSON with `hostname` + a request counter — useful for spotting load-balancing |
-| `GET /healthz` | Returns `ok` (200) — wire into probes |
-| `GET /metrics` | Prometheus format (you'll scrape this in Lab 16) |
+| `GET /ping` | Возвращает `pong\n` — главный smoke-тест в Задании 4 |
+| `* /echo` | JSON с `hostname` и счётчиком запросов — по нему видно балансировку |
+| `GET /healthz` | Возвращает `ok` (200) — сюда вешайте probe |
+| `GET /metrics` | Формат Prometheus (скрейпите это в Lab 16) |
 
-The image is `ghcr.io/inno-devops-labs/echo:v1`; it listens on **port 8081**.
+Образ — `ghcr.io/inno-devops-labs/echo:v1`. Слушает **порт 8081**.
 
-### 3.1 — The echo Deployment
+### 3.1 — Deployment для echo
 
-`YOUR TASK`: write `k8s/echo-deployment.yaml`. Same shape as `web` but different labels, different image, different port, different replica count — **2 replicas** is non-negotiable because Task 4 needs the Service to round-robin across **two** pods.
+`ВАША ЗАДАЧА`: напишите `k8s/echo-deployment.yaml`. Та же форма, что у `web`, но другие метки, другой образ, другой порт и другое число реплик. **2 реплики** не обсуждаются: в Задании 4 Service должен крутить round-robin по **двум** Pod'ам.
 
 ```yaml
 # k8s/echo-deployment.yaml
@@ -342,11 +342,11 @@ spec:
             periodSeconds: ___
 ```
 
-> 💡 **Go binaries are tiny.** Set `requests.memory` to single-digit MiB and `requests.cpu` to ~10–50m. If you copy your `web` numbers you'll over-reserve cluster capacity and pods will go `Pending`.
+> 💡 **Бинарники Go крошечные.** Ставьте `requests.memory` в единицы MiB, а `requests.cpu` примерно 10–50m. Скопируете цифры `web` — зарезервируете слишком много ёмкости кластера, и Pod'ы уйдут в `Pending`.
 
-### 3.2 — The echo Service
+### 3.2 — Service для echo
 
-`YOUR TASK`: write `k8s/echo-service.yaml`. This one is `ClusterIP` (internal-only — the `web` pod calls it; no laptop access needed). The cross-service call in §4.1 will hit `http://echo:___/ping` — pick the Service `port` that makes that URL clean (lecture 9 slide 9 has the convention).
+`ВАША ЗАДАЧА`: напишите `k8s/echo-service.yaml`. Здесь тип `ClusterIP` (только внутри: его зовёт Pod `web`, с ноутбука ходить не нужно). Межсервисный вызов в §4.1 пойдёт на `http://echo:___/ping`. Выберите `port` Service так, чтобы URL был чистым (соглашение — на слайде 9 Lecture 9).
 
 ```yaml
 # k8s/echo-service.yaml
@@ -365,9 +365,9 @@ spec:
       protocol: TCP
 ```
 
-> 💡 **Why service `port: 80`?** Because `http://echo/ping` (no port) defaults to 80. If you set `port: 8081`, callers have to write `http://echo:8081/ping` — works, but the lecture/docs/your future Helm chart all assume the clean form. The Service port and container port are **decoupled**; that's the whole point.
+> 💡 **Зачем у Service `port: 80`?** Потому что `http://echo/ping` (без порта) по умолчанию идёт на 80. Поставите `port: 8081` — вызывающим придётся писать `http://echo:8081/ping`. Так работает, но лекция, документация и будущий чарт считают чистую форму. Порт Service и порт контейнера **развязаны**. В этом весь смысл.
 
-### 3.3 — Apply and verify
+### 3.3 — Примените и проверьте
 
 ```bash
 kubectl apply -f k8s/echo-deployment.yaml
@@ -377,21 +377,21 @@ kubectl get pods,svc,endpoints -l app=echo     # 2 pods Ready, 2 endpoint IPs
 kubectl rollout status deploy/echo
 ```
 
-### 3.4 — Proof of work
+### 3.4 — Доказательство работы
 
-**Paste into `docs/LAB09.md`:**
+**Вставьте в `docs/LAB09.md`:**
 
-- `kubectl get pods,svc,endpoints -l app=echo` — **2** pods Ready, Service has **2** endpoints
-- One `kubectl describe svc echo` capture showing the `Selector` and `Endpoints` lines
-- 1–2 sentences on **why your echo `requests` are smaller than `web`'s** — the tiny Go binary justification
+- `kubectl get pods,svc,endpoints -l app=echo` — **2** Pod'а в Ready, у Service **2** endpoints
+- Один вывод `kubectl describe svc echo` со строками `Selector` и `Endpoints`
+- 1–2 предложения, **почему `requests` у echo меньше, чем у `web`**: аргумент про крошечный бинарник Go
 
 ---
 
-## Task 4 — Cross-service networking, scaling, rolling updates (2 pts) ← **headline task**
+## Задание 4 — Сеть между сервисами, масштаб, rolling update (2 балла) ← **главное задание**
 
-### 4.1 — The kube-DNS proof — the most important command in this lab
+### 4.1 — Доказательство kube-DNS — самая важная команда этой лабораторной
 
-`YOUR TASK`: from **inside a `web` pod**, call `echo`'s `/ping` endpoint by its **DNS name** and capture `pong`. No port-forward. No NodePort. The request must traverse pod → Service DNS → kube-proxy → echo pod, with kube-DNS doing the name resolution.
+`ВАША ЗАДАЧА`: **изнутри Pod'а `web`** вызовите эндпоинт `/ping` у `echo` по его **DNS-имени** и зафиксируйте `pong`. Без port-forward. Без NodePort. Запрос должен пройти путь Pod → DNS Service → kube-proxy → Pod echo, а имя резолвит kube-DNS.
 
 ```bash
 WEBPOD=$(kubectl get pod -l ___=___ -o jsonpath=___)    # YOUR TASK: get the name of any web pod
@@ -403,20 +403,20 @@ kubectl exec $WEBPOD -- ___ ___                         # YOUR TASK: hit http://
 # pong
 ```
 
-**Why this matters.** If you get `pong`, six things just worked at once:
-1. **kube-DNS** in `kube-system` resolved `echo` → the Service's ClusterIP
-2. The Service's **selector** matched the echo pod labels
-3. **kube-proxy** programmed iptables/IPVS rules to route Service IP → one of two pod IPs
-4. The echo pod's **readinessProbe** passed, so it appears in `endpoints`
-5. Cluster-internal networking forwarded the request across the node boundary (probably — `web` and `echo` likely landed on different nodes)
-6. Your manifests' **label triangle** is consistent end-to-end
+**Зачем это.** Если пришёл `pong`, сразу сработали шесть вещей:
+1. **kube-DNS** в `kube-system` резолвил `echo` в ClusterIP этого Service
+2. **Селектор** Service совпал с метками Pod'ов echo
+3. **kube-proxy** прописал правила iptables/IPVS: IP Service → один из двух IP Pod'ов
+4. **readinessProbe** Pod'а echo прошёл, поэтому Pod есть в `endpoints`
+5. Внутренняя сеть кластера прокинула запрос через границу нод (скорее всего: `web` и `echo` сели на разные ноды)
+6. **Треугольник меток** в манифестах согласован от начала до конца
 
-If any one of those is wrong, you get a timeout or a DNS NXDOMAIN. **Save the output.** This is the headline artifact of Lab 9.
+Сломается хоть одно — получите таймаут или DNS NXDOMAIN. **Сохраните вывод.** Это главный артефакт Lab 9.
 
 <details>
-<summary>💡 If your <code>web</code> image doesn't ship <code>curl</code></summary>
+<summary>💡 Если в образе <code>web</code> нет <code>curl</code></summary>
 
-A slim Lab 2 image likely doesn't have `curl`. Two options — both acceptable as long as the call originates **inside the cluster**:
+В тонком образе из Lab 2 `curl`, скорее всего, нет. Два варианта. Оба годятся, если вызов идёт **изнутри кластера**:
 
 ```bash
 # Option A — use python (Lab 1 left you a Python interpreter)
@@ -428,13 +428,13 @@ kubectl run tmp --rm -it --image=curlimages/curl:8.11.0 --restart=Never -- \
   curl -s http://echo/ping
 ```
 
-What does **NOT** count: `curl localhost:8088/ping` after `port-forward svc/echo` — that proves your laptop can reach echo, not that `web` can. The whole point is the **pod-to-pod** call.
+Что **не** считается: `curl localhost:8088/ping` после `port-forward svc/echo`. Это доказывает, что до echo достучался ноутбук, а не `web`. Весь смысл — вызов **от Pod к Pod**.
 
 </details>
 
-### 4.2 — Service load-balancing across two echo pods
+### 4.2 — Балансировка Service по двум Pod'ам echo
 
-The echo Service has 2 endpoints. Hit `/echo` a few times — the response includes the responding pod's `hostname`, so you can see kube-proxy round-robining the traffic.
+У Service echo два endpoints. Постучите в `/echo` несколько раз. В ответе есть `hostname` ответившего Pod'а, так что видно, как kube-proxy раздаёт трафик round-robin.
 
 ```bash
 kubectl exec $WEBPOD -- sh -c '___'                     # YOUR TASK: hit http://echo/echo 6+ times in a loop,
@@ -442,11 +442,11 @@ kubectl exec $WEBPOD -- sh -c '___'                     # YOUR TASK: hit http://
 # expected: hostname rotates between the 2 echo pods (roughly 50/50 over enough calls)
 ```
 
-> 💡 Round-robin is per-connection by default, not per-request. If you see the same hostname every time, your client is reusing one connection — add a fresh request each time (`-H 'Connection: close'` for curl, or just loop fresh `urlopen` calls in Python).
+> 💡 Round-robin по умолчанию на соединение, а не на запрос. Если hostname каждый раз один и тот же, клиент держит одно соединение. Делайте новый запрос каждый раз (`-H 'Connection: close'` для curl или цикл свежих вызовов `urlopen` в Python).
 
-### 4.3 — Scale `web` to 5 replicas
+### 4.3 — Масштабируйте `web` до 5 реплик
 
-`YOUR TASK`: scale up. Use the **declarative** path (edit `replicas:` in the manifest and `kubectl apply -f`) — imperative `kubectl scale` works but doesn't survive the next `apply` of your manifest, which is the GitOps-killing footgun you'll meet again in Lab 13.
+`ВАША ЗАДАЧА`: поднимите число реплик. Идите **декларативным** путём (правьте `replicas:` в манифесте и делайте `kubectl apply -f`). Императивный `kubectl scale` сработает, но не переживёт следующий `apply` вашего манифеста. Это ловушка, которая убивает GitOps. В Lab 13 встретите её снова.
 
 ```bash
 # After editing the manifest:
@@ -455,9 +455,9 @@ kubectl get pods -l app=web -w           # watch new pods come up
 kubectl get endpoints web                # 5 pod IPs once readiness passes
 ```
 
-### 4.4 — Rolling update + rollback
+### 4.4 — Rolling update и откат
 
-Change the `web` image to a different tag (rebuild your Lab 2 image with a new tag, or temporarily change `name:` of the container — anything that makes the pod template hash different). Apply and watch:
+Смените тег образа `web` (пересоберите образ из Lab 2 с новым тегом или на время смените `name:` контейнера — годится всё, что меняет хэш шаблона Pod'а). Примените и смотрите:
 
 ```bash
 kubectl apply -f k8s/web-deployment.yaml
@@ -468,43 +468,43 @@ kubectl rollout undo deploy/web          # back to the previous revision
 kubectl rollout status deploy/web
 ```
 
-With `maxUnavailable: 0` (from §2.1), at no point should `kubectl get endpoints web` drop below 5. **Verify this in another shell.**
+При `maxUnavailable: 0` (из §2.1) вывод `kubectl get endpoints web` ни разу не должен упасть ниже 5. **Проверьте это во втором шелле.**
 
-### 4.5 — Proof of work
+### 4.5 — Доказательство работы
 
-**Paste into `docs/LAB09.md`:**
+**Вставьте в `docs/LAB09.md`:**
 
-- The **kube-DNS proof** — your `kubectl exec $WEBPOD -- ... http://echo/ping` command and its `pong` output. **This is the headline artifact.**
-- The load-balancing capture — 6+ hostnames showing **both** echo pod names appearing roughly evenly
-- `kubectl get pods -l app=web -o wide` after scaling to 5 — 5 pods, spread across nodes
-- `kubectl rollout history deploy/web` — at least 2 revisions visible
-- `kubectl rollout undo` output + a `kubectl rollout status` confirming the rollback succeeded
-- 2–3 sentences on the most useful `kubectl describe` / `kubectl get events` finding you hit while debugging — what was the actual `Events:` line that told you the answer?
-
----
-
-## Task 5 — Documentation (1 pt)
-
-`YOUR TASK`: write `k8s/docs/LAB09.md` with these sections, in order:
-
-1. **Architecture** — a Mermaid diagram showing `User → web Service → 3× web pods` and `web pod → echo Service → 2× echo pods`, with the kube-DNS resolution marked on the second arrow
-2. **Cluster** — your `k3d cluster create` command + the 3-question research from §1.1
-3. **Manifests** — one short paragraph per file: which labels, which Service type, which replica count, which probe endpoints — and **why** for each non-obvious choice
-4. **Cross-service evidence** — the §4.1 `pong` capture, with a sentence explaining each of the six things that just worked
-5. **Operations** — scaling, rolling update, rollback evidence from §4.3–4.4
-6. **Challenges & solutions** — at least one real one (not "I was new to YAML"); include the `kubectl describe` line that unblocked you
-
-Include manifest **snippets** (not whole files — those are committed already) and the real CLI captures from Tasks 1–4.
+- **Доказательство kube-DNS** — ваша команда `kubectl exec $WEBPOD -- ... http://echo/ping` и её вывод `pong`. **Это главный артефакт.**
+- Вывод балансировки — 6 и больше hostname, оба имени Pod'ов echo встречаются примерно поровну
+- `kubectl get pods -l app=web -o wide` после масштаба до 5: 5 Pod'ов, разложенных по нодам
+- `kubectl rollout history deploy/web` — видны минимум 2 ревизии
+- Вывод `kubectl rollout undo` плюс `kubectl rollout status`, который подтверждает, что откат прошёл
+- 2–3 предложения про самую полезную находку в `kubectl describe` / `kubectl get events`, пока отлаживали. Какая именно строка `Events:` дала ответ?
 
 ---
 
-## Bonus Task — Ingress with TLS through Traefik (2 pts)
+## Задание 5 — Документация (1 балл)
 
-Less hand-holding. k3d ships Traefik built in (it's the LoadBalancer behind the `:8080`/`:8443` host ports you mapped in §1.2) — **no controller install**. Use `*.localhost` (resolves to `127.0.0.1` automatically — no `/etc/hosts` edits).
+`ВАША ЗАДАЧА`: напишите `k8s/docs/LAB09.md`. Разделы такие, по порядку:
 
-`YOUR TASK`: route `web.localhost` → `web` Service and `echo.localhost` → `echo` Service, both over HTTPS, through a single `Ingress`.
+1. **Архитектура** — диаграмма Mermaid: `User → web Service → 3× web pods` и `web pod → echo Service → 2× echo pods`. На второй стрелке пометьте резолв kube-DNS
+2. **Кластер** — ваша команда `k3d cluster create` плюс ответы на три вопроса из §1.1
+3. **Манифесты** — короткий абзац на каждый файл: какие метки, какой тип Service, сколько реплик, какие эндпоинты у probe — и **почему** для каждого неочевидного выбора
+4. **Межсервисное доказательство** — вывод `pong` из §4.1 и по предложению на каждую из шести вещей, которые сработали
+5. **Операции** — доказательства масштаба, rolling update и отката из §4.3–4.4
+6. **Трудности и решения** — минимум одна настоящая (не «я только увидел YAML»). Вставьте строку `kubectl describe`, которая вас вытащила
 
-1. **Self-signed cert + Secret** covering both hostnames:
+Вставьте **фрагменты** манифестов (не файлы целиком: они уже в коммите) и настоящие выводы CLI из Tasks 1–4.
+
+---
+
+## Бонусное задание — Ingress с TLS через Traefik (2 балла)
+
+Здесь вас меньше ведут за руку. В k3d Traefik уже встроен (это LoadBalancer за портами хоста `:8080`/`:8443`, которые вы пробросили в §1.2). **Контроллер ставить не нужно.** Берите `*.localhost` (сам резолвится в `127.0.0.1`, править `/etc/hosts` не надо).
+
+`ВАША ЗАДАЧА`: направьте `web.localhost` → Service `web` и `echo.localhost` → Service `echo`, оба по HTTPS, через один `Ingress`.
+
+1. **Самоподписанный сертификат и Secret** на оба hostname:
    ```bash
    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
      -keyout tls.key -out tls.crt \
@@ -513,7 +513,7 @@ Less hand-holding. k3d ships Traefik built in (it's the LoadBalancer behind the 
    kubectl create secret tls ___ --key tls.key --cert tls.crt   # YOUR TASK: pick a Secret name
    ```
 
-2. **`k8s/ingress.yaml`** — Ingress shape:
+2. **`k8s/ingress.yaml`** — форма Ingress:
 
 ```yaml
 apiVersion: ___                       # YOUR TASK: which group/version owns Ingress? (NOT extensions/v1beta1 — that's gone)
@@ -549,23 +549,23 @@ spec:
                   number: ___         # (same options as above — number or name)
 ```
 
-3. **Verify** via the host port you mapped at cluster create:
+3. **Проверьте** через порт хоста, проброшенный при создании кластера:
    ```bash
    curl -k https://echo.localhost:8443/ping    # → pong, through Traefik + TLS
    curl -k https://web.localhost:8443/health   # → your app's health JSON
    ```
 
-> 💡 **Host-based routing** (one Service per hostname) avoids path-rewrite middleware, so each backend sees the request path unchanged. The alternative — path-based (`/web` → web, `/echo` → echo on a single hostname) — needs Traefik middleware to strip the prefix; not worth the complication for two services.
+> 💡 **Маршрутизация по хосту** (один Service на hostname) обходится без middleware, который переписывает путь: каждый бэкенд видит путь запроса как есть. Альтернатива по пути (`/web` → web, `/echo` → echo на одном hostname) требует middleware Traefik, чтобы срезать префикс. Ради двух сервисов это лишнее.
 
-**Evidence (paste into `docs/LAB09.md`):**
-- `kubectl get pods -n kube-system | grep traefik` — controller Running
-- `kubectl get ingress` — your Ingress with the two hosts visible
-- Both `curl -k https://...localhost:8443/...` captures, real output
-- 1–2 sentences on what Ingress buys you over the NodePort Service from §2.2
+**Доказательства (вставьте в `docs/LAB09.md`):**
+- `kubectl get pods -n kube-system | grep traefik` — контроллер в Running
+- `kubectl get ingress` — ваш Ingress, оба хоста на месте
+- Оба вывода `curl -k https://...localhost:8443/...`, настоящие
+- 1–2 предложения: что Ingress даёт сверх NodePort Service из §2.2
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab09
@@ -574,12 +574,12 @@ git commit -m "feat(lab09): web + echo on k3d — cross-service kube-DNS proven"
 git push -u origin lab09
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab09` → `course-repo:master` *(reviewed)*
-- `your-fork:lab09` → `your-fork:master` *(merges into your own main when done)*
+- `your-fork:lab09` → `course-repo:master` *(на ревью)*
+- `your-fork:lab09` → `your-fork:master` *(сольётся в ваш собственный main, когда закончите)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 done — 3-node k3d cluster on K8s 1.36.1, evidence captured
@@ -592,111 +592,111 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 — k3d cluster (2 pts)
-- ✅ `kubectl version` reports server `1.36.x`
-- ✅ `kubectl get nodes -o wide` shows **3 nodes**, all `Ready`
-- ✅ LoadBalancer host-port maps `:80→:8080` and `:443→:8443` present in the `k3d cluster create` command
-- ✅ Research answers from §1.1 in `docs/LAB09.md`
+### Задание 1 — кластер k3d (2 балла)
+- ✅ `kubectl version` показывает server `1.36.x`
+- ✅ `kubectl get nodes -o wide` показывает **3 ноды**, все `Ready`
+- ✅ В команде `k3d cluster create` есть проброс портов LoadBalancer `:80→:8080` и `:443→:8443`
+- ✅ Ответы из §1.1 лежат в `docs/LAB09.md`
 
-### Task 2 — web service (3 pts)
-- ✅ `web-deployment.yaml` and `web-service.yaml` written by hand
-- ✅ Label triangle consistent (Deployment labels = selector.matchLabels = template labels)
-- ✅ **Container port AND Service port both named** (e.g. `name: http`) — Lab 10/16 require this
-- ✅ 3 replicas Ready; `kubectl get endpoints web` shows **3 IPs**
-- ✅ Resource **requests AND limits** set; both probes wired to a `/health`-style endpoint, not the app root
-- ✅ Pods spread across all 3 nodes (`-o wide` capture)
+### Задание 2 — сервис web (3 балла)
+- ✅ `web-deployment.yaml` и `web-service.yaml` написаны вручную
+- ✅ Треугольник меток согласован (метки Deployment = selector.matchLabels = метки шаблона)
+- ✅ **Именованы и порт контейнера, и порт Service** (например `name: http`). Это нужно в Lab 10 и Lab 16
+- ✅ 3 реплики в Ready; `kubectl get endpoints web` показывает **3 IP**
+- ✅ Заданы и **requests, и limits**. Оба probe смотрят на эндпоинт вроде `/health`, а не на корень приложения
+- ✅ Pod'ы разложены по всем 3 нодам (вывод `-o wide`)
 
-### Task 3 — echo service (2 pts)
-- ✅ `echo-deployment.yaml` uses `ghcr.io/inno-devops-labs/echo:v1` (no self-builds)
-- ✅ **2** replicas Ready; ClusterIP Service has **2** endpoints
-- ✅ Probes wired to `/healthz:8081` (echo's actual readiness endpoint, per `plumbing/echo/README.md`)
-- ✅ Resources sized smaller than web (tiny Go binary)
+### Задание 3 — сервис echo (2 балла)
+- ✅ `echo-deployment.yaml` использует `ghcr.io/inno-devops-labs/echo:v1` (своей сборки нет)
+- ✅ **2** реплики в Ready; у ClusterIP Service **2** endpoints
+- ✅ Probe смотрят на `/healthz:8081` (настоящий эндпоинт готовности echo, см. `plumbing/echo/README.md`)
+- ✅ Ресурсы меньше, чем у web (крошечный бинарник Go)
 
-### Task 4 — cross-service + ops (2 pts)
-- ✅ **`kubectl exec` into a web pod + call to `http://echo/ping` returns `pong`** — kube-DNS proof captured
-- ✅ Load-balancing capture shows **both** echo pod hostnames appearing
-- ✅ `web` scaled to 5; endpoints list reaches 5; no downtime visible
-- ✅ Rolling update + rollback shown with `kubectl rollout history` evidence
+### Задание 4 — межсервисный вызов и операции (2 балла)
+- ✅ **`kubectl exec` в Pod web и вызов `http://echo/ping` возвращают `pong`** — доказательство kube-DNS снято
+- ✅ В выводе балансировки есть hostname **обоих** Pod'ов echo
+- ✅ `web` масштабирован до 5; в списке endpoints 5 адресов; простоя не видно
+- ✅ Rolling update и откат показаны выводом `kubectl rollout history`
 
-### Task 5 — docs (1 pt)
-- ✅ All 6 sections in `k8s/docs/LAB09.md`; Mermaid diagram included; the pong capture is the headline artefact
+### Задание 5 — документация (1 балл)
+- ✅ В `k8s/docs/LAB09.md` все 6 разделов; есть диаграмма Mermaid; вывод pong — главный артефакт
 
-### Bonus — Ingress + TLS (2 pts)
-- ✅ Self-signed Secret created with both SANs
-- ✅ Ingress uses `ingressClassName: traefik`, both hosts routed
-- ✅ Both `curl -k https://...localhost:8443/...` calls succeed
+### Бонус — Ingress и TLS (2 балла)
+- ✅ Самоподписанный Secret создан с обоими SAN
+- ✅ Ingress использует `ingressClassName: traefik`, оба хоста маршрутизируются
+- ✅ Оба вызова `curl -k https://...localhost:8443/...` проходят
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задание | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — k3d cluster | **2** | 3-node K8s 1.36 cluster up, research answers, port maps for bonus |
-| **Task 2** — web service | **3** | Hand-written Deployment + Service, label triangle correct, probes on cheap endpoint, requests+limits, 3 endpoints |
-| **Task 3** — echo service | **2** | Provided image deployed (2 replicas), ClusterIP Service, probes on `/healthz` |
-| **Task 4** — cross-service + ops | **2** | `pong` from inside web pod, LB rotation, scale+rollout+rollback |
-| **Task 5** — docs | **1** | 6 sections, Mermaid, pong capture as headline |
-| **Bonus** — Ingress + TLS | **2** | Traefik Ingress, both hostnames over HTTPS |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задание 1** — кластер k3d | **2** | кластер K8s 1.36 на 3 нодах поднят, есть ответы, проброс портов для бонуса |
+| **Задание 2** — сервис web | **3** | Deployment и Service вручную, треугольник меток верный, probe на дешёвом эндпоинте, requests и limits, 3 endpoints |
+| **Задание 3** — сервис echo | **2** | выданный образ выкачен (2 реплики), ClusterIP Service, probe на `/healthz` |
+| **Задание 4** — межсервисный вызов и операции | **2** | `pong` изнутри Pod'а web, ротация LB, масштаб, rollout и откат |
+| **Задание 5** — документация | **1** | 6 разделов, Mermaid, вывод pong как главное |
+| **Бонус** — Ingress и TLS | **2** | Ingress через Traefik, оба hostname по HTTPS |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
 ---
 
-## Resources
+## Материалы
 
 <details>
-<summary>📚 Kubernetes documentation</summary>
+<summary>📚 Документация Kubernetes</summary>
 
-- [Kubernetes 1.36 "Haru" release notes](https://kubernetes.io/blog/2026/04/22/kubernetes-v1-36-release/)
-- [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
-- [Services & networking](https://kubernetes.io/docs/concepts/services-networking/service/)
-- [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
-- [Liveness, readiness, startup probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [Заметки к релизу Kubernetes 1.36 «Haru»](https://kubernetes.io/blog/2026/04/22/kubernetes-v1-36-release/)
+- [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+- [Service и сеть](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [DNS для Service и Pod](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+- [Liveness, readiness и startup probe](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
 - [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/)
-- [kubectl cheat sheet](https://kubernetes.io/docs/reference/kubectl/quick-reference/)
+- [Шпаргалка kubectl](https://kubernetes.io/docs/reference/kubectl/quick-reference/)
 
 </details>
 
 <details>
-<summary>🛠️ Tools</summary>
+<summary>🛠️ Инструменты</summary>
 
-- [k3d](https://k3d.io/) — k3s in Docker
-- [k3s docs](https://docs.k3s.io/)
-- [k9s](https://k9scli.io/) — TUI for kubectl
-- [kubectx/kubens](https://github.com/ahmetb/kubectx) — context + namespace switcher
-- [stern](https://github.com/stern/stern) — multi-pod log tailing
-
-</details>
-
-<details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
-
-- **Label-selector mismatch — the #1 K8s YAML error.** The Deployment has *three* places where labels appear: `metadata.labels`, `spec.selector.matchLabels`, and `spec.template.metadata.labels`. The Service's `spec.selector` is a fourth. They all need to agree. Symptom: `kubectl get endpoints <svc>` is empty even though pods are Running. The selector is **immutable** after Deployment creation — if you got it wrong, you must `kubectl delete deploy/...` and re-apply (you can't `kubectl edit` your way out).
-
-- **`imagePullPolicy: Always` fails for locally-built images on k3d.** `k3d image import` populates the cluster's containerd directly; there's no registry holding your `:latest` tag. `Always` re-pulls every restart and gets `ErrImagePull` / `ImagePullBackOff`. Use `IfNotPresent` for locally-imported images (this is also the default when your tag is anything other than `:latest` — but **don't rely on the default**; declare it).
-
-- **NodePort on k3d needs the host port mapped at cluster create.** k3d's klipper-lb exposes the LoadBalancer-class ports you listed in `-p`, but a NodePort in the 30000–32767 range isn't reachable from your laptop unless you either (a) added `-p "3xxxx:3xxxx@server:0"` at cluster create, or (b) `kubectl port-forward`. `LoadBalancer` Services and `port-forward` both work without ceremony; raw NodePort doesn't.
-
-- **`livenessProbe` pointing at the app's main page.** When traffic spikes, your handler slows. Liveness times out, K8s restarts the container, the queue drains onto the remaining pods, *they* slow under doubled load — **cascading restarts** during the exact moment you needed the system to stay up. Liveness must point at a **cheap, in-process** signal (`/health` returning 200 with no DB calls). That's why Lab 1 made you build `/health` separately.
-
-- **Missing or slow `readinessProbe` causes rolling-update gaps.** Without readiness, K8s adds a pod to the Service endpoints the instant the container *starts* — before your app is actually serving. During a rolling update, that means a few seconds of `connection refused` on every replacement. Readiness with `periodSeconds: 3–5` and a low `failureThreshold` keeps unready pods out of the endpoint list and out of traffic.
-
-- **`port` vs `targetPort` confusion.** `port` is what *clients* hit on the Service; `targetPort` is what the **container** listens on. Common error: `port: 8081` on the echo Service. It works — but every caller now writes `http://echo:8081/ping` and your future Helm chart, Lab 13 ApplicationSet, and Lab 16 ServiceMonitor all have to special-case the port. Pick `port: 80` for HTTP services so DNS-only URLs work.
-
-- **Resource requests too low → noisy-neighbour starvation.** k3d on a laptop has finite memory. If `web`'s `requests: 64Mi` is realistic but you set `8Mi`, the scheduler over-packs nodes and your pods get OOM-evicted under any real workload. Set `requests` to what your app actually uses at idle + a small buffer, not the minimum it can boot with.
-
-- **`kubectl edit` instead of `kubectl apply -f`.** `edit` mutates the live object directly; your manifest in git no longer matches reality. Next `apply` reverts your hotfix. In a GitOps world (Lab 13+) this is a deploy-time race condition. Always edit the YAML, `apply -f`, commit.
-
-- **Container missing `curl`/`wget` and you reach for the wrong workaround.** Don't `port-forward` to "test" cross-service calls — that proves your laptop reaches echo, not that `web` does. Use `kubectl run tmp --rm -it --image=curlimages/curl ...` or `kubectl exec $WEBPOD -- python -c "..."` so the call originates **inside the cluster**.
-
-- **k3d's bundled Traefik vs ingress-nginx muscle memory.** Tutorials online assume ingress-nginx (`ingressClassName: nginx`, `nginx.ingress.kubernetes.io/*` annotations). On k3d it's Traefik (`ingressClassName: traefik`, `traefik.ingress.kubernetes.io/*` annotations). The Kubernetes `Ingress` core fields are portable; annotations are not.
+- [k3d](https://k3d.io/) — k3s в Docker
+- [Документация k3s](https://docs.k3s.io/)
+- [k9s](https://k9scli.io/) — TUI для kubectl
+- [kubectx/kubens](https://github.com/ahmetb/kubectx) — переключатель context и namespace
+- [stern](https://github.com/stern/stern) — хвост логов с нескольких Pod'ов
 
 </details>
 
 <details>
-<summary>🔍 Debugging cheatsheet</summary>
+<summary>⚠️ Типичные ловушки (с реальных пробных прогонов)</summary>
+
+- **Несовпадение label и selector — ошибка №1 в YAML для K8s.** У Deployment метки стоят в *трёх* местах: `metadata.labels`, `spec.selector.matchLabels` и `spec.template.metadata.labels`. `spec.selector` у Service — четвёртое. Все должны совпасть. Симптом: `kubectl get endpoints <svc>` пуст, хотя Pod'ы Running. Селектор **неизменяем** после создания Deployment. Ошиблись — только `kubectl delete deploy/...` и apply заново. `kubectl edit` вас не вытащит.
+
+- **`imagePullPolicy: Always` ломается на k3d для локально собранных образов.** `k3d image import` кладёт образ прямо в containerd кластера. Registry с вашим тегом `:latest` нет. `Always` тянет заново на каждом рестарте и получает `ErrImagePull` / `ImagePullBackOff`. Для локально импортированных образов ставьте `IfNotPresent` (это же значение по умолчанию, если тег не `:latest`, но **на умолчание не рассчитывайте**: объявите явно).
+
+- **NodePort на k3d требует проброса порта хоста при создании кластера.** klipper-lb в k3d открывает порты класса LoadBalancer, которые вы перечислили в `-p`. NodePort из диапазона 30000–32767 с ноутбука не достать, пока вы не (a) добавите `-p "3xxxx:3xxxx@server:0"` при создании кластера или (b) сделаете `kubectl port-forward`. Service типа `LoadBalancer` и `port-forward` работают без лишних шагов. Голый NodePort — нет.
+
+- **`livenessProbe` смотрит на главную страницу приложения.** Когда трафик подскакивает, обработчик тормозит. Liveness отваливается по таймауту, K8s перезапускает контейнер, очередь перетекает на оставшиеся Pod'ы, *они* тормозят под удвоенной нагрузкой. **Каскад рестартов** случается ровно тогда, когда системе нужно стоять. Liveness должен смотреть на **дешёвый сигнал внутри процесса** (`/health` отдаёт 200 и не ходит в БД). Поэтому Lab 1 заставляла вас сделать `/health` отдельно.
+
+- **Нет `readinessProbe` или он медленный — в rolling update появляются дыры.** Без readiness K8s кладёт Pod в endpoints Service в ту же секунду, как контейнер *стартовал*, ещё до того, как приложение реально отвечает. Во время rolling update это несколько секунд `connection refused` на каждой замене. Readiness с `periodSeconds: 3–5` и низким `failureThreshold` не пускает неготовые Pod'ы ни в список endpoints, ни в трафик.
+
+- **Путаница `port` и `targetPort`.** `port` — куда *клиенты* стучатся у Service. `targetPort` — на чём слушает **контейнер**. Частая ошибка: `port: 8081` у Service echo. Так работает, но каждый вызывающий пишет `http://echo:8081/ping`, и будущий чарт, ApplicationSet в Lab 13 и ServiceMonitor в Lab 16 вынуждены отдельно обрабатывать порт. Для HTTP-сервисов ставьте `port: 80`, чтобы работали URL только с DNS.
+
+- **Слишком низкие requests — шумные соседи отбирают ресурсы.** У k3d на ноутбуке память конечная. Если реальный расход `web` — `requests: 64Mi`, а вы поставили `8Mi`, планировщик переупакует ноды, и при любой настоящей нагрузке ваши Pod'ы выселит OOM. Ставьте `requests` по тому, что приложение ест в простое, плюс небольшой запас, а не по минимуму, с которым оно вообще стартует.
+
+- **`kubectl edit` вместо `kubectl apply -f`.** `edit` меняет живой объект напрямую. Манифест в git больше не совпадает с реальностью. Следующий `apply` откатит ваш хотфикс. В мире GitOps (Lab 13 и дальше) это гонка на выкладке. Всегда правьте YAML, делайте `apply -f`, коммитьте.
+
+- **В контейнере нет `curl`/`wget`, и вы хватаетесь не за тот обход.** Не делайте `port-forward`, чтобы «проверить» межсервисные вызовы: это доказывает, что ноутбук достаёт echo, а не что достаёт `web`. Используйте `kubectl run tmp --rm -it --image=curlimages/curl ...` или `kubectl exec $WEBPOD -- python -c "..."`, чтобы вызов шёл **изнутри кластера**.
+
+- **Встроенный Traefik в k3d и мышечная память ingress-nginx.** Туториалы в сети считают, что у вас ingress-nginx (`ingressClassName: nginx`, аннотации `nginx.ingress.kubernetes.io/*`). На k3d это Traefik (`ingressClassName: traefik`, аннотации `traefik.ingress.kubernetes.io/*`). Базовые поля `Ingress` в Kubernetes переносимы. Аннотации — нет.
+
+</details>
+
+<details>
+<summary>🔍 Шпаргалка по отладке</summary>
 
 ```bash
 kubectl describe pod <name>           # bottom Events section = root-cause oracle
@@ -712,19 +712,19 @@ kubectl run net-debug --rm -it --image=nicolaka/netshoot --restart=Never -- bash
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-| Lab | What it adds to this stack |
+| Lab | Что добавляет к этому стеку |
 |---:|---|
-| 10 | Re-package these manifests as a **Helm 4** chart; `echo` becomes a subchart |
-| 11 | Replace plaintext config with **Secrets** (and meet OpenBao) |
-| 12 | **ConfigMaps** + **PVCs** — config injection + state survival across pod restarts |
-| 13 | **ArgoCD** GitOps — `web` + `echo` deployed via an `ApplicationSet` for 2 envs |
-| 14 | **Argo Rollouts** — canary the `echo` Deployment with progressive traffic shift |
-| 16 | **kube-prometheus-stack** — scrape `echo`'s `/metrics` via a `ServiceMonitor` |
+| 10 | Переупаковать эти манифесты в чарт **Helm 4**; `echo` становится субчартом |
+| 11 | Заменить конфиг открытым текстом на **Secrets** (и познакомиться с OpenBao) |
+| 12 | **ConfigMap** и **PVC** — прокидывание конфига и выживание состояния между рестартами Pod'ов |
+| 13 | **ArgoCD** и GitOps — `web` и `echo` выкатываются через `ApplicationSet` на 2 окружения |
+| 14 | **Argo Rollouts** — canary для Deployment `echo` с постепенным сдвигом трафика |
+| 16 | **kube-prometheus-stack** — скрейп `/metrics` у `echo` через `ServiceMonitor` |
 
 ---
 
-**Good luck!** ☸️
+**Удачи!** ☸️
 
-> **Remember:** the K8s networking model only clicks once you have a **second** service to talk to. That `pong` returned by `echo` — to a `curl` run *inside* your `web` pod — is the moment everything in lecture 9 (Pod, Service, label selector, kube-DNS, endpoints, kube-proxy) lines up. If only one capture survives the lab, make it that one.
+> **Запомните:** сетевая модель K8s складывается только когда есть **второй** сервис, с которым можно поговорить. Этот `pong`, который вернул `echo` на `curl`, запущенный *внутри* Pod'а `web`, — момент, когда всё из Lecture 9 (Pod, Service, label selector, kube-DNS, endpoints, kube-proxy) встаёт на места. Если из лабораторной сохранится только один вывод, пусть это будет он.

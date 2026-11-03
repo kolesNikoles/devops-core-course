@@ -1,57 +1,57 @@
-# 📌 Lecture 5 — Ansible Fundamentals: Configuration Management That Doesn't Bite
+# 📌 Lecture 5 — Основы Ansible: управление конфигурацией, которое не кусается
 
-## 📍 Slide 1 – 🔧 Welcome to Configuration Management
+## 📍 Slide 1 – 🔧 Добро пожаловать в управление конфигурацией
 
-* 🌍 **Lecture 4 provisioned the box** — Terraform/Pulumi created the VM, gave it an IP, opened ports
-* 🤔 But the box is empty: no Docker, no app user, no nginx config, no TLS, no daemon settings
-* 🔧 **Ansible configures what's inside** — packages, files, services, secrets — declaratively, with `ansible-core 2.21` (May 2026)
+* 🌍 **Lecture 4 создала машину** — Terraform/Pulumi подняли ВМ, выдали IP, открыли порты
+* 🤔 Внутри пусто: нет Docker, нет пользователя приложения, нет конфига nginx, нет TLS, нет настроек демона
+* 🔧 **Ansible настраивает внутренности** — пакеты, файлы, сервисы, секреты — декларативно, на `ansible-core 2.21` (май 2026)
 
 ```mermaid
 flowchart LR
-  TF[🌍 Terraform / Pulumi<br/>Lecture 4: create VM] --> Ansible[🔧 Ansible<br/>Lecture 5: configure VM]
-  Ansible --> Ready[✅ Docker + app running]
+  TF[🌍 Terraform / Pulumi<br/>Lecture 4: создать ВМ] --> Ansible[🔧 Ansible<br/>Lecture 5: настроить ВМ]
+  Ansible --> Ready[✅ Docker + приложение работает]
 ```
 
-> 🔗 **Tie-in to Lab 5:** you'll build three roles (`common`, `docker`, `app_deploy`) and use them to provision the VM from Lab 4 and run your Lab 2 container image on it.
+> 🔗 **Связка с Lab 5:** соберёте три роли (`common`, `docker`, `app_deploy`), настроите ими ВМ из Lab 4 и запустите на ней образ контейнера из Lab 2.
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Slide 2 – 🎯 Результаты обучения
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Explain agentless, push-based configuration and how it differs from agent-based tools |
-| 2 | 📋 Write and structure a static inventory; know when to switch to dynamic |
-| 3 | 📝 Author idempotent playbooks using the right modules (`apt`, `service`, `template`, `lineinfile`) |
-| 4 | 📦 Organise reusable logic into roles (tasks / handlers / defaults / templates) |
-| 5 | 🔐 Encrypt secrets with Ansible Vault and pass them to playbooks safely |
+| 1 | 🧠 Объяснить agentless (без агента), push-модель конфигурации и чем она отличается от инструментов с агентом |
+| 2 | 📋 Написать и разложить статический inventory (список хостов); понимать, когда переходить на динамический |
+| 3 | 📝 Писать идемпотентные playbook на нужных модулях (`apt`, `service`, `template`, `lineinfile`) |
+| 4 | 📦 Собрать переиспользуемую логику в роли (tasks / handlers / defaults / templates) |
+| 5 | 🔐 Шифровать секреты через Ansible Vault и безопасно передавать их в playbook |
 
-**Tech stack pinned for May 2026:** `ansible-core` **2.21** (community package **ansible 13.6.0**, April 2026), Python **3.11+** on the control node, `ansible-galaxy` for collections, OpenSSH on managed nodes.
+**Стек зафиксирован на май 2026:** `ansible-core` **2.21** (пакет сообщества **ansible 13.6.0**, апрель 2026), Python **3.11+** на управляющем узле, `ansible-galaxy` для коллекций, OpenSSH на управляемых узлах.
 
-> 📌 **A note on "LTS":** Ansible-core has **no formal LTS label.** Red Hat ships *Ansible Automation Platform* with extended support, but the open-source `ansible-core` only commits to ~6 months of security fixes per minor release. The currently-supported open-source versions are **2.18, 2.19, 2.20, 2.21**. Older slides on the internet that say "2.17 LTS" predate the policy clarification — ignore them.
+> 📌 **Заметка про «LTS»:** у Ansible-core **нет формальной метки LTS.** Red Hat поставляет *Ansible Automation Platform* с расширенной поддержкой, но открытый `ansible-core` гарантирует лишь ~6 месяцев исправлений безопасности на минорный релиз. Сейчас из open-source поддерживаются **2.18, 2.19, 2.20, 2.21**. Старые слайды в интернете про «2.17 LTS» написаны до уточнения политики — не смотрите на них.
 
 ---
 
-## 📍 Slide 3 – 🆚 Ansible vs the Rest of IaC
+## 📍 Slide 3 – 🆚 Ansible и остальной IaC
 
-* 🌍 **Terraform / Pulumi (Lec 4)** = *provisioning* — "create 3 VMs, 1 LB, 1 RDS instance"
-* 🔧 **Ansible (Lec 5)** = *configuration* — "install Docker, render `daemon.json`, start the service"
-* 🐳 **Docker (Lec 2)** = *packaging* — "freeze the app and its runtime"
-* ☸️ **Kubernetes (Lec 9+)** = *orchestration* — "run N replicas, restart on failure, roll out updates"
+* 🌍 **Terraform / Pulumi (Lec 4)** = *provisioning* (создание инфраструктуры) — «создать 3 ВМ, 1 LB, 1 инстанс RDS»
+* 🔧 **Ansible (Lec 5)** = *конфигурация* — «поставить Docker, отрендерить `daemon.json`, запустить сервис»
+* 🐳 **Docker (Lec 2)** = *упаковка* — «заморозить приложение и его runtime»
+* ☸️ **Kubernetes (Lec 9+)** = *оркестрация* — «держать N реплик, поднять после падения, выкатить обновление»
 
-> 🔥 **Don't confuse them.** Terraform makes the box exist. Ansible makes the box useful. Both live in Git; both belong in CI.
+> 🔥 **Не путайте.** Terraform делает так, что машина есть. Ansible делает так, что от машины есть толк. Оба живут в Git, обоим место в CI.
 
 ```mermaid
 flowchart LR
-  Plan[📋 Plan] --> Terraform[🌍 Terraform: provision]
-  Terraform --> Ansible[🔧 Ansible: configure]
-  Ansible --> App[🐳 Docker app]
-  App --> Operate[⚙️ K8s + Ops]
+  Plan[📋 План] --> Terraform[🌍 Terraform: создать]
+  Terraform --> Ansible[🔧 Ansible: настроить]
+  Ansible --> App[🐳 приложение Docker]
+  App --> Operate[⚙️ K8s + эксплуатация]
 ```
 
 ---
 
-## 📍 Slide 4 – 🔥 Section 1: The Configuration Problem
+## 📍 Slide 4 – 🔥 Раздел 1: Проблема конфигурации
 
 ```bash
 # 😱 The bash script that "works" — once
@@ -62,125 +62,125 @@ echo "Welcome" > /var/www/html/index.html
 systemctl start nginx
 ```
 
-Run it twice — `apt-get install` is fine, but `echo >` overwrites the file every single time. Run it on Ubuntu 22.04 vs 24.04 — package names drift. Run it on a server where someone hand-edited `index.html` — your edit silently wipes theirs.
+Два запуска: `apt-get install` переживёт, а `echo >` перезапишет файл каждый раз. Ubuntu 22.04 и 24.04 — имена пакетов разъедутся. Сервер, где кто-то руками правил `index.html`, — ваша правка молча затрёт чужую.
 
-**That's the problem in one slide.** Shell scripts are imperative recipes; they don't describe the *end state*, only the *steps*. Anything that doesn't match the author's mental model breaks them.
-
----
-
-## 📍 Slide 5 – 📝 Documentation Drift
-
-* 📝 Docs written once, server modified a hundred times — nobody updates the wiki
-* 🚪 The engineer who knew the real config left in 2024
-* 💀 Reality ≠ documentation; the team trusts whichever fails them less today
-* 🔇 "The runbook says X but production does Y now" — a phrase you'll hear in every postmortem
-* 🧪 Disaster recovery test fails because the *real* config was never written down
-
-> ⚠️ **Outdated docs are worse than no docs** — they actively mislead.
+**Вся проблема на одном слайде.** Shell-скрипты — императивные рецепты: они описывают не *конечное состояние*, а только *шаги*. Всё, что не совпало с картиной в голове автора, их ломает.
 
 ---
 
-## 📍 Slide 6 – 💸 The Cost of Hand-Configured Servers
+## 📍 Slide 5 – 📝 Документация расходится с реальностью
 
-| 🔥 Failure mode | 💥 Impact |
+* 📝 Документацию написали один раз, сервер правили сто раз — вики никто не обновляет
+* 🚪 Инженер, который знал настоящий конфиг, ушёл в 2024
+* 💀 Реальность ≠ документация; команда верит тому, что сегодня подводит меньше
+* 🔇 «Runbook говорит X, а прод уже делает Y» — эту фразу вы услышите в каждом постмортеме
+* 🧪 Тест аварийного восстановления падает: *настоящий* конфиг так и не записали
+
+> ⚠️ **Устаревшая документация хуже её отсутствия** — она уверенно ведёт не туда.
+
+---
+
+## 📍 Slide 6 – 💸 Цена серверов, настроенных руками
+
+| 🔥 Режим сбоя | 💥 Последствие |
 |---|---|
-| 🐢 Manual patching, server-by-server | Critical CVEs sit unpatched for weeks |
-| 📋 Hand-edits over SSH | Typos cause production outages |
-| 👉 Snowflake servers | "Works on server 1, broken on server 2" |
-| 🙈 No audit trail | Compliance audits fail; nobody knows who changed `sshd_config` |
-| 🐶 Pet servers | One dies, nobody can rebuild it from scratch |
+| 🐢 Ручной патчинг, сервер за сервером | Критичные CVE неделями без патча |
+| 📋 Ручные правки по SSH | Опечатка роняет прод |
+| 👉 Серверы-снежинки | «На сервере 1 работает, на сервере 2 сломано» |
+| 🙈 Нет следа аудита | Compliance-аудит провален; кто менял `sshd_config`, неизвестно |
+| 🐶 Серверы-питомцы | Умер один — с нуля не собрать |
 
-> 📖 **2024 Verizon DBIR:** ~85% of breaches involve human-element factors — misconfiguration tops the list for cloud incidents. The goal of Ansible is to delete this entire table.
+> 📖 **2024 Verizon DBIR:** ~85% взломов завязаны на человеческий фактор — в облачных инцидентах лидируют ошибки конфигурации. Задача Ansible — стереть эту таблицу целиком.
 
 ---
 
-## 📍 Slide 7 – 💡 Section 2: What Ansible Is
+## 📍 Slide 7 – 💡 Раздел 2: Что такое Ansible
 
-* 🔧 **Configuration management tool** — describes the *desired state* of a fleet of machines
-* 🌐 **Agentless** — talks over SSH (Linux) or WinRM (Windows); no daemon to install or patch on the targets
-* 📤 **Push-based** — the control node pushes commands when you run it; no pull cycle, no agent heartbeat
-* 📝 **YAML + Jinja2** — declarative-ish syntax, version-controllable like any code
-* 🔄 **Idempotent by design** — running the same playbook twice converges to the same state
+* 🔧 **Инструмент управления конфигурацией** — описывает *желаемое состояние* парка машин
+* 🌐 **Agentless** — говорит по SSH (Linux) или WinRM (Windows); на целях нечего ставить и патчить
+* 📤 **Push-модель** — управляющий узел пушит команды, когда вы его запускаете; нет цикла pull, нет heartbeat агента
+* 📝 **YAML + Jinja2** — синтаксис почти декларативный, в Git ложится как любой код
+* 🔄 **Идемпотентный по замыслу** — два прогона одного playbook сходятся в одно состояние
 
 ```mermaid
 flowchart LR
-  Control[💻 Control node<br/>ansible-core 2.21] -->|SSH| N1[🖥️ web1]
+  Control[💻 Управляющий узел<br/>ansible-core 2.21] -->|SSH| N1[🖥️ web1]
   Control -->|SSH| N2[🖥️ web2]
   Control -->|SSH| N3[🖥️ db1]
 ```
 
-> 📖 **Definition:** Ansible is an open-source automation engine that uses SSH and YAML to put a fleet of machines into a documented, version-controlled state.
+> 📖 **Определение:** Ansible — открытый движок автоматизации, который по SSH и YAML приводит парк машин в задокументированное, версионируемое состояние.
 
 ---
 
-## 📍 Slide 8 – 📜 A Brief History of Ansible
+## 📍 Slide 8 – 📜 Краткая история Ansible
 
-* 📅 **2012** — Michael DeHaan releases Ansible; explicit reaction to Puppet/Chef agent complexity
-* 📅 **2013** — AnsibleWorks founded; first commercial release
-* 📅 **2015** — **Red Hat acquires AnsibleWorks** for ~$150M
-* 📅 **2019** — IBM buys Red Hat; Ansible stays open-source
-* 📅 **2021** — Project split: **`ansible-core`** (the engine) vs **`ansible`** (community package with hundreds of pre-bundled collections)
-* 📅 **2024+** — Collections become the canonical distribution unit; `community.ansible` package bundles hundreds
-* 📅 **May 2026** — `ansible-core 2.21` (community package **ansible 13.6.0**) is what you'll use in Lab 5
+* 📅 **2012** — Michael DeHaan выпускает Ansible; прямая реакция на сложность агентов Puppet/Chef
+* 📅 **2013** — основана AnsibleWorks; первый коммерческий релиз
+* 📅 **2015** — **Red Hat покупает AnsibleWorks** за ~$150M
+* 📅 **2019** — IBM покупает Red Hat; Ansible остаётся open-source
+* 📅 **2021** — разделение проекта: **`ansible-core`** (движок) и **`ansible`** (пакет сообщества, внутри сотни коллекций)
+* 📅 **2024+** — коллекции становятся основной единицей поставки; пакет `community.ansible` тащит их сотнями
+* 📅 **Май 2026** — `ansible-core 2.21` (пакет сообщества **ansible 13.6.0**) — им вы работаете в Lab 5
 
-> 🤔 **Notice:** Ansible's bet — *no agents* — predates "GitOps" by years and is still the right call for fleet config.
+> 🤔 **Заметьте:** ставка Ansible — *никаких агентов* — старше GitOps на годы, и для конфигурации парка это до сих пор верный выбор.
 
 ---
 
-## 📍 Slide 9 – 🚫 What Ansible is NOT
+## 📍 Slide 9 – 🚫 Ansible — это не
 
-| ❌ Myth | ✅ Reality |
+| ❌ Миф | ✅ Как на самом деле |
 |---|---|
-| "Replaces Terraform" | 🤝 Terraform provisions, Ansible configures. Different layer. |
-| "Requires agents on every server" | 🌐 SSH only. The whole point. |
-| "Only Linux" | 🪟 Windows works via WinRM/PowerShell; network gear via API modules |
-| "Just bash with YAML" | 📦 Idempotent modules + state model + handlers + Jinja2 |
-| "Slow for big fleets" | ⚡ Default forks=5, scale up with `forks=50`, mitogen, or AAP |
+| «Заменяет Terraform» | 🤝 Terraform создаёт, Ansible настраивает. Другой слой. |
+| «Нужны агенты на каждом сервере» | 🌐 Только SSH. В этом весь смысл. |
+| «Только Linux» | 🪟 Windows работает через WinRM/PowerShell; сетевое железо — через API-модули |
+| «Просто bash в YAML» | 📦 Идемпотентные модули + модель состояния + handlers + Jinja2 |
+| «Тормозит на большом парке» | ⚡ По умолчанию forks=5; масштаб — `forks=50`, mitogen или AAP |
 
-> 🔥 **Hot take:** the moment your team has more than three servers, you need Ansible (or an equivalent). Hand-SSH does not scale.
+> 🔥 **Жёсткий тезис:** как только серверов больше трёх, нужен Ansible (или аналог). Ручной SSH не масштабируется.
 
 ---
 
-## 📍 Slide 10 – 🏗️ Architecture
+## 📍 Slide 10 – 🏗️ Архитектура
 
 ```mermaid
 flowchart LR
-  Control[💻 Control node<br/>Python 3.11+, ansible-core 2.21] --> Inv[📋 Inventory]
+  Control[💻 Управляющий узел<br/>Python 3.11+, ansible-core 2.21] --> Inv[📋 Inventory]
   Control --> PB[📝 Playbooks]
-  Control --> Mod[📦 Modules + Plugins]
-  Inv & PB & Mod --> Targets[🖥️ Managed nodes<br/>SSH + Python 3]
+  Control --> Mod[📦 Модули + плагины]
+  Inv & PB & Mod --> Targets[🖥️ Управляемые узлы<br/>SSH + Python 3]
 ```
 
-| 🧱 Component | 🎯 Purpose |
+| 🧱 Компонент | 🎯 Зачем |
 |---|---|
-| 💻 **Control node** | Your laptop or CI runner. Python 3.11+ and `ansible-core 2.21`. |
-| 🖥️ **Managed nodes** | The servers you configure. SSH + Python 3. |
-| 📋 **Inventory** | Static INI/YAML or dynamic cloud plugin. Lists hosts, groups, vars. |
-| 📦 **Modules** | Python units of work (`apt`, `service`, `template`, `copy`, `file`). |
-| 📚 **Collections** | Packaging unit. Installed via `ansible-galaxy collection install`. |
+| 💻 **Управляющий узел** | Ваш ноутбук или CI runner. Python 3.11+ и `ansible-core 2.21`. |
+| 🖥️ **Управляемые узлы** | Серверы, которые вы настраиваете. SSH + Python 3. |
+| 📋 **Inventory** | Статический INI/YAML или динамический облачный плагин. Хосты, группы, переменные. |
+| 📦 **Модули** | Единицы работы на Python (`apt`, `service`, `template`, `copy`, `file`). |
+| 📚 **Коллекции** | Единица упаковки. Ставятся через `ansible-galaxy collection install`. |
 
 ---
 
-## 📍 Slide 11 – 🔁 How One Task Actually Runs
+## 📍 Slide 11 – 🔁 Как на самом деле выполняется одна задача
 
-1. 📋 Read inventory → resolve target hosts
-2. 🔐 SSH into each host (parallel, `forks=5` by default)
-3. 📤 Push a small Python module file into a temp dir, run it with the target's Python
-4. 📊 Module returns JSON: `{"changed": true, "msg": "..."}`
-5. 🧹 Clean up temp files, close SSH
+1. 📋 Читает inventory → решает, какие хосты цели
+2. 🔐 SSH на каждый хост (параллельно, по умолчанию `forks=5`)
+3. 📤 Кладёт небольшой Python-модуль во временный каталог и запускает его Python-ом цели
+4. 📊 Модуль возвращает JSON: `{"changed": true, "msg": "..."}`
+5. 🧹 Стирает временные файлы, закрывает SSH
 
 ```mermaid
 sequenceDiagram
-  Control->>Target: SSH connect + push apt.py
-  Target->>Target: Run module → JSON result
-  Target->>Control: Return changed/ok/failed
+  Control->>Target: SSH и передача apt.py
+  Target->>Target: Запуск модуля → JSON
+  Target->>Control: Ответ changed/ok/failed
 ```
 
-> 📝 **Implication:** the target needs Python — already on every Ubuntu 22.04+ box. That's the only "agent" Ansible needs.
+> 📝 **Следствие:** на цели нужен Python — он уже есть на любой машине Ubuntu 22.04+. Это единственный «агент», который Ansible требует.
 
 ---
 
-## 📍 Slide 12 – 📋 Inventory: Static (INI / YAML)
+## 📍 Slide 12 – 📋 Inventory: статический (INI / YAML)
 
 ```ini
 # inventory/hosts.ini
@@ -200,15 +200,15 @@ ansible_user=ubuntu
 ansible_ssh_private_key_file=~/.ssh/lab4_id_ed25519
 ```
 
-* 🏷️ **Groups** organise hosts by role, environment, or geography
-* 🪆 **Group of groups** (`:children`) builds hierarchies: `production` ⊃ `webservers`+`databases`
-* 🎯 **Targeting**: `hosts: webservers`, `hosts: all`, `hosts: production:!web2` (exclude one host)
+* 🏷️ **Группы** собирают хосты по роли, окружению или географии
+* 🪆 **Группа групп** (`:children`) строит иерархию: `production` ⊃ `webservers`+`databases`
+* 🎯 **Куда целиться**: `hosts: webservers`, `hosts: all`, `hosts: production:!web2` (исключить один хост)
 
 ---
 
-## 📍 Slide 13 – 🌐 Inventory: Dynamic (Cloud Plugins)
+## 📍 Slide 13 – 🌐 Inventory: динамический (облачные плагины)
 
-Static lists rot the moment a VM is recreated and gets a new IP. Inventory plugins query the cloud provider at runtime.
+Статический список протухает, как только ВМ пересоздали и у неё новый IP. Плагины inventory спрашивают облако в момент запуска.
 
 ```yaml
 # inventory/aws.yml
@@ -230,18 +230,18 @@ ansible-galaxy collection install amazon.aws
 ansible-inventory -i inventory/aws.yml --graph
 ```
 
-| Cloud | Collection | Plugin |
+| Облако | Коллекция | Плагин |
 |---|---|---|
 | AWS | `amazon.aws` | `aws_ec2` |
 | GCP | `google.cloud` | `gcp_compute` |
 | Azure | `azure.azcollection` | `azure_rm` |
 | Yandex Cloud | `yandex.cloud` | `yandex_compute` |
 
-> 🔗 **Lab 5 bonus task** uses this against the VM you created in Lab 4 with Terraform/Pulumi.
+> 🔗 **Бонус Lab 5** делает это на ВМ, которую вы создали в Lab 4 через Terraform/Pulumi.
 
 ---
 
-## 📍 Slide 14 – 📝 First Playbook — Read Twice
+## 📍 Slide 14 – 📝 Первый playbook — прочитайте дважды
 
 ```yaml
 ---
@@ -272,11 +272,11 @@ ansible-inventory -i inventory/aws.yml --graph
 ansible-playbook -i inventory/hosts.ini playbook.yml
 ```
 
-> 📌 **Read the FQCN**: `ansible.builtin.apt` says collection `ansible.builtin`, module `apt`. Since the 2021 split this is the *canonical* way to reference modules.
+> 📌 **Читайте FQCN** (полное имя модуля): `ansible.builtin.apt` — коллекция `ansible.builtin`, модуль `apt`. После разделения 2021 года так на модули и ссылаются.
 
 ---
 
-## 📍 Slide 15 – 🎨 Reading the Output
+## 📍 Slide 15 – 🎨 Как читать вывод
 
 ```text
 TASK [Install nginx] ********************************************************
@@ -288,36 +288,36 @@ PLAY RECAP ******************************************************************
 web1 : ok=3  changed=1  unreachable=0  failed=0
 ```
 
-| Color | Status | Meaning |
+| Цвет | Статус | Смысл |
 |---|---|---|
-| 🟢 | **ok** | Already in desired state — no change needed |
-| 🟡 | **changed** | Module had to act to reach the desired state |
-| 🔴 | **failed** | Module raised an error |
-| ⚫ | **skipped** | A `when:` condition was false |
+| 🟢 | **ok** | Уже в нужном состоянии — менять нечего |
+| 🟡 | **changed** | Модулю пришлось сработать, чтобы дойти до нужного состояния |
+| 🔴 | **failed** | Модуль вернул ошибку |
+| ⚫ | **skipped** | Условие `when:` было ложным |
 
-> 🎯 **Goal of a mature playbook:** first run is mostly yellow. Every subsequent run is entirely green.
+> 🎯 **Цель зрелого playbook:** первый прогон в основном жёлтый. Каждый следующий — целиком зелёный.
 
 ---
 
-## 📍 Slide 16 – 📦 The Modules You'll Use Most
+## 📍 Slide 16 – 📦 Модули, которыми вы пользуетесь чаще всего
 
-| Module | Job | Idempotent? |
+| Модуль | Работа | Идемпотентный? |
 |---|---|---|
-| 🧰 `ansible.builtin.apt` | Install/remove .deb packages | ✅ |
-| ⚙️ `ansible.builtin.service` / `systemd` | Manage services | ✅ |
-| 📄 `ansible.builtin.template` | Render Jinja2 → remote file | ✅ |
-| 🗃️ `ansible.builtin.copy` | Push static file | ✅ |
-| 🧷 `ansible.builtin.file` | Manage permissions, symlinks, directories | ✅ |
-| ➕ `ansible.builtin.lineinfile` / `blockinfile` | Edit a config file by line/block | ✅ |
-| 👤 `ansible.builtin.user` / `group` | Manage Linux accounts | ✅ |
-| 🐳 `community.docker.docker_container` | Run a container | ✅ |
-| 💥 `ansible.builtin.shell` / `command` | Run arbitrary commands | ❌ — escape hatch |
+| 🧰 `ansible.builtin.apt` | Поставить или снять пакеты .deb | ✅ |
+| ⚙️ `ansible.builtin.service` / `systemd` | Сервисы | ✅ |
+| 📄 `ansible.builtin.template` | Jinja2 → файл на машине | ✅ |
+| 🗃️ `ansible.builtin.copy` | Залить статический файл | ✅ |
+| 🧷 `ansible.builtin.file` | Права, симлинки, каталоги | ✅ |
+| ➕ `ansible.builtin.lineinfile` / `blockinfile` | Правка конфига строкой или блоком | ✅ |
+| 👤 `ansible.builtin.user` / `group` | Учётные записи Linux | ✅ |
+| 🐳 `community.docker.docker_container` | Запуск контейнера | ✅ |
+| 💥 `ansible.builtin.shell` / `command` | Произвольные команды | ❌ — аварийный люк |
 
-> ⚠️ **`shell` and `command` are last resorts.** They have no state model — Ansible has no idea whether your `echo >> file` changed anything. Reach for the idempotent module first; only fall back when no module exists.
+> ⚠️ **`shell` и `command` — последний резерв.** Модели состояния у них нет: Ansible не знает, изменил ли ваш `echo >> file` хоть что-нибудь. Сначала идемпотентный модуль; к этим двум — только если своего модуля нет.
 
 ---
 
-## 📍 Slide 17 – 🎭 `command` vs `shell`: pick the right one
+## 📍 Slide 17 – 🎭 `command` или `shell`: берите нужный
 
 ```yaml
 # command — exec(), no shell. Safer. No pipes, no redirects, no $VARS.
@@ -335,13 +335,13 @@ web1 : ok=3  changed=1  unreachable=0  failed=0
     creates: /var/lib/myapp/.initialized
 ```
 
-`creates:` and `removes:` are how you bolt idempotency onto a one-shot script.
+`creates:` и `removes:` — так к одноразовому скрипту прикручивают идемпотентность.
 
 ---
 
-## 📍 Slide 18 – 📦 Section 3: Roles
+## 📍 Slide 18 – 📦 Раздел 3: Роли
 
-A *role* is just a directory tree with conventional subfolders. It packages tasks + variables + templates + handlers so you can drop them into any playbook with one line.
+*Роль* — дерево каталогов с привычными подпапками. Внутри задачи, переменные, шаблоны и handlers: в любой playbook они встают одной строкой.
 
 ```text
 roles/
@@ -355,33 +355,33 @@ roles/
     └── meta/main.yml           # dependencies, supported platforms
 ```
 
-> 🔥 **One rule:** if you copy-paste the same block of tasks between two playbooks, it's a role.
+> 🔥 **Одно правило:** скопировали один и тот же блок задач во второй playbook — это уже роль.
 
 ---
 
-## 📍 Slide 19 – 📁 Why Roles Beat One Giant Playbook
+## 📍 Slide 19 – 📁 Почему роли лучше одного гигантского playbook
 
 ```mermaid
 flowchart TD
-  subgraph Bad["❌ Monolithic playbook"]
-    Big[📝 500-line site.yml]
-    Big --> Pain[😰 Merge conflicts<br/>copy-paste between projects<br/>no reuse]
+  subgraph Bad["❌ Монолитный playbook"]
+    Big[📝 site.yml на 500 строк]
+    Big --> Pain[😰 Конфликты merge<br/>копипаста между проектами<br/>нет переиспользования]
   end
-  subgraph Good["✅ Role-based"]
-    R1[📦 common] --> Use[🎯 site.yml: 5 lines]
+  subgraph Good["✅ На ролях"]
+    R1[📦 common] --> Use[🎯 site.yml: 5 строк]
     R2[📦 docker] --> Use
     R3[📦 app_deploy] --> Use
   end
 ```
 
-* 🔄 **Reusable** — share roles across projects, organisations, even via Ansible Galaxy
-* 📁 **Discoverable** — every role has the same layout; new engineers find their way in minutes
-* 🧪 **Testable** — Molecule spins each role up in a container and runs its playbook independently
-* 🔬 **Composable** — a `webserver` role can depend on `common` via `meta/main.yml`
+* 🔄 **Переиспользуемые** — одни роли на проекты, организации и даже Ansible Galaxy
+* 📁 **Предсказуемые** — раскладка у всех ролей одна; новый человек разбирается за минуты
+* 🧪 **Тестируемые** — Molecule поднимает роль в контейнере и гоняет её playbook отдельно
+* 🔬 **Компонуемые** — роль `webserver` может зависеть от `common` через `meta/main.yml`
 
 ---
 
-## 📍 Slide 20 – 🐳 Role Example: `docker` (Lab 5's main deliverable)
+## 📍 Slide 20 – 🐳 Пример роли: `docker` (главный результат Lab 5)
 
 ```yaml
 # roles/docker/tasks/main.yml
@@ -415,11 +415,11 @@ flowchart TD
     append: yes
 ```
 
-> 🔗 **Notice the Jinja2 fact:** `{{ ansible_distribution_release }}` resolves to `noble` on Ubuntu 24.04, `jammy` on 22.04. One role, both distros.
+> 🔗 **Смотрите на факт в Jinja2:** `{{ ansible_distribution_release }}` равен `noble` на Ubuntu 24.04 и `jammy` на 22.04. Одна роль, оба дистрибутива.
 
 ---
 
-## 📍 Slide 21 – 🔔 Handlers — Restart Only When You Actually Changed Something
+## 📍 Slide 21 – 🔔 Handlers — рестарт только если вы реально что-то поменяли
 
 ```yaml
 # roles/docker/handlers/main.yml
@@ -440,16 +440,16 @@ flowchart TD
   notify: restart docker     # 🔔 only fires if template changed
 ```
 
-**Key handler semantics:**
-* 🎯 **Triggered by `notify:`** — only when the notifying task reports `changed: true`
-* ⏱️ **Run once at the end of the play** — multiple notifies of the same handler collapse to one restart
-* 🚦 **Skipped on second run** — the file is already correct, no change, no restart, no downtime
+**Как работают handlers:**
+* 🎯 **Их будит `notify:`** — только если задача сообщила `changed: true`
+* ⏱️ **Один раз в конце play** — несколько notify одного handler схлопываются в один рестарт
+* 🚦 **На втором прогоне тишина** — файл уже верный, изменений нет, рестарта нет, простоя нет
 
-> 💡 **This is the whole point.** A naive `service restart` on every run kicks Docker — and your containers — every single time. Handlers restart only when config actually drifted.
+> 💡 **В этом весь смысл.** Наивный рестарт сервиса на каждом прогоне пинает Docker и ваши контейнеры каждый раз. Handler перезапускает, только когда конфиг реально разъехался.
 
 ---
 
-## 📍 Slide 22 – 📊 Variables: Where They Live and Who Wins
+## 📍 Slide 22 – 📊 Переменные: где лежат и кто побеждает
 
 ```yaml
 # roles/docker/defaults/main.yml    (lowest precedence — easy to override)
@@ -459,44 +459,44 @@ docker_data_root: /var/lib/docker
 docker_log_max_size: "10m"
 ```
 
-**Precedence — abbreviated, lowest to highest:**
-1. 📁 Role `defaults/main.yml`
-2. 📋 Inventory group_vars / host_vars
-3. 📄 Playbook `vars:` block
-4. 🔧 Role `vars/main.yml`
-5. ⚡ `-e var=value` on the CLI (**always wins**)
+**Приоритет, коротко, от меньшего к большему:**
+1. 📁 `defaults/main.yml` роли
+2. 📋 group_vars / host_vars в inventory
+3. 📄 Блок `vars:` в playbook
+4. 🔧 `vars/main.yml` роли
+5. ⚡ `-e var=value` в CLI (**всегда побеждает**)
 
-> 📖 **Convention:** *overridable* defaults in `defaults/`, *fixed* values in `vars/`. If a user shouldn't change it, it belongs in `vars/`.
+> 📖 **Договорённость:** то, что *можно* переопределить, — в `defaults/`; то, что *фиксировано*, — в `vars/`. Пользователь не должен это менять — значит, место в `vars/`.
 
 ---
 
-## 📍 Slide 23 – 🔄 Section 4: Idempotency — Ansible's Killer Feature
+## 📍 Slide 23 – 🔄 Раздел 4: Идемпотентность — главная фишка Ansible
 
 ```mermaid
 flowchart LR
-  R1[🚀 Run 1] -->|changed=12| State[✅ Desired state]
-  R2[🚀 Run 2] -->|changed=0| State
-  R3[🚀 Run 3] -->|changed=0| State
+  R1[🚀 Прогон 1] -->|changed=12| State[✅ Желаемое состояние]
+  R2[🚀 Прогон 2] -->|changed=0| State
+  R3[🚀 Прогон 3] -->|changed=0| State
 ```
 
-**A task is idempotent when** running it twice has the same effect as running it once.
+**Задача идемпотентна, когда** второй запуск делает то же, что и первый.
 
-Modules achieve this by checking state *before* acting:
-* `apt: state=present` → query dpkg, install only if missing
-* `service: state=started` → query systemd, start only if stopped
-* `file: state=directory` → stat the path, create only if absent
-* `template:` → diff rendered output against current file, write only if different
+Модули сначала смотрят состояние и только потом действуют:
+* `apt: state=present` → спросить dpkg, ставить только если пакета нет
+* `service: state=started` → спросить systemd, стартовать только если сервис остановлен
+* `file: state=directory` → stat пути, создать каталог только если его нет
+* `template:` → сравнить рендер с текущим файлом, писать только если есть отличие
 
 ```bash
 # Dry-run: report changes without making them
 ansible-playbook playbook.yml --check --diff
 ```
 
-> 🧪 **The acceptance test:** second consecutive run reports `changed=0`. If anything still changes, a task isn't idempotent — usually a stray `shell:` or a templated file with timestamps. **Lab 5 grades you on this.**
+> 🧪 **Критерий приёмки:** второй прогон подряд даёт `changed=0`. Если что-то всё ещё меняется, задача не идемпотентна — обычно случайный `shell:` или шаблон с таймстемпами. **Lab 5 оценивает именно это.**
 
 ---
 
-## 📍 Slide 24 – 🔐 Ansible Vault — Secrets in Git Without Tears
+## 📍 Slide 24 – 🔐 Ansible Vault — секреты в Git без слёз
 
 ```bash
 # Create / edit / view encrypted files (AES-256)
@@ -519,84 +519,84 @@ ansible-playbook deploy.yml --vault-password-file ~/.vault_pass    # file (gitig
 ansible-playbook deploy.yml --vault-id dev@~/.vd --vault-id prod@prompt   # multi-env
 ```
 
-> 🔗 **Lab 11 ties this to OpenBao** — for production you graduate from Vault-the-file-encryptor to Vault-the-secret-store. Lab 5 uses Ansible Vault because it's the right scope: a few credentials, encrypted in Git, no extra infra.
+> 🔗 **Lab 11 стыкует это с OpenBao** — в проде вы переходите от Vault-шифровальщика-файлов к Vault-хранилищу-секретов. В Lab 5 Ansible Vault по размеру задачи: несколько секретов, шифр в Git, никакой лишней инфры.
 
 ---
 
-## 📍 Slide 25 – 🌍 Real-World Ansible
+## 📍 Slide 25 – 🌍 Ansible в реальном мире
 
-* 🛡️ **NASA JPL** — manages Mars-mission ground systems (public talks since 2016)
-* 🏦 **Capital One** — Ansible Tower drives nightly compliance across tens of thousands of EC2 instances
-* 🎮 **Riot Games** — League of Legends server fleet provisioning
-* 🔭 **CERN** — patch management on the LHC compute grid
-* 🐧 **Red Hat** — OpenShift installer is essentially a giant Ansible playbook collection
+* 🛡️ **NASA JPL** — ведёт наземные системы марсианских миссий (открытые доклады с 2016)
+* 🏦 **Capital One** — Ansible Tower гоняет ночной compliance на десятках тысяч инстансов EC2
+* 🎮 **Riot Games** — provisioning парка серверов League of Legends
+* 🔭 **CERN** — патчи на вычислительном гриде LHC
+* 🐧 **Red Hat** — установщик OpenShift по сути огромная коллекция playbook Ansible
 
-> 🔥 **Common thread:** every fleet bigger than ~50 machines runs *some* config-management tool. Ansible is the most common answer because the agentless model lowers the barrier to "yes" by an order of magnitude.
+> 🔥 **Общая нить:** парк больше ~50 машин уже живёт на *каком-то* инструменте управления конфигурацией. Чаще всего это Ansible: модель без агента снижает порог до «да» на порядок.
 
 ---
 
-## 📍 Slide 26 – ⚡ Before vs After Ansible
+## 📍 Slide 26 – ⚡ До и после Ansible
 
-| 😰 Before | 🚀 After |
+| 😰 До | 🚀 После |
 |---|---|
-| 📞 SSH into 30 servers one by one | One `ansible-playbook` invocation |
-| 📝 "Run these 14 commands" runbook | YAML in Git, diffable in PR |
-| 🐶 Each server hand-tuned, fragile | Roles guarantee identical state |
-| 😨 Patch-day takes the team a full day | Patch-day takes one CI run |
-| 📚 Documentation drifts from reality | The playbook *is* the documentation |
-| 🔥 Recovery = rebuild from memory | Recovery = `terraform apply` + `ansible-playbook` |
+| 📞 SSH на 30 серверов по одному | Один вызов `ansible-playbook` |
+| 📝 Runbook «выполните эти 14 команд» | YAML в Git, diff в PR |
+| 🐶 Каждый сервер доведён руками и хрупок | Роли держат одинаковое состояние |
+| 😨 День патчей съедает у команды весь день | День патчей — один прогон CI |
+| 📚 Документация уезжает от реальности | Playbook *и есть* документация |
+| 🔥 Восстановление = собирать по памяти | Восстановление = `terraform apply` + `ansible-playbook` |
 
 ---
 
-## 📍 Slide 27 – 🎯 Key Takeaways
+## 📍 Slide 27 – 🎯 Главное
 
-1. 🔧 **Ansible is agentless** — SSH + Python on the target is the whole "agent"
-2. 📋 **Inventory is half the battle** — static for labs, dynamic for production fleets
-3. 📦 **Roles are the unit of reuse** — `tasks/`, `handlers/`, `defaults/`, `templates/`
-4. 🔄 **Idempotency is a feature** — `changed=0` on a second run is the acceptance test
-5. 🔔 **Handlers prevent flapping** — restart Docker only when its config actually changed
-6. 📌 **Use FQCN modules** — `ansible.builtin.apt`, not bare `apt`; future-proof since the 2021 split
-7. 🛑 **`shell:` is a last resort** — wrap with `creates:` / `removes:` when unavoidable
-8. 🔐 **Vault encrypts secrets at rest** — bridge to Lab 11's OpenBao for production
+1. 🔧 **Ansible — agentless** — весь «агент» это SSH + Python на цели
+2. 📋 **Inventory — половина работы** — статический в лабах, динамический на прод-парке
+3. 📦 **Роль — единица переиспользования** — `tasks/`, `handlers/`, `defaults/`, `templates/`
+4. 🔄 **Идемпотентность — фича** — `changed=0` на втором прогоне и есть критерий приёмки
+5. 🔔 **Handlers не дают флапать** — Docker рестартует, только если конфиг реально изменился
+6. 📌 **Модули через FQCN** — `ansible.builtin.apt`, не голый `apt`; так живёте и после разделения 2021
+7. 🛑 **`shell:` — последний резерв** — если деваться некуда, оберните `creates:` / `removes:`
+8. 🔐 **Vault шифрует секреты на диске** — мост к OpenBao из Lab 11 в проде
 
-> 💡 **The mindset shift:** stop telling the server *how* to get there. Tell it *where to end up*. Ansible figures out the rest.
+> 💡 **Сдвиг в голове:** не говорите серверу, *как* туда идти. Скажите, *где надо оказаться*. Дальше Ansible разберётся сам.
 
 ---
 
-## 📍 Slide 28 – 🚀 What Comes Next
+## 📍 Slide 28 – 🚀 Что дальше
 
-**📚 Lecture 6: *Advanced Ansible & Continuous Deployment*** — picks up from your Lab 5 roles and pushes them to production-grade:
+**📚 Lecture 6: *Продвинутый Ansible и непрерывный деплой*** — берёт роли из Lab 5 и доводит их до прода:
 
-* 🏷️ **Tags** — `ansible-playbook --tags docker` to run a subset
-* 🧱 **Blocks + `rescue:` / `always:`** — try/catch for tasks
-* 🚀 **Deployment strategies** — rolling, serial, max_fail_percentage
-* 🐙 **Docker Compose templates** rendered by Ansible
-* 🤖 **CI/CD** — running Ansible from GitHub Actions on every push to `main`
+* 🏷️ **Теги** — `ansible-playbook --tags docker`, чтобы прогнать кусок
+* 🧱 **Блоки + `rescue:` / `always:`** — try/catch для задач
+* 🚀 **Стратегии деплоя** — rolling, serial, max_fail_percentage
+* 🐙 **Шаблоны Docker Compose**, которые рендерит Ansible
+* 🤖 **CI/CD** — Ansible из GitHub Actions на каждый push в `main`
 
-**🔬 Lab 5 deliverables (this week):**
-* `roles/common` — base packages, timezone
-* `roles/docker` — install Docker (the example on slide 20)
-* `roles/app_deploy` — pull your Lab 2 image, run as a container, expose port 5000, verify `/health`
-* `group_vars/all/vault.yml` — encrypted Docker Hub credentials
-* `docs/LAB05.md` — idempotency proof (output of two consecutive runs)
-* Optional bonus: **dynamic inventory** against your Lab 4 cloud
+**🔬 Что сдать в Lab 5 (на этой неделе):**
+* `roles/common` — базовые пакеты, часовой пояс
+* `roles/docker` — установка Docker (пример на слайде 20)
+* `roles/app_deploy` — скачать образ из Lab 2, запустить контейнером, открыть порт 5000, проверить `/health`
+* `group_vars/all/vault.yml` — зашифрованные учётные данные Docker Hub
+* `docs/LAB05.md` — доказательство идемпотентности (вывод двух прогонов подряд)
+* Бонус по желанию: **динамический inventory** по облаку из Lab 4
 
 ```mermaid
 flowchart LR
-  Lab4[🌍 Lab 4: VM] --> Lab5[🔧 Lab 5: roles] --> Lab6[🚀 Lab 6: Tags + Compose + CI] --> Lab9[☸️ Lab 9: K8s]
+  Lab4[🌍 Lab 4: ВМ] --> Lab5[🔧 Lab 5: роли] --> Lab6[🚀 Lab 6: теги + Compose + CI] --> Lab9[☸️ Lab 9: K8s]
 ```
 
-**👋 See you in Lecture 6.**
+**👋 До встречи в Lecture 6.**
 
 ---
 
-## 📚 Resources
+## 📚 Материалы
 
-* 📕 *Ansible for DevOps* — Jeff Geerling (updated yearly; the practical reference)
-* 📕 *Ansible: Up & Running* — Hochstein & Moser, O'Reilly (3rd ed. covers `ansible-core`)
-* 🎥 [Jeff Geerling's Ansible 101 series](https://www.youtube.com/playlist?list=PL2_OBreMn7FqZkvMYt6ATmgC0KAGGJNAN) — free on YouTube
-* 🌐 [docs.ansible.com](https://docs.ansible.com/ansible-core/2.21/) — official `ansible-core 2.21` docs
-* 🌐 [galaxy.ansible.com](https://galaxy.ansible.com) — community roles and collections
-* 🌐 [Molecule](https://ansible.readthedocs.io/projects/molecule/) — role testing framework
+* 📕 *Ansible for DevOps* — Jeff Geerling (обновляется каждый год; практический справочник)
+* 📕 *Ansible: Up & Running* — Hochstein & Moser, O'Reilly (3-е изд. покрывает `ansible-core`)
+* 🎥 [Серия Ansible 101 от Jeff Geerling](https://www.youtube.com/playlist?list=PL2_OBreMn7FqZkvMYt6ATmgC0KAGGJNAN) — бесплатно на YouTube
+* 🌐 [docs.ansible.com](https://docs.ansible.com/ansible-core/2.21/) — официальная документация `ansible-core 2.21`
+* 🌐 [galaxy.ansible.com](https://galaxy.ansible.com) — роли и коллекции сообщества
+* 🌐 [Molecule](https://ansible.readthedocs.io/projects/molecule/) — фреймворк для тестов ролей
 
-**🎓 Post-lecture quiz feeds the weeks 4–6 leaderboard window.**
+**🎓 Квиз после лекции попадает в окно таблицы лидеров недель 4–6.**

@@ -1,48 +1,48 @@
-# Lab 5 — Ansible Fundamentals
+# Lab 5 — Основы Ansible
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
 ![topic](https://img.shields.io/badge/topic-Configuration%20Management-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Ansible--core%202.21-informational)
 
-> **Goal:** Configure the VM you provisioned in Lab 4 by writing three reusable Ansible roles (`common`, `docker`, `app_deploy`), then prove the whole thing is idempotent — second run, `changed=0`.
-> **Deliverable:** A PR from `lab05` with the `ansible/` project (three roles, two playbooks, encrypted Vault file, docs).
+> **Цель:** настройте ВМ из Lab 4. Напишите три роли Ansible, которые потом пригодятся снова (`common`, `docker`, `app_deploy`), и докажите идемпотентность: второй прогон даёт `changed=0`.
+> **Что сдать:** PR из ветки `lab05` с проектом `ansible/` (три роли, два playbook, зашифрованный файл Vault, документация).
 
 ---
 
-## Overview
+## Обзор
 
-In this lab you will practice:
-- Writing **idempotent** tasks with FQCN modules (`ansible.builtin.*`, `community.docker.*`)
-- Organising tasks into **roles** (`tasks/`, `handlers/`, `defaults/`, `templates/`) instead of one giant playbook
-- Using **handlers** so a service restarts only when its config actually changed
-- Encrypting secrets with **Ansible Vault** so they live in Git safely
-- Reading PLAY RECAP output: `changed=N` on run 1, `changed=0` on run 2 — the acceptance test of configuration management
+В этой лабораторной вы потренируетесь:
+- писать **идемпотентные** задачи модулями в FQCN (`ansible.builtin.*`, `community.docker.*`)
+- раскладывать задачи по **ролям** (`tasks/`, `handlers/`, `defaults/`, `templates/`), а не складывать всё в один гигантский playbook
+- пользоваться **handlers** (обработчик, который Ansible вызывает по `notify`), чтобы сервис перезапускался только когда его конфиг реально изменился
+- шифровать секреты через **Ansible Vault**, чтобы их можно было хранить в Git
+- читать вывод PLAY RECAP: `changed=N` на прогоне 1, `changed=0` на прогоне 2. Для управления конфигурацией это и есть критерий приёмки
 
-> ⚠️ **Scope:** Lab 4 *provisioned* the box (Terraform/Pulumi gave it an IP). Lab 5 *configures* what's inside. Lab 6 will add tags, blocks, Compose, and a CI workflow on top of these roles — and will **rename `app_deploy` → `web_app`** via `git mv`. The role names you pick this week will not be permanent for `app_deploy`; everything else carries through unchanged.
+> ⚠️ **Границы:** Lab 4 *создала* машину (Terraform/Pulumi дали ей IP). Lab 5 *настраивает* то, что внутри. Lab 6 добавит теги, блоки, Compose и CI-workflow поверх этих ролей и **переименует `app_deploy` → `web_app`** через `git mv`. Имя роли `app_deploy`, которое вы выберете на этой неделе, не останется навсегда. Всё остальное перейдёт дальше без изменений.
 
-> 💡 **No cloud VM? You can target localhost** — set `ansible_connection: local` in the inventory and skip `become:` on tasks that need root in a sudo-less sandbox. The role *logic* is what's graded; running cleanly against localhost with `--check` (where `become` is the only blocker) is accepted as a deliverable. Capture both PLAY RECAPs the same way (`changed=N` then `changed=0`).
+> 💡 **Нет облачной ВМ? Можно целиться в localhost.** Поставьте `ansible_connection: local` в inventory и уберите `become:` у задач, которым нужен root в песочнице без sudo. Оценивается *логика* роли. Чистый прогон на localhost с `--check` (где единственная помеха — `become`) принимается как сдача. Оба PLAY RECAP снимите так же: сначала `changed=N`, потом `changed=0`.
 
-> **A note on "LTS":** `ansible-core` has **no formal LTS label**. The open-source engine commits to ~6 months of security fixes per minor release; currently supported versions are **2.18, 2.19, 2.20, 2.21**. Use **2.21**. Red Hat's commercial *Ansible Automation Platform* offers extended support — that is a different product. Slides on the internet that say "2.17 LTS" predate the policy clarification.
-
----
-
-## Project State
-
-**You should have from previous labs:**
-- Lab 2: a Docker image of your Python service pushed to Docker Hub (or any registry)
-- Lab 4: a reachable Ubuntu VM (cloud or local libvirt) with passwordless `sudo` for your login user
-
-**This lab adds:**
-- `ansible/` — three roles, two playbooks, static inventory, encrypted Vault, docs
-
-By Lab 6 these same roles get tags + blocks + a CI workflow; by Lab 9 the same image runs on Kubernetes. The decisions you make this week — role granularity, variable layout, FQCN — outlive Lab 5.
+> **Заметка про «LTS»:** у `ansible-core` **нет формальной метки LTS**. Открытый движок обещает ~6 месяцев исправлений безопасности на каждый минорный релиз; сейчас поддерживаются **2.18, 2.19, 2.20, 2.21**. Берите **2.21**. Коммерческий *Ansible Automation Platform* от Red Hat даёт расширенную поддержку. Это другой продукт. Слайды в интернете с надписью «2.17 LTS» написаны до того, как политику уточнили.
 
 ---
 
-## Setup
+## Состояние проекта
 
-Control node (your laptop or CI runner):
+**У вас уже должно быть из прошлых лабораторных:**
+- Lab 2: образ Docker вашего Python-сервиса после push в Docker Hub (или любой другой registry)
+- Lab 4: доступная ВМ Ubuntu (облако или локальный libvirt) и `sudo` без пароля для вашего пользователя
+
+**Эта лабораторная добавляет:**
+- `ansible/` — три роли, два playbook, статический inventory, зашифрованный Vault, документация
+
+К Lab 6 у этих же ролей появятся теги, блоки и CI-workflow; к Lab 9 тот же образ будет работать в Kubernetes. Решения этой недели — насколько дробить роли, как разложить переменные, FQCN — переживут Lab 5.
+
+---
+
+## Подготовка
+
+Управляющий узел (ваш ноутбук или CI-runner):
 
 ```bash
 python3 --version          # 3.11+
@@ -52,13 +52,13 @@ ansible --version          # expect: ansible [core 2.21.x] / python 3.11+
 ansible-galaxy collection install community.docker community.general
 ```
 
-Target VM (from Lab 4):
-- Ubuntu 24.04 LTS (or 22.04)
-- SSH access with your key
-- **Passwordless `sudo`** for the login user (cloud-init's default — `become:` fails without it)
-- Python 3 present (default on Ubuntu)
+Целевая ВМ (из Lab 4):
+- Ubuntu 24.04 LTS (или 22.04)
+- доступ по SSH вашим ключом
+- **`sudo` без пароля** для пользователя, под которым вы входите (так cloud-init делает по умолчанию; без этого `become:` падает)
+- Python 3 уже есть (на Ubuntu он стоит сразу)
 
-Create the directory layout (you'll fill the files yourself):
+Создайте дерево каталогов (файлы заполните сами):
 
 ```
 ansible/
@@ -88,26 +88,26 @@ ansible/
     └── LAB05.md                  # your submission report
 ```
 
-> Only create the subdirectories you actually use. A role with no handlers needs no `handlers/`.
+> Создавайте только те подкаталоги, которые реально используете. Если у роли нет handlers, каталог `handlers/` не нужен.
 
 ---
 
-## Task 1 — Inventory & Role Scaffolding (2 pts)
+## Задача 1 — Inventory и каркас ролей (2 балла)
 
-### 1.1 — Why FQCN, and why now
+### 1.1 — Зачем FQCN и почему сейчас
 
-Since the 2021 `ansible-core` / `ansible` split, modules are referenced by their **Fully-Qualified Collection Name**: `ansible.builtin.apt`, not bare `apt`; `community.docker.docker_container`, not bare `docker_container`. Two reasons it matters:
+После разделения 2021 года на `ansible-core` и `ansible` модули вызывают по **FQCN** (Fully Qualified Collection Name, полное имя коллекции и модуля): `ansible.builtin.apt`, не голое `apt`; `community.docker.docker_container`, не голое `docker_container`. Это важно по двум причинам:
 
-1. **Disambiguation.** Two collections can ship a module with the same short name. Bare names silently resolve to whichever loaded first — a Heisenbug waiting to happen on a CI runner with a different collection set.
-2. **Future-proofing.** The short-name shortcut is deprecated; new modules ship FQCN-only. Lab 6's CI workflow will lint your roles for bare names.
+1. **Однозначность.** Две коллекции могут привезти модуль с одним коротким именем. Голое имя молча резолвится в тот, что загрузился первым. На CI-runner с другим набором коллекций это Heisenbug, который только и ждёт.
+2. **Запас на будущее.** Сокращение до короткого имени устарело, новые модули выходят только с FQCN. CI-workflow в Lab 6 прогонит lint ролей и поймает голые имена.
 
-Bare names "work" in 2026 the way `from __future__ import ...` "worked" in Python 2 — until the day they don't. Use FQCN everywhere.
+Голые имена в 2026 «работают» так же, как `from __future__ import ...` «работал» в Python 2, — до дня, когда перестанут. Используйте FQCN везде.
 
-### 1.2 — Static inventory
+### 1.2 — Статический inventory
 
-`YOUR TASK`: write `inventory/hosts.ini` that puts your Lab 4 VM in a `webservers` group. Required keys per host: `ansible_host` (the IP), `ansible_user` (`ubuntu`), and a `[webservers:vars]` block with `ansible_ssh_private_key_file` (path to your Lab 4 key) and `ansible_python_interpreter=/usr/bin/python3`.
+`ВАША ЗАДАЧА`: напишите `inventory/hosts.ini`, который кладёт ВМ из Lab 4 в группу `webservers`. На каждом хосте нужны `ansible_host` (IP), `ansible_user` (`ubuntu`) и блок `[webservers:vars]` с `ansible_ssh_private_key_file` (путь к ключу из Lab 4) и `ansible_python_interpreter=/usr/bin/python3`.
 
-Skeleton (fill the blanks; everything in `___` is yours):
+Каркас (заполните пропуски; всё, что в `___`, — ваше):
 
 ```ini
 [webservers]
@@ -119,9 +119,9 @@ ansible_python_interpreter=___                   # YOUR TASK: usually /usr/bin/p
 ```
 
 <details>
-<summary>💡 Targeting localhost instead (sudo-less sandbox)</summary>
+<summary>💡 Если целитесь в localhost (песочница без sudo)</summary>
 
-If you don't have a Lab 4 VM handy and want to run on the control node itself:
+Если ВМ из Lab 4 под рукой нет и вы хотите гонять на самом управляющем узле:
 
 ```ini
 [webservers]
@@ -131,15 +131,15 @@ lab-vm ansible_host=localhost ansible_user=___ ansible_connection=local   # loca
 ansible_python_interpreter=/usr/bin/python3
 ```
 
-`ansible_connection: local` makes Ansible skip SSH entirely and `exec` modules in-process. The same roles run; tasks needing root (`apt`, `service`) require local `sudo`. If your sandbox has no passwordless sudo, accept that those tasks won't apply for real but their *logic* still validates in `--check` mode — note that explicitly in your `docs/LAB05.md` and capture the `--check` PLAY RECAPs as your idempotency proof.
+`ansible_connection: local` заставляет Ansible вообще не ходить по SSH и выполнять модули в том же процессе через `exec`. Роли те же. Задачам, которым нужен root (`apt`, `service`), нужен локальный `sudo`. Если в песочнице нет sudo без пароля, смиритесь: эти задачи по-настоящему не применятся, но их *логика* всё равно проверяется в режиме `--check`. Напишите об этом явно в `docs/LAB05.md` и снимите PLAY RECAP с `--check` как доказательство идемпотентности.
 
 </details>
 
 ### 1.3 — `ansible.cfg`
 
-`YOUR TASK`: write `ansible.cfg` with these keys (look up the exact section headers in the docs — don't copy from Stack Overflow, half the answers there set `host_key_checking=False` globally which is a lab convenience, not a prod practice):
+`ВАША ЗАДАЧА`: напишите `ansible.cfg` с этими ключами (точные заголовки секций найдите в документации, со Stack Overflow не копируйте: половина ответов ставит `host_key_checking=False` глобально, а это удобство лабораторной, не практика прода):
 
-- `[defaults]`: `inventory` (path to your inventory), `roles_path` (path to your roles dir), `host_key_checking` (False for lab; understand why prod sets it to True), `retry_files_enabled` (False)
+- `[defaults]`: `inventory` (путь к вашему inventory), `roles_path` (путь к каталогу ролей), `host_key_checking` (для лабораторной False; поймите, почему на проде его ставят в True), `retry_files_enabled` (False)
 - `[privilege_escalation]`: `become`, `become_method`, `become_user`
 
 ```ini
@@ -155,7 +155,7 @@ become_method = ___                               # YOUR TASK
 become_user = ___                                 # YOUR TASK
 ```
 
-### 1.4 — Test connectivity
+### 1.4 — Проверьте связь
 
 ```bash
 cd ansible/
@@ -163,30 +163,30 @@ ansible all -m ansible.builtin.ping
 ansible webservers -a "uname -a"
 ```
 
-The ping must return `pong` (illustrative — your hostname will differ):
+Ping должен вернуть `pong` (пример: имя хоста у вас будет другим):
 
 ```text
 lab-vm | SUCCESS => { "changed": false, "ping": "pong" }
 ```
 
-### 1.5 — Proof of work
+### 1.5 — Доказательство работы
 
-Paste into `docs/LAB05.md`:
+Вставьте в `docs/LAB05.md`:
 
-- `ansible --version` output (must show 2.21.x)
-- `ansible all -m ansible.builtin.ping` output (the `pong`)
-- `ansible webservers -a "uname -a"` output (proves SSH + shell access)
-- Two sentences on **why FQCN matters** (in your own words)
+- вывод `ansible --version` (должна быть 2.21.x)
+- вывод `ansible all -m ansible.builtin.ping` (тот самый `pong`)
+- вывод `ansible webservers -a "uname -a"` (доказывает SSH и доступ к shell)
+- два предложения, **зачем нужен FQCN** (своими словами)
 
 ---
 
-## Task 2 — Provisioning Roles: `common` + `docker` (3 pts)
+## Задача 2 — Роли подготовки: `common` и `docker` (3 балла)
 
-A *role* is a directory tree with conventional subfolders. Drop one into a playbook with one line. The rule: if you'd copy-paste the same tasks between two playbooks, it's a role.
+*Роль* — это дерево каталогов с привычными подпапками. В playbook она подключается одной строкой. Правило простое: если одни и те же задачи вы копируете между двумя playbook, это роль.
 
-### 2.1 — `common` role — base packages + timezone
+### 2.1 — Роль `common`: базовые пакеты и часовой пояс
 
-`YOUR TASK`: write `roles/common/defaults/main.yml` and `roles/common/tasks/main.yml`. The defaults file holds *variables a user might want to override*; the tasks file holds the actual work.
+`ВАША ЗАДАЧА`: напишите `roles/common/defaults/main.yml` и `roles/common/tasks/main.yml`. В defaults лежат *переменные, которые пользователь может захотеть переопределить*. В tasks — сама работа.
 
 `roles/common/defaults/main.yml`:
 
@@ -200,7 +200,7 @@ common_packages:                                  # YOUR TASK: list at least 4 b
 common_timezone: ___                              # YOUR TASK: Etc/UTC or your region
 ```
 
-`roles/common/tasks/main.yml` — module names given (those are *the lecture's choice*); args are yours:
+`roles/common/tasks/main.yml` — имена модулей даны (это *выбор лекции*); аргументы ваши:
 
 ```yaml
 ---
@@ -224,13 +224,13 @@ common_timezone: ___                              # YOUR TASK: Etc/UTC or your r
   tags: [___]                                     # YOUR TASK
 ```
 
-A few of the *whys* you must answer in `docs/LAB05.md` (one sentence each):
+Несколько *почему*, на которые нужно ответить в `docs/LAB05.md` (по одному предложению):
 
-- **`become: true` is selective, not blanket.** Why does the timezone task need root but a `ping` doesn't? Why is `become: true` on the *play* a code smell when a single task is the only privilege escalator? (Hint: blast radius + readability.)
-- **`state: present` vs `state: latest`.** Both install the package. Why does `present` produce reproducible runs and `latest` quietly break idempotency the moment upstream publishes a new version?
-- **Why tag tasks now?** Lab 6 will run `ansible-playbook --tags docker` to deploy only the Docker bits. If you don't tag now, Lab 6's first step is "go back and tag everything." Build the habit.
+- **`become: true` точечно, не на всё подряд.** Зачем задаче с часовым поясом нужен root, а `ping` — нет? Почему `become: true` на уровне *play* дурно пахнет, если привилегии поднимает одна задача? (Подсказка: радиус поражения и читаемость.)
+- **`state: present` против `state: latest`.** Оба ставят пакет. Почему `present` даёт повторяемые прогоны, а `latest` тихо ломает идемпотентность в ту секунду, когда апстрим публикует новую версию?
+- **Зачем ставить теги уже сейчас?** Lab 6 запустит `ansible-playbook --tags docker`, чтобы выкатить только часть про Docker. Если не разметите теги сейчас, первый шаг Lab 6 — «вернитесь и проставьте теги везде». Привыкайте сразу.
 
-### 2.2 — `docker` role — install Docker engine
+### 2.2 — Роль `docker`: установка Docker Engine
 
 `roles/docker/defaults/main.yml`:
 
@@ -240,7 +240,7 @@ docker_user: ___                                  # YOUR TASK: the login user to
 docker_log_max_size: ___                          # YOUR TASK: a sane value, e.g. "10m"
 ```
 
-`roles/docker/templates/daemon.json.j2` — Jinja2 template rendered to `/etc/docker/daemon.json`:
+`roles/docker/templates/daemon.json.j2` — шаблон Jinja2, который рендерится в `/etc/docker/daemon.json`:
 
 ```jinja
 {
@@ -259,7 +259,7 @@ docker_log_max_size: ___                          # YOUR TASK: a sane value, e.g
     state: ___                                    # YOUR TASK: restarted? reloaded? why?
 ```
 
-`roles/docker/tasks/main.yml` — the heavy lifting. Module names are given (those follow the lecture's slide-20 example); the args are the skill:
+`roles/docker/tasks/main.yml` — основная работа. Имена модулей даны (как в примере со слайда 20 лекции); аргументы и есть навык:
 
 ```yaml
 ---
@@ -313,15 +313,15 @@ docker_log_max_size: ___                          # YOUR TASK: a sane value, e.g
     state: ___                                    # YOUR TASK
 ```
 
-The *whys* you must answer:
+*Почему*, на которые нужно ответить:
 
-- **Why `{{ ansible_distribution_release }}`?** It resolves to `noble` on Ubuntu 24.04 and `jammy` on 22.04 — one role, both distros. (Comes from `gather_facts: true` — leave it on.)
-- **Why the `notify:` on the template task, not the apt task?** A package install is a one-shot. A config-file change should restart Docker only when the file *actually changes*. That's the handler's purpose: a fresh first run restarts Docker once; the second run sees the file unchanged and skips the handler entirely. No `changed`, no restart, no downtime.
-- **Why `append: true` on the user task?** Without it, Ansible *replaces* the user's group list — booting them out of `sudo`, `adm`, every group they were already in. This is the single most common Ansible footgun on shared boxes.
+- **Зачем `{{ ansible_distribution_release }}`?** На Ubuntu 24.04 это `noble`, на 22.04 — `jammy`. Одна роль, оба дистрибутива. (Значение берётся из `gather_facts: true`. Оставьте его включённым.)
+- **Почему `notify:` стоит на задаче с шаблоном, а не на задаче apt?** Установка пакета — разовая. Смена конфига должна перезапускать Docker только когда файл *реально изменился*. Для этого и нужен handler: первый прогон перезапускает Docker один раз, второй видит, что файл тот же, и handler пропускает. Нет `changed` — нет рестарта и нет простоя.
+- **Зачем `append: true` в задаче пользователя?** Без него Ansible *подменяет* список групп и выкидывает пользователя из `sudo`, `adm` и всех групп, где он уже был. На общих машинах это самая частая ловушка Ansible.
 
-### 2.3 — Provisioning playbook
+### 2.3 — Playbook подготовки
 
-`playbooks/provision.yml` — thin by design, all logic lives in the roles:
+`playbooks/provision.yml` — тонкий нарочно: вся логика живёт в ролях:
 
 ```yaml
 ---
@@ -334,39 +334,39 @@ The *whys* you must answer:
     - ___                                         # YOUR TASK
 ```
 
-### 2.4 — Run and verify
+### 2.4 — Запустите и проверьте
 
 ```bash
 ansible-playbook playbooks/provision.yml          # first real run
 ```
 
-First run is mostly yellow (illustrative; your `changed` count will differ):
+Первый прогон в основном жёлтый (пример; число `changed` у вас будет другим):
 
 ```text
 PLAY RECAP **********************************************************
 lab-vm : ok=11  changed=8  unreachable=0  failed=0
 ```
 
-### 2.5 — Proof of work
+### 2.5 — Доказательство работы
 
-Paste into `docs/LAB05.md`:
+Вставьте в `docs/LAB05.md`:
 
-- Both files' content (`common/tasks/main.yml`, `docker/tasks/main.yml`) — fenced as YAML
-- The **full PLAY RECAP** line from `ansible-playbook playbooks/provision.yml`
-- `ansible webservers -a "docker --version"` output proving Docker is on the box
-- Your one-paragraph answer to each *why* in 2.1 and 2.2
+- содержимое обоих файлов (`common/tasks/main.yml`, `docker/tasks/main.yml`), в блоке YAML
+- **полную строку PLAY RECAP** из `ansible-playbook playbooks/provision.yml`
+- вывод `ansible webservers -a "docker --version"`: Docker стоит на машине
+- ответ одним абзацем на каждое *почему* из 2.1 и 2.2
 
 ---
 
-## Task 3 — Application Deployment Role + Vault (3 pts)
+## Задача 3 — Роль выкладки приложения и Vault (3 балла)
 
-### 3.1 — Encrypt credentials with Ansible Vault
+### 3.1 — Зашифруйте учётные данные через Ansible Vault
 
 ```bash
 ansible-vault create group_vars/all/vault.yml
 ```
 
-You'll be prompted for a Vault password. **Save that password now** in a gitignored file so the 4 reruns in Task 4 don't make you retype it:
+Вас спросят пароль Vault. **Сохраните его сразу** в файл, который git игнорирует, чтобы четыре повторных прогона в задаче 4 не заставляли набирать его заново:
 
 ```bash
 echo 'your-vault-password' > .vault_pass
@@ -374,14 +374,14 @@ chmod 600 .vault_pass
 # .vault_pass is already in your .gitignore (see "How to Submit")
 ```
 
-Tell Ansible to use it (one of two ways — pick one):
+Скажите Ansible, откуда брать пароль (два способа, выберите один):
 
-- Per-command: `ansible-playbook playbooks/deploy.yml --vault-password-file .vault_pass`
-- In `ansible.cfg`: add `vault_password_file = .vault_pass` under `[defaults]`
+- В команде: `ansible-playbook playbooks/deploy.yml --vault-password-file .vault_pass`
+- В `ansible.cfg`: добавьте `vault_password_file = .vault_pass` в секцию `[defaults]`
 
-(The `--ask-vault-pass` form in §3.4 below is the prompt-each-time alternative — use whichever you prefer.)
+(Форма `--ask-vault-pass` в §3.4 ниже спрашивает пароль каждый раз. Берите тот вариант, который удобнее.)
 
-`YOUR TASK`: put your Docker Hub credentials and app config inside (the file is AES-256 encrypted at rest — safe to commit; the password is NOT).
+`ВАША ЗАДАЧА`: положите внутрь учётные данные Docker Hub и конфиг приложения (на диске файл зашифрован AES-256, его можно коммитить; пароль нельзя).
 
 ```yaml
 ---
@@ -393,15 +393,15 @@ app_port: ___                                     # YOUR TASK
 app_container_name: ___                           # YOUR TASK
 ```
 
-Confirm it decrypts:
+Проверьте, что он расшифровывается:
 
 ```bash
 ansible-vault view group_vars/all/vault.yml
 ```
 
-> Why a Docker Hub *access token*, not your account password? An access token is scoped (read-only / read-write / admin), revocable per-token, and shows up in your DH audit log. A password leak compromises the whole account.
+> Почему *access token* Docker Hub, а не пароль аккаунта? Токен ограничен по правам (read-only / read-write / admin), отзывается по одному и виден в аудит-логе DH. Утечка пароля открывает весь аккаунт.
 
-### 3.2 — `app_deploy` role
+### 3.2 — Роль `app_deploy`
 
 `roles/app_deploy/defaults/main.yml`:
 
@@ -422,7 +422,7 @@ app_health_path: ___                              # YOUR TASK: /health (matches 
     restart: ___                                  # YOUR TASK
 ```
 
-`roles/app_deploy/tasks/main.yml` — module names given (this is the lecture's `community.docker.*` choice); args are the skill:
+`roles/app_deploy/tasks/main.yml` — имена модулей даны (это выбор лекции: `community.docker.*`); аргументы и есть навык:
 
 ```yaml
 ---
@@ -463,13 +463,13 @@ app_health_path: ___                              # YOUR TASK: /health (matches 
   register: ___                                   # YOUR TASK: capture the response so docs can show it
 ```
 
-The *whys* (one sentence each in `docs/LAB05.md`):
+*Почему* (по одному предложению в `docs/LAB05.md`):
 
-- **`no_log: true` on the login task** — without it, your Docker Hub token shows up plaintext in the CI build log. CI logs are world-readable on public repos. There is no "delete" button.
-- **`pull: never` on the run task** — the previous pull step already fetched the right image. `pull: always` on `docker_container` re-pulls every run, which (a) breaks idempotency cosmetically and (b) wastes a registry round-trip.
-- **Why the `community.docker` collection and not `community.general`?** Docker modules were forked into a dedicated collection in 2020 for faster release cadence. `community.general.docker_*` doesn't exist anymore — bare-Stack-Overflow answers may still reference it; they're stale.
+- **`no_log: true` на задаче логина.** Без него токен Docker Hub попадёт открытым текстом в лог сборки CI. Логи CI в публичных репозиториях читает кто угодно. Кнопки «удалить» нет.
+- **`pull: never` на задаче запуска.** Предыдущий шаг pull уже скачал нужный образ. `pull: always` у `docker_container` тянет образ на каждом прогоне: (a) портит картину идемпотентности и (b) зря ходит в registry.
+- **Почему коллекция `community.docker`, а не `community.general`?** Модули Docker в 2020 вынесли в отдельную коллекцию, чтобы выпускать их чаще. `community.general.docker_*` больше нет. Голые ответы со Stack Overflow ещё могут на него ссылаться. Они устарели.
 
-### 3.3 — Deployment playbook
+### 3.3 — Playbook выкладки
 
 `playbooks/deploy.yml`:
 
@@ -483,28 +483,28 @@ The *whys* (one sentence each in `docs/LAB05.md`):
     - ___                                         # YOUR TASK
 ```
 
-### 3.4 — Run and verify
+### 3.4 — Запустите и проверьте
 
 ```bash
 ansible-playbook playbooks/deploy.yml --ask-vault-pass    # or --vault-password-file .vault_pass
 curl -fsS http://<VM-IP>:<app_port>/health | jq .         # expect HTTP 200 + JSON
 ```
 
-### 3.5 — Proof of work
+### 3.5 — Доказательство работы
 
-Paste into `docs/LAB05.md`:
+Вставьте в `docs/LAB05.md`:
 
-- `app_deploy/tasks/main.yml` content (fenced YAML)
-- The PLAY RECAP from `ansible-playbook playbooks/deploy.yml` (run #1)
-- `ansible webservers -a "docker ps --format '{% raw %}{{.Names}}\t{{.Status}}{% endraw %}'"` output (your container running)
-- `curl -s http://<VM-IP>:<port>/health | jq .` against the VM (HTTP 200, the real JSON your Lab 1 service emits)
-- Proof Vault file is encrypted: `head -1 group_vars/all/vault.yml` showing `$ANSIBLE_VAULT;1.1;AES256`
+- содержимое `app_deploy/tasks/main.yml` (YAML в блоке)
+- PLAY RECAP из `ansible-playbook playbooks/deploy.yml` (прогон №1)
+- вывод `ansible webservers -a "docker ps --format '{% raw %}{{.Names}}\t{{.Status}}{% endraw %}'"` (ваш контейнер запущен)
+- `curl -s http://<VM-IP>:<port>/health | jq .` на ВМ (HTTP 200 и тот JSON, который отдаёт сервис из Lab 1)
+- доказательство, что файл Vault зашифрован: `head -1 group_vars/all/vault.yml` показывает `$ANSIBLE_VAULT;1.1;AES256`
 
 ---
 
-## Task 4 — Idempotency Proof (1 pt)
+## Задача 4 — Доказательство идемпотентности (1 балл)
 
-This is the headline acceptance test. Configuration management's killer feature is that running the same playbook twice has the same effect as running it once.
+Это главный критерий приёмки. Вся сила управления конфигурацией в том, что второй прогон того же playbook делает то же, что и один.
 
 ```bash
 # Vault password file in place (see Task 3.1) OR add --ask-vault-pass to each line
@@ -514,9 +514,9 @@ ansible-playbook playbooks/deploy.yml             # run #1 (already done in Task
 ansible-playbook playbooks/deploy.yml             # run #2
 ```
 
-> 💡 Once `group_vars/all/vault.yml` exists, **every** playbook (including `provision.yml`) loads it on start and needs the Vault password — even though `provision.yml` doesn't *use* the secrets. Either set `vault_password_file` in `ansible.cfg` once, or append `--ask-vault-pass` to all four commands above.
+> 💡 Как только появился `group_vars/all/vault.yml`, **каждый** playbook (включая `provision.yml`) грузит его на старте и просит пароль Vault, хотя `provision.yml` секреты *не использует*. Либо один раз пропишите `vault_password_file` в `ansible.cfg`, либо допишите `--ask-vault-pass` ко всем четырём командам выше.
 
-The **second run of each must report `changed=0`**. (Illustrative.)
+**Второй прогон каждого обязан показать `changed=0`**. (Пример.)
 
 ```text
 # provision.yml, run #1
@@ -530,67 +530,67 @@ lab-vm : ok=6   changed=4  unreachable=0  failed=0
 lab-vm : ok=6   changed=0  unreachable=0  failed=0       # ← changed=0 = idempotent ✓
 ```
 
-If anything still changes on run #2, **the task is not idempotent — fix it**. Usual culprits:
+Если на прогоне №2 что-то всё ещё меняется, **задача не идемпотентна. Чините.** Обычные виновники:
 
-- A stray `ansible.builtin.shell` or `command` (no state model). Wrap with `creates:`/`removes:`, or replace with the proper module.
-- A template that renders a timestamp or random value.
-- `state: latest` on a package — the moment the upstream repo gets a new version, you'll see `changed=1` forever.
-- `force_source: true` on `docker_image` — always re-pulls.
+- Залётный `ansible.builtin.shell` или `command` (у них нет модели состояния). Оберните через `creates:`/`removes:` или замените нужным модулем.
+- Шаблон, который подставляет время или случайное значение.
+- `state: latest` у пакета. Как только в репозитории апстрима появится новая версия, `changed=1` будет на каждом прогоне.
+- `force_source: true` у `docker_image`. Образ тянется каждый раз.
 
-Confirm there's no drift with a dry-run:
+Сухим прогоном проверьте, что drift (расхождение с описанным состоянием) не вылез:
 
 ```bash
 ansible-playbook playbooks/provision.yml --check --diff
 ```
 
-### 4.1 — Proof of work
+### 4.1 — Доказательство работы
 
-Paste into `docs/LAB05.md`:
+Вставьте в `docs/LAB05.md`:
 
-- Both PLAY RECAPs from `provision.yml` (run #1 changed=N, run #2 changed=0)
-- Both PLAY RECAPs from `deploy.yml` (same shape)
-- Output of the `--check --diff` dry-run (no changes, no diffs)
-- A one-paragraph analysis: which tasks changed on run #1, why they reported `ok` on run #2, and if anything stayed `changed=1` — what you fixed
-
----
-
-## Task 5 — Documentation (1 pt)
-
-`ansible/docs/LAB05.md` — required sections, in order:
-
-1. **Architecture** — `ansible-core` version, target OS, why three roles (not one monolithic playbook)
-2. **Roles** — for each of `common`, `docker`, `app_deploy`: purpose, key variables, handler behaviour
-3. **The *why* answers** from Tasks 2 and 3 (FQCN, selective `become`, `state: present` vs `latest`, `append: true`, handler on template vs on apt, `no_log`, `pull: never`)
-4. **Idempotency proof** — both PLAY RECAPs (Task 4) with one-paragraph analysis
-5. **Vault** — how credentials are stored, password-handling strategy, the encrypted-header proof
-6. **Deployment verification** — `docker ps` and the `/health` `curl` output
+- оба PLAY RECAP из `provision.yml` (прогон №1: changed=N, прогон №2: changed=0)
+- оба PLAY RECAP из `deploy.yml` (та же форма)
+- вывод сухого прогона `--check --diff` (нет изменений, нет diff)
+- разбор одним абзацем: какие задачи поменялись на прогоне №1, почему на прогоне №2 они показали `ok`, и если что-то осталось `changed=1` — что вы исправили
 
 ---
 
-## Bonus Task — Dynamic Inventory (2 pts)
+## Задача 5 — Документация (1 балл)
 
-Discover your Lab 4 VM(s) automatically via a cloud inventory plugin instead of hardcoding the IP. A static list rots the moment a VM is recreated and gets a new address — the inventory has to know that *before* Ansible can configure anything.
+`ansible/docs/LAB05.md`. Нужные разделы, по порядку:
 
-`YOUR TASK`:
+1. **Архитектура** — версия `ansible-core`, ОС цели, зачем три роли, а не один монолитный playbook
+2. **Роли** — для каждой из `common`, `docker`, `app_deploy`: зачем она, ключевые переменные, как ведёт себя handler
+3. **Ответы на *почему*** из задач 2 и 3 (FQCN, точечный `become`, `state: present` против `latest`, `append: true`, handler на шаблоне, а не на apt, `no_log`, `pull: never`)
+4. **Доказательство идемпотентности** — оба PLAY RECAP (задача 4) и разбор абзацем
+5. **Vault** — как лежат учётные данные, как вы обращаетесь с паролем, доказательство зашифрованного заголовка
+6. **Проверка выкладки** — `docker ps` и вывод `curl` на `/health`
 
-1. Install the collection for your Lab 4 cloud:
+---
+
+## Бонусная задача — Динамический inventory (2 балла)
+
+Находите ВМ из Lab 4 сами, через облачный плагин inventory, без зашитого IP. Статический список протухает, как только ВМ пересоздали и у неё новый адрес. Inventory должен узнать это *раньше*, чем Ansible начнёт что-то настраивать.
+
+`ВАША ЗАДАЧА`:
+
+1. Поставьте коллекцию под облако из Lab 4:
    ```bash
    ansible-galaxy collection install ___        # YOUR TASK: amazon.aws / google.cloud / azure.azcollection / yandex.cloud
    ```
-2. Write `inventory/<cloud>.yml` that:
-   - Sets `plugin:` to the FQCN inventory plugin (e.g. `amazon.aws.aws_ec2`)
-   - Filters to **running** instances tagged for this course (use `filters:`)
-   - Uses `compose:` to set `ansible_host` to the public IP (the field name varies — see hints below)
-   - Uses `keyed_groups:` to build a group automatically (e.g. `webservers` from a `Role` tag)
-3. Point Ansible at it (`-i inventory/<cloud>.yml` or update `ansible.cfg`)
-4. Run:
+2. Напишите `inventory/<cloud>.yml`, который:
+   - ставит `plugin:` в FQCN плагина inventory (например `amazon.aws.aws_ec2`)
+   - оставляет только **running** инстансы с тегом этого курса (через `filters:`)
+   - через `compose:` пишет в `ansible_host` публичный IP (имя поля разное, подсказки ниже)
+   - через `keyed_groups:` собирает группу сам (например `webservers` из тега `Role`)
+3. Направьте на него Ansible (`-i inventory/<cloud>.yml` или поправьте `ansible.cfg`)
+4. Запустите:
    ```bash
    ansible-inventory -i inventory/<cloud>.yml --graph
    ansible all -i inventory/<cloud>.yml -m ansible.builtin.ping
    ansible-playbook -i inventory/<cloud>.yml playbooks/provision.yml --check --diff
    ```
 
-Skeleton (AWS — adapt field names for your cloud):
+Каркас (AWS — имена полей подставьте под своё облако):
 
 ```yaml
 # inventory/aws.yml
@@ -608,31 +608,31 @@ compose:
 ```
 
 <details>
-<summary>💡 Per-cloud field hints</summary>
+<summary>💡 Подсказки по полям облаков</summary>
 
-| Cloud | Collection | Plugin | Public-IP field |
+| Облако | Коллекция | Плагин | Поле публичного IP |
 |---|---|---|---|
 | AWS | `amazon.aws` | `aws_ec2` | `public_ip_address` |
 | GCP | `google.cloud` | `gcp_compute` | `networkInterfaces[0].accessConfigs[0].natIP` |
 | Azure | `azure.azcollection` | `azure_rm` | `public_ipv4_addresses[0]` |
-| Yandex | `yandex.cloud` | `yandex_compute` | nested under `network_interfaces[0]` |
+| Yandex | `yandex.cloud` | `yandex_compute` | вложено в `network_interfaces[0]` |
 
-Docs: [Inventory plugins](https://docs.ansible.com/ansible-core/2.21/plugins/inventory.html) · [aws_ec2](https://docs.ansible.com/ansible/latest/collections/amazon/aws/aws_ec2_inventory.html)
+Документация: [Плагины inventory](https://docs.ansible.com/ansible-core/2.21/plugins/inventory.html) · [aws_ec2](https://docs.ansible.com/ansible/latest/collections/amazon/aws/aws_ec2_inventory.html)
 
 </details>
 
-### Bonus proof of work
+### Доказательство по бонусу
 
-Paste into `docs/LAB05.md`:
+Вставьте в `docs/LAB05.md`:
 
-- The full `inventory/<cloud>.yml` (no secrets — auth is via env vars / IAM role)
-- `ansible-inventory --graph` output showing the auto-discovered host(s)
-- `ansible all -i inventory/<cloud>.yml -m ansible.builtin.ping` PLAY RECAP
-- One paragraph: which plugin you used and why, how you authenticated (env vars? IAM instance profile? cloud SDK config?), and what happens when a VM's IP changes (nothing — no manual edits)
+- полный `inventory/<cloud>.yml` (без секретов: вход через переменные окружения или IAM-роль)
+- вывод `ansible-inventory --graph`, где видны хосты, найденные сами
+- PLAY RECAP команды `ansible all -i inventory/<cloud>.yml -m ansible.builtin.ping`
+- один абзац: какой плагин взяли и почему, как входили (переменные окружения? IAM instance profile? конфиг cloud SDK?) и что будет, когда IP ВМ сменится (ничего: руками править не нужно)
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab05
@@ -650,14 +650,14 @@ git commit -m "feat(lab05): ansible roles — common, docker, app_deploy + idemp
 git push -u origin lab05
 ```
 
-**Verify before pushing:** `.vault_pass` absent, SSH private keys absent, only the *encrypted* `vault.yml` committed.
+**Перед push проверьте:** нет `.vault_pass`, нет приватных SSH-ключей, в коммите только *зашифрованный* `vault.yml`.
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab05` → `course-repo:master` *(reviewed)*
-- `your-fork:lab05` → `your-fork:master` *(merges into your own main when done)*
+- `your-fork:lab05` → `course-repo:master` *(на ревью)*
+- `your-fork:lab05` → `your-fork:master` *(сольётся в ваш main, когда закончите)*
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 done — inventory + ansible.cfg + ping succeeds
@@ -670,78 +670,78 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 (2 pts)
-- ✅ `ansible-core` 2.21 installed (`ansible --version`)
-- ✅ Three roles scaffolded (`common`, `docker`, `app_deploy`) with conventional subdirs
-- ✅ Static inventory + `ansible.cfg` configured
-- ✅ `ansible all -m ansible.builtin.ping` returns `pong`
+### Задача 1 (2 балла)
+- ✅ `ansible-core` 2.21 установлен (`ansible --version`)
+- ✅ Три роли разложены (`common`, `docker`, `app_deploy`) по обычным подкаталогам
+- ✅ Статический inventory и `ansible.cfg` настроены
+- ✅ `ansible all -m ansible.builtin.ping` возвращает `pong`
 
-### Task 2 (3 pts)
-- ✅ `common` role installs base packages, sets timezone — passes with `become: true` only where root is needed
-- ✅ `docker` role installs Docker Engine, renders `daemon.json`, manages the service, adds the user to the `docker` group with `append: true`
-- ✅ All tasks use FQCN modules
-- ✅ Handler restarts Docker **only** on template change (`notify:` on the template task)
-- ✅ `provision.yml` applies both roles cleanly
+### Задача 2 (3 балла)
+- ✅ Роль `common` ставит базовые пакеты и часовой пояс. `become: true` стоит только там, где нужен root
+- ✅ Роль `docker` ставит Docker Engine, рендерит `daemon.json`, управляет сервисом и добавляет пользователя в группу `docker` с `append: true`
+- ✅ Все задачи вызывают модули по FQCN
+- ✅ Handler перезапускает Docker **только** когда меняется шаблон (`notify:` на задаче с шаблоном)
+- ✅ `provision.yml` применяет обе роли без сбоев
 
-### Task 3 (3 pts)
-- ✅ Credentials stored in an encrypted Vault file (`head -1` shows `$ANSIBLE_VAULT;1.1;AES256`)
-- ✅ `app_deploy` role pulls the Lab 2 image and runs it as a container
-- ✅ `no_log: true` on the login task
-- ✅ `/health` returns HTTP 200; `curl` output captured
+### Задача 3 (3 балла)
+- ✅ Учётные данные лежат в зашифрованном файле Vault (`head -1` показывает `$ANSIBLE_VAULT;1.1;AES256`)
+- ✅ Роль `app_deploy` скачивает образ из Lab 2 и запускает его контейнером
+- ✅ На задаче логина стоит `no_log: true`
+- ✅ `/health` отвечает HTTP 200; вывод `curl` сохранён
 
-### Task 4 (1 pt)
-- ✅ Run #1 PLAY RECAP shows `changed > 0`
-- ✅ Run #2 PLAY RECAP shows `changed=0` — for **both** `provision.yml` and `deploy.yml`
-- ✅ `--check --diff` shows no drift
+### Задача 4 (1 балл)
+- ✅ PLAY RECAP прогона №1 показывает `changed > 0`
+- ✅ PLAY RECAP прогона №2 показывает `changed=0` — и у `provision.yml`, и у `deploy.yml`
+- ✅ `--check --diff` не показывает drift
 
-### Task 5 (1 pt)
-- ✅ `docs/LAB05.md` covers all six sections
+### Задача 5 (1 балл)
+- ✅ `docs/LAB05.md` закрывает все шесть разделов
 
-### Bonus Task (2 pts)
-- ✅ Cloud inventory plugin configured for the Lab 4 provider
-- ✅ `ansible-inventory --graph` shows auto-discovered hosts
-- ✅ A playbook runs successfully against the dynamic inventory
+### Бонусная задача (2 балла)
+- ✅ Облачный плагин inventory настроен на провайдера из Lab 4
+- ✅ `ansible-inventory --graph` показывает хосты, найденные сами
+- ✅ Playbook успешно проходит по динамическому inventory
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задача | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — Inventory & scaffolding | **2** | FQCN ping, cfg, three-role layout |
-| **Task 2** — `common` + `docker` roles | **3** | Idempotent tasks, handler on template, FQCN, `append: true`, *whys* documented |
-| **Task 3** — `app_deploy` + Vault | **3** | Lab 2 image runs, `/health` 200, encrypted Vault, `no_log` |
-| **Task 4** — Idempotency | **1** | Run #2 `changed=0` on both playbooks |
-| **Task 5** — Documentation | **1** | All six sections complete |
-| **Bonus** — Dynamic inventory | **2** | Cloud plugin auto-discovers hosts |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задача 1** — Inventory и каркас | **2** | ping по FQCN, cfg, раскладка из трёх ролей |
+| **Задача 2** — роли `common` и `docker` | **3** | идемпотентные задачи, handler на шаблоне, FQCN, `append: true`, *почему* записаны |
+| **Задача 3** — `app_deploy` и Vault | **3** | образ из Lab 2 запущен, `/health` 200, зашифрованный Vault, `no_log` |
+| **Задача 4** — Идемпотентность | **1** | прогон №2: `changed=0` на обоих playbook |
+| **Задача 5** — Документация | **1** | все шесть разделов на месте |
+| **Бонус** — Динамический inventory | **2** | облачный плагин сам находит хосты |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
-**Critical requirements:**
-- MUST use role-based structure (not a monolithic playbook)
-- MUST use FQCN modules everywhere
-- MUST demonstrate idempotency (run #2 changed=0 for both playbooks — this is the lab's headline)
-- MUST use Ansible Vault; MUST NOT commit `.vault_pass` or plaintext secrets
+**Жёсткие требования:**
+- Структура на ролях обязательна (монолитный playbook не подходит)
+- Модули по FQCN обязательны везде
+- Идемпотентность обязательна (прогон №2: changed=0 на обоих playbook — это главное в лабораторной)
+- Ansible Vault обязателен; `.vault_pass` и секреты открытым текстом коммитить нельзя
 
 ---
 
-## Resources
+## Материалы
 
 <details>
 <summary>📚 Ansible Core 2.21</summary>
 
-- [ansible-core 2.21 docs](https://docs.ansible.com/ansible-core/2.21/)
-- [Roles](https://docs.ansible.com/ansible-core/2.21/playbook_guide/playbooks_reuse_roles.html)
+- [Документация ansible-core 2.21](https://docs.ansible.com/ansible-core/2.21/)
+- [Роли](https://docs.ansible.com/ansible-core/2.21/playbook_guide/playbooks_reuse_roles.html)
 - [Handlers](https://docs.ansible.com/ansible-core/2.21/playbook_guide/playbooks_handlers.html)
 - [Inventory](https://docs.ansible.com/ansible-core/2.21/inventory_guide/intro_inventory.html)
 - [FQCN](https://docs.ansible.com/ansible-core/2.21/reference_appendices/glossary.html#term-FQCN)
-- *Ansible for DevOps* — Jeff Geerling (2024 ed.)
+- *Ansible for DevOps* — Jeff Geerling (изд. 2024)
 
 </details>
 
 <details>
-<summary>🔒 Vault & secrets</summary>
+<summary>🔒 Vault и секреты</summary>
 
 - [Ansible Vault](https://docs.ansible.com/ansible-core/2.21/vault_guide/index.html)
 - [no_log](https://docs.ansible.com/ansible-core/2.21/reference_appendices/logging.html)
@@ -749,55 +749,55 @@ PR checklist:
 </details>
 
 <details>
-<summary>🐳 Docker modules & dynamic inventory</summary>
+<summary>🐳 Модули Docker и динамический inventory</summary>
 
-- [community.docker collection](https://docs.ansible.com/ansible/latest/collections/community/docker/index.html)
+- [Коллекция community.docker](https://docs.ansible.com/ansible/latest/collections/community/docker/index.html)
 - [docker_login](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_login_module.html) · [docker_image](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_image_module.html) · [docker_container](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html)
-- [Install Docker on Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
-- [Inventory plugins](https://docs.ansible.com/ansible-core/2.21/plugins/inventory.html)
+- [Установка Docker на Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
+- [Плагины inventory](https://docs.ansible.com/ansible-core/2.21/plugins/inventory.html)
 
 </details>
 
 <details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
+<summary>⚠️ Типичные ловушки (с реальных сухих прогонов)</summary>
 
-- **`become: true` without passwordless sudo** — the play fails with `sudo: a password is required`. Fix on the VM (cloud-init usually creates the login user with `NOPASSWD: ALL` in `/etc/sudoers.d/`); on hand-built hosts, add the user yourself. Bare-bones containers won't have it at all.
-- **`ansible.builtin.apt` on a non-Debian host** — fails immediately on RHEL/Fedora/Alpine. If your `common` role might ever target a non-Debian box, use `ansible.builtin.package` (auto-dispatches to apt/dnf/yum/zypper) and let the module pick. For Debian-specifics (PPA, repo files), keep `apt:` but gate with `when: ansible_os_family == "Debian"`.
-- **`community.docker.docker_container` fails with `Failed to import the required Python library (Docker SDK for Python)`** — the *target* needs `pip install docker`. That's why the `docker` role's last task installs it via `ansible.builtin.pip`. Without it, `docker_container` errors before doing anything.
-- **Dynamic inventory says `No inventory was parsed`** — the cloud collection isn't installed (`ansible-galaxy collection install amazon.aws`), the file isn't named `*.aws_ec2.yml` / `*.yml` matching `plugin:`, or your auth env vars (`AWS_ACCESS_KEY_ID` / `GOOGLE_APPLICATION_CREDENTIALS` / `AZURE_*`) aren't set. Run `ansible-inventory -i inventory/<cloud>.yml --list -vvv` to see the real error — `--graph` swallows it.
-- **`append: true` forgotten on the user task** — Ansible *replaces* the user's group list, booting them out of `sudo`/`adm`. If you SSH'd in as `ubuntu` and ran that, the next login fails. Always `append: true` when adding to a group.
-- **`state: latest` on a package** — every new upstream release flips run #2 from `changed=0` to `changed=1`. Use `state: present` for reproducible runs.
-- **Vault file gets committed without `--encrypt`** — `git diff` shows your tokens in plaintext. Recovery: `git reset --hard HEAD~1`, rotate the token (it's burned), re-encrypt. Always `ansible-vault create` (not `vi`).
-- **`provision.yml` suddenly prompts for a Vault password.** Once `group_vars/all/vault.yml` exists, Ansible loads it on every play — even `provision.yml` that doesn't reference the secrets. Either set `vault_password_file = .vault_pass` in `ansible.cfg` once, or pass `--ask-vault-pass`/`--vault-password-file` to *all four* runs in Task 4. Skipping this is the #1 reason students retype their password 8 times during the idempotency proof.
+- **`become: true` без sudo без пароля.** Play падает с `sudo: a password is required`. Чините на ВМ (cloud-init обычно создаёт пользователя входа с `NOPASSWD: ALL` в `/etc/sudoers.d/`). На хостах, собранных руками, добавьте пользователя сами. У совсем голых контейнеров этого нет.
+- **`ansible.builtin.apt` на хосте не из Debian.** Сразу падает на RHEL, Fedora и Alpine. Если роль `common` хоть раз пойдёт на такую машину, берите `ansible.builtin.package` (сам выбирает apt, dnf, yum или zypper). Для вещей, которые есть только в Debian (PPA, файлы репозиториев), оставьте `apt:`, но поставьте условие `when: ansible_os_family == "Debian"`.
+- **`community.docker.docker_container` падает с `Failed to import the required Python library (Docker SDK for Python)`.** На *цели* нужен `pip install docker`. Поэтому последняя задача роли `docker` ставит его через `ansible.builtin.pip`. Без пакета `docker_container` падает сразу и ничего не делает.
+- **Динамический inventory пишет `No inventory was parsed`.** Облачная коллекция не стоит (`ansible-galaxy collection install amazon.aws`), имя файла не `*.aws_ec2.yml` / `*.yml` под `plugin:`, или не заданы переменные входа (`AWS_ACCESS_KEY_ID` / `GOOGLE_APPLICATION_CREDENTIALS` / `AZURE_*`). Запустите `ansible-inventory -i inventory/<cloud>.yml --list -vvv`, чтобы увидеть настоящую ошибку. `--graph` её прячет.
+- **Забыли `append: true` в задаче пользователя.** Ansible *подменяет* список групп и выкидывает из `sudo`/`adm`. Если вы зашли по SSH как `ubuntu` и прогнали это, следующий вход не пройдёт. Когда добавляете в группу, всегда ставьте `append: true`.
+- **`state: latest` у пакета.** Каждый новый релиз апстрима превращает прогон №2 из `changed=0` в `changed=1`. Для повторяемых прогонов берите `state: present`.
+- **Файл Vault закоммитили без `--encrypt`.** В `git diff` токены открытым текстом. Как вытащить: `git reset --hard HEAD~1`, ротируйте токен (он сгорел), зашифруйте заново. Всегда создавайте файл через `ansible-vault create`, не через `vi`.
+- **`provision.yml` вдруг спрашивает пароль Vault.** Как только есть `group_vars/all/vault.yml`, Ansible грузит его на каждом play, в том числе в `provision.yml`, где секреты не упоминаются. Либо один раз пропишите `vault_password_file = .vault_pass` в `ansible.cfg`, либо передавайте `--ask-vault-pass` / `--vault-password-file` на *все четыре* прогона в задаче 4. Пропуск этого — причина номер один, почему на доказательстве идемпотентности пароль набирают восемь раз.
 
 </details>
 
 <details>
-<summary>🛠️ Dev tools worth knowing</summary>
+<summary>🛠️ Инструменты, которые стоит знать</summary>
 
-- [ansible-lint](https://ansible.readthedocs.io/projects/lint/) — catches FQCN violations, missing `name:`, `state: latest` smells. Lab 6's CI uses this.
-- [Molecule](https://ansible.readthedocs.io/projects/molecule/) — spins each role in a container and tests it in isolation.
-- `ansible-playbook -vvv` — three v's print the SSH command + module JSON. Indispensable for debugging "why did it say `changed`?"
+- [ansible-lint](https://ansible.readthedocs.io/projects/lint/) — ловит голые имена вместо FQCN, пропущенный `name:` и запах `state: latest`. CI в Lab 6 гоняет именно его.
+- [Molecule](https://ansible.readthedocs.io/projects/molecule/) — поднимает каждую роль в контейнере и гоняет её отдельно.
+- `ansible-playbook -vvv` — три `v` печатают команду SSH и JSON модуля. Без этого не понять, почему задача сказала `changed`.
 
 </details>
 
 ---
 
-## Looking Ahead
+## Что дальше
 
-| Lab | What it adds to these roles |
+| Lab | Что добавляет к этим ролям |
 |---:|---|
-| 6 | Tags (`--tags docker`), blocks + `rescue:`/`always:`, Compose templates, CI workflow |
-| 9 / 10 | Same image deployed to k3d via Helm — Ansible becomes the bootstrapper, not the deployer |
-| 11 | Replace Ansible Vault with OpenBao as the runtime secret store |
+| 6 | Теги (`--tags docker`), блоки и `rescue:`/`always:`, шаблоны Compose, CI-workflow |
+| 9 / 10 | Тот же образ выкатывается в k3d через Helm. Ansible готовит хост, выкладку забирает Helm |
+| 11 | Ansible Vault меняется на OpenBao: секреты в рантайме живут там |
 
 ```mermaid
 flowchart LR
-  Lab4[🌍 Lab 4: VM] --> Lab5[🔧 Lab 5: roles + idempotency] --> Lab6[🚀 Lab 6: tags + Compose + CI] --> Lab9[☸️ Lab 9: K8s]
+  Lab4[🌍 Lab 4: ВМ] --> Lab5[🔧 Lab 5: роли + идемпотентность] --> Lab6[🚀 Lab 6: теги + Compose + CI] --> Lab9[☸️ Lab 9: K8s]
 ```
 
 ---
 
-**Good luck.** 🚀
+**Удачи.** 🚀
 
-> **Remember:** Tell the server *where to end up*, not *how* to get there. The acceptance test is `changed=0` on run #2. Keep credentials in Vault, keep roles small, document the *why*.
+> **Помните:** скажите серверу, *в каком состоянии остановиться*, а не какими шагами туда идти. Критерий приёмки — `changed=0` на прогоне №2. Секреты держите в Vault, роли делайте маленькими, *почему* записывайте.

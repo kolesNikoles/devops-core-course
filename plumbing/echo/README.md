@@ -1,24 +1,24 @@
-# Plumbing — `echo` service
+# Plumbing — сервис `echo`
 
-A tiny Go HTTP service shipped by the course as **instructor-maintained plumbing**.
-**You don't modify this code.** You deploy it alongside your own service starting in **Lab 9**.
+Крошечный HTTP-сервис на Go, который курс поставляет как **plumbing** (служебные сервисы на поддержке курса).
+**Не меняйте этот код.** Выкатите его рядом со своим сервисом начиная с **Lab 9**.
 
-## Why it exists
+## Зачем он нужен
 
-Through Lab 8 you ran a single Python service. When you reach Kubernetes (Lab 9),
-running a **second** pod alongside it is the smallest topology in which `Service`,
-kube-DNS, and cross-pod networking actually mean something. `echo` is that second pod.
+До Lab 8 включительно вы запускали один Python-сервис. Когда дойдёте до Kubernetes (Lab 9),
+**второй** Pod рядом с ним — самая маленькая топология, в которой `Service`,
+kube-DNS и сеть между Pod действительно что-то значат. `echo` и есть этот второй Pod.
 
-## Endpoints
+## Эндпоинты
 
-| Path | Behaviour |
+| Путь | Поведение |
 |------|-----------|
-| `GET /ping` | Returns `pong\n` — minimal smoke test |
-| `* /echo` | Returns JSON containing the request body, headers, hostname, version, uptime, and a monotonic request counter — useful for verifying load balancing across replicas |
-| `GET /healthz` | Returns `ok` (200) — wire this into `readinessProbe` and `livenessProbe` |
-| `GET /metrics` | Prometheus text format — `echo_requests_total` counter + `echo_uptime_seconds` gauge |
+| `GET /ping` | Возвращает `pong\n` — минимальный smoke-тест |
+| `* /echo` | Возвращает JSON с телом запроса, заголовками, hostname, версией, uptime и монотонно растущим счётчиком запросов — удобно проверять балансировку между репликами |
+| `GET /healthz` | Возвращает `ok` (200) — подключите его к `readinessProbe` и `livenessProbe` |
+| `GET /metrics` | Текстовый формат Prometheus — счётчик `echo_requests_total` и gauge `echo_uptime_seconds` |
 
-## Local build
+## Локальная сборка
 
 ```bash
 cd plumbing/echo
@@ -28,17 +28,17 @@ curl -s localhost:8081/ping
 curl -s localhost:8081/echo -d 'hello'
 ```
 
-## Used in
+## Где используется
 
-- **Lab 9** — deployed as the 2nd service in your `default` namespace
-- **Lab 10** — packaged as a subchart of your Helm chart (bonus track)
-- **Labs 13–14** — second target of ArgoCD ApplicationSet + Argo Rollouts canary
+- **Lab 9** — выкатывается как 2-й сервис в вашем Namespace `default`
+- **Lab 10** — упакован как subchart вашего Helm-чарта (бонусный трек)
+- **Labs 13–14** — вторая цель ArgoCD ApplicationSet и canary в Argo Rollouts
 
-The pre-built image is published from the course repo CI to `ghcr.io/inno-devops-labs/echo:vX.Y.Z`.
+CI репозитория курса публикует готовый образ в `ghcr.io/inno-devops-labs/echo:vX.Y.Z`.
 
-## Configuration
+## Конфигурация
 
-| Env var | Default | Purpose |
+| Переменная | По умолчанию | Назначение |
 |---------|---------|---------|
-| `PORT` | `8081` | Listen port |
-| `VERSION` | `v1.0.0` | Reported in `/echo` JSON; useful for canary verification |
+| `PORT` | `8081` | Порт прослушивания |
+| `VERSION` | `v1.0.0` | Попадает в JSON `/echo`; по ней удобно проверить canary |

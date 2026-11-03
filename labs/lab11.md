@@ -1,80 +1,80 @@
-# Lab 11 — Kubernetes Secrets & OpenBao
+# Lab 11 — Секреты Kubernetes и OpenBao
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-Secret%20Management-blue)
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-OpenBao%202.5%20%7C%20K8s%20Secrets-informational)
 
-> **Goal:** Stop putting passwords in Git. Prove to yourself that a Kubernetes `Secret` is **not** encryption, then centralize secrets in **OpenBao 2.5.0** with a read-only policy enforcing least privilege.
-> **Deliverable:** A PR from `lab11` adding `k8s/secrets/` (the policy + sample Secret), `k8s/lab10-app/templates/secret.yaml` to your Lab 10 chart, and `docs/LAB11.md` with **real** evidence (your decoded values, your `bao kv get`, your denied write).
+> **Цель:** хватит класть пароли в Git. Докажите себе, что Kubernetes `Secret` — это **не** шифрование, затем перенесите секреты в **OpenBao 2.5.0** и закройте их политикой только на чтение (принцип наименьших привилегий).
+> **Что сдать:** PR из ветки `lab11`, который добавляет `k8s/secrets/` (политика и пример Secret), `k8s/lab10-app/templates/secret.yaml` в ваш Helm-чарт Lab 10 и `docs/LAB11.md` с **реальными** доказательствами (ваши раскодированные значения, ваш `bao kv get`, ваша запрещённая запись).
 
 ---
 
-## Overview
+## Обзор
 
-In this lab you will practice:
-- Creating a `kind: Secret` and **decoding its base64 yourself** to drive home that base64 ≠ encryption
-- Bringing up **OpenBao 2.5.0** in dev mode and learning the env-var contract (`BAO_ADDR`, `BAO_TOKEN`) that every later production setup will reuse
-- Writing a **read-only HCL policy** and a token bound to it, then proving the policy by trying — and failing — to write
-- Templating a `Secret` into your Lab 10 chart **without** committing the real value (the value comes from `--set`/`-f` at install time)
-- Picking one of two production patterns for injection: **OpenBao Agent Injector** OR **External Secrets Operator (ESO)**
+В этой лабораторной вы потренируетесь:
+- Создавать `kind: Secret` и **самому декодировать base64**, чтобы навсегда запомнить: base64 ≠ шифрование
+- Поднимать **OpenBao 2.5.0** в dev-режиме и выучить контракт переменных окружения (`BAO_ADDR`, `BAO_TOKEN`), который потом переиспользует любая продакшен-схема
+- Писать **HCL-политику только на чтение** и токен, привязанный к ней, а затем доказать политику попыткой записи — и её провалом
+- Шаблонизировать `Secret` в чарте Lab 10 **без** коммита настоящего значения (значение приходит из `--set`/`-f` в момент установки)
+- Выбрать один из двух продакшен-паттернов инъекции: **OpenBao Agent Injector** или **External Secrets Operator (ESO)**
 
-> ⚠️ **Scope:** dev-mode OpenBao only (in-memory, single key, auto-unsealed). Production OpenBao (Raft storage, auto-unseal via cloud KMS, audit device, TLS) is out of scope — but the policies and roles you write here are the same shape.
+> ⚠️ **Объём:** только OpenBao в dev-режиме (в памяти, один ключ, сам делает unseal). Продакшен-OpenBao (хранилище Raft, auto-unseal через облачный KMS, audit device, TLS) в эту лабораторную не входит — но политики и роли, которые вы здесь напишете, той же формы.
 
-> 💡 **The five incidents the lecture opened with — Code Spaces 2014, Uber 2016, Toyota 2022, Dropbox 2022, tj-actions 2025 — every single one was a credential stored in the wrong place.** Not a zero-day. Not a sophisticated 0-click. Just a secret in code, a `.git/` directory served by a web server, a phished GitHub account, a compromised GitHub Action dumping `env` to logs. This lab teaches the boring stuff that would have prevented all five.
-
----
-
-## Project State
-
-**You should have from previous labs:**
-- Lab 9: a k3d 1.36 cluster (`k3d cluster create devops`) with your `web` + `echo` services running
-- Lab 10: a Helm chart at `k8s/lab10-app/` with `Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`
-
-**This lab adds:**
-- `k8s/secrets/app-credentials.yaml` — your hand-written `Secret` manifest (the base64 demo)
-- `k8s/lab10-app/templates/secret.yaml` — a templated `Secret` in your chart
-- `k8s/secrets/lab11-read.hcl` — the OpenBao read-only policy
-- `docs/LAB11.md` — your submission report with the captured CLI evidence
-- *(bonus)* either `k8s/secrets/injector.yaml` (Agent Injector annotations) OR `k8s/secrets/eso.yaml` (SecretStore + ExternalSecret CRDs)
+> 💡 **Пять инцидентов, с которых открылась лекция, — Code Spaces 2014, Uber 2016, Toyota 2022, Dropbox 2022, tj-actions 2025 — и в каждом учётные данные лежали не там.** Не zero-day. Не хитрый 0-click. Просто секрет в коде, каталог `.git/`, который отдавал веб-сервер, угнанный фишингом аккаунт GitHub, скомпрометированный GitHub Action, который сливает `env` в логи. Эта лабораторная учит скучным вещам, которые закрыли бы все пять.
 
 ---
 
-## Setup
+## Состояние проекта
 
-You need (verify before starting):
+**Из прошлых лабораторных у вас уже должно быть:**
+- Lab 9: кластер k3d 1.36 (`k3d cluster create devops`), сервисы `web` и `echo` запущены
+- Lab 10: Helm-чарт в `k8s/lab10-app/` с `Chart.yaml`, `values.yaml`, `templates/`, `_helpers.tpl`
 
-- `kubectl version --client` → 1.36.x (from Lab 9)
-- `helm version` → 4.1.x (from Lab 10)
-- `k3d cluster list` shows the `devops` cluster from Lab 9 Running
-- **OpenBao 2.5.0** installed locally. Install via the brew tap (`brew install openbao/tap/bao`) or by downloading the `v2.5.0` Linux binary tarball from `github.com/openbao/openbao/releases` and unpacking it onto `PATH`.
-- `bao version` must print `OpenBao v2.5.0`
+**Эта лабораторная добавляет:**
+- `k8s/secrets/app-credentials.yaml` — ваш написанный руками манифест `Secret` (демо base64)
+- `k8s/lab10-app/templates/secret.yaml` — шаблонный `Secret` в чарте
+- `k8s/secrets/lab11-read.hcl` — политика OpenBao только на чтение
+- `docs/LAB11.md` — отчёт к сдаче с захваченным выводом CLI
+- *(бонус)* либо `k8s/secrets/injector.yaml` (аннотации Agent Injector), либо `k8s/secrets/eso.yaml` (CRD SecretStore и ExternalSecret)
 
-Create the namespace + ServiceAccount that later tasks reuse:
+---
+
+## Подготовка
+
+Нужно (проверьте до старта):
+
+- `kubectl version --client` → 1.36.x (из Lab 9)
+- `helm version` → 4.1.x (из Lab 10)
+- `k3d cluster list` показывает кластер `devops` из Lab 9 в состоянии Running
+- **OpenBao 2.5.0** стоит локально. Ставьте через tap brew (`brew install openbao/tap/bao`) или скачайте tar-архив Linux-бинарника `v2.5.0` с `github.com/openbao/openbao/releases` и распакуйте его в `PATH`.
+- `bao version` должен напечатать `OpenBao v2.5.0`
+
+Создайте namespace и ServiceAccount, которые потом переиспользуют задания:
 
 ```bash
 kubectl create namespace lab11
 kubectl create serviceaccount lab11-sa -n lab11
 ```
 
-> **`bao` is a drop-in for `vault`.** OpenBao kept the wire protocol, CLI subcommands, and API endpoints. If you have old `vault kv put ...` muscle memory it still works against an OpenBao server. We use `bao` in this lab because the binary you installed is OpenBao, not HashiCorp Vault.
+> **`bao` — drop-in замена `vault`.** OpenBao сохранил протокол обмена, подкоманды CLI и эндпоинты API. Старая мышечная память на `vault kv put ...` по-прежнему работает против сервера OpenBao. В этой лабораторной мы вызываем `bao`, потому что установленный бинарник — OpenBao, а не HashiCorp Vault.
 
-> 📜 **One-paragraph BSL callout.** In August 2023 HashiCorp re-licensed Vault under the Business Source License 1.1 — source-available, but with a non-compete that forbids commercial managed-service offerings competing with HashiCorp. The Linux Foundation forked Vault 1.14 as **OpenBao** under MPL-2.0 (true open source). OpenBao 2.0 went GA in March 2024; 2.5.0 (Feb 4 2026) added free Namespaces and horizontal read scalability — features that used to be a HashiCorp Enterprise paywall. Everything you write in this lab is portable to either server; we standardize on OpenBao so the manifests survive any future re-licensing.
+> 📜 **Один абзац про BSL.** В августе 2023 HashiCorp перевёл Vault на Business Source License 1.1: исходники открыты, но non-compete (запрет конкурировать) не даёт делать коммерческие managed-сервисы, которые спорят с HashiCorp. Linux Foundation форкнул Vault 1.14 как **OpenBao** под MPL-2.0 (настоящий open source). OpenBao 2.0 вышел в GA в марте 2024; 2.5.0 (4 февраля 2026) добавил бесплатные Namespace и горизонтальное масштабирование чтения — то, что раньше сидело за paywall HashiCorp Enterprise. Всё, что вы напишете здесь, переносится на любой из двух серверов; за стандарт берём OpenBao, чтобы манифесты пережили любую будущую смену лицензии.
 
 ---
 
-## Task 1 — Kubernetes Secrets & The Base64 Trap (2 pts)
+## Задание 1 — Kubernetes Secrets и ловушка base64 (2 балла)
 
-### 1.1 — Hand-write a `kind: Secret` manifest
+### 1.1 — Напишите манифест `kind: Secret` руками
 
-`YOUR TASK`: create `k8s/secrets/app-credentials.yaml` containing a `kind: Secret` for a fictional database with username `app` and password of your choosing. Use the **declarative** form (a YAML file you `kubectl apply`), not `kubectl create secret`.
+`ВАША ЗАДАЧА`: создайте `k8s/secrets/app-credentials.yaml` с `kind: Secret` для вымышленной базы: имя пользователя `app` и пароль на ваш выбор. Берите **декларативную** форму (YAML-файл, который вы применяете через `kubectl apply`), а не `kubectl create secret`.
 
-You decide:
-- The `type:` value — pick from `Opaque`, `kubernetes.io/dockerconfigjson`, or `kubernetes.io/tls`. The wrong choice fails validation, so the choice matters. In `docs/LAB11.md`, justify why your choice fits a generic username+password.
-- The two `data:` keys — name them whatever a real app would consume (think env-var style).
-- The base64-encoded values — compute them yourself with `base64`; do **not** use the `stringData:` shortcut for this task. The point is to feel the encoding step by hand.
+Решаете вы:
+- Значение `type:` — выберите из `Opaque`, `kubernetes.io/dockerconfigjson` или `kubernetes.io/tls`. Неверный выбор не пройдёт валидацию, так что выбор важен. В `docs/LAB11.md` обоснуйте, почему ваш выбор подходит для обычной пары логин и пароль.
+- Два ключа в `data:` — назовите их так, как их реально прочитает приложение (в духе имён переменных окружения).
+- Значения в base64 посчитайте сами командой `base64`; в этом задании **не** пользуйтесь коротким путём `stringData:`. Смысл — прочувствовать шаг кодирования руками.
 
-Skeleton (fill the YOUR-TASK markers):
+Каркас (заполните маркеры YOUR-TASK):
 
 ```yaml
 # k8s/secrets/app-credentials.yaml
@@ -89,57 +89,57 @@ data:
   YOUR-TASK: YOUR-TASK          # echo -n '<your password>' | base64
 ```
 
-> ⚠️ **`echo` vs `echo -n`** — `echo "foo" | base64` includes the trailing newline (`Zm9vCg==`); `echo -n "foo" | base64` does not (`Zm9v`). The newline silently breaks password comparisons in the consuming app and is the most common base64 bug in dry-runs. Use `-n`.
+> ⚠️ **`echo` и `echo -n`** — `echo "foo" | base64` включает хвостовой перевод строки (`Zm9vCg==`); `echo -n "foo" | base64` — нет (`Zm9v`). Перевод строки молча ломает сравнение паролей в приложении, которое их читает, и это самая частая ошибка base64 на пробных прогонах. Берите `-n`.
 
-Apply it, then read it back:
+Примените манифест и прочитайте его обратно:
 
 ```bash
 kubectl apply -f k8s/secrets/app-credentials.yaml
 kubectl get secret app-credentials -n lab11 -o yaml
 ```
 
-### 1.2 — Decode it yourself and prove the point
+### 1.2 — Декодируйте сами и докажите тезис
 
-`YOUR TASK`: run a one-liner that fetches **your own** Secret from the cluster and pipes the password field through `base64 -d`, recovering the plaintext. Capture the output verbatim into `docs/LAB11.md` under a heading **"The base64 'aha' moment"**.
+`ВАША ЗАДАЧА`: запустите однострочник, который достаёт **ваш** Secret из кластера и прогоняет поле пароля через `base64 -d`, возвращая открытый текст. Вставьте вывод дословно в `docs/LAB11.md` под заголовком **"Момент «ага» с base64"**.
 
-Hint (the shape of the command — fill in the key name you chose):
+Подсказка (форма команды — подставьте имя ключа, которое выбрали):
 
 ```bash
 kubectl get secret app-credentials -n lab11 \
   -o jsonpath='{.data.YOUR-TASK}' | base64 -d ; echo
 ```
 
-In **2–3 sentences** in your `docs/LAB11.md`, answer: *why does the K8s API even use base64 here if it's not for security?* (Hint: `Secret.data` values must be valid JSON/YAML strings; binary like a TLS key wouldn't survive transport.)
+В **2–3 предложениях** в `docs/LAB11.md` ответьте: *зачем API Kubernetes вообще использует здесь base64, если это не про безопасность?* (Подсказка: значения `Secret.data` должны быть валидными строками JSON/YAML; бинарник вроде TLS-ключа транспорт не переживёт.)
 
-### 1.3 — etcd encryption-at-rest, in your own words
+### 1.3 — Шифрование etcd at rest своими словами
 
-Write a paragraph in `docs/LAB11.md` answering all three:
-- Are Kubernetes Secrets encrypted at rest by default? (Hint: look up `EncryptionConfiguration`.)
-- What does a KMS provider in that config do that the `aescbc` provider doesn't?
-- Why is enabling `EncryptionConfiguration` necessary but **not sufficient** for production — what does it not protect you from? (Hint: anyone with `system:masters` RBAC.)
+Напишите в `docs/LAB11.md` абзац, который отвечает на все три вопроса:
+- Шифруются ли Kubernetes Secrets at rest по умолчанию? (Подсказка: посмотрите `EncryptionConfiguration`.)
+- Что KMS-провайдер в этой конфигурации делает такого, чего не делает провайдер `aescbc`?
+- Почему включить `EncryptionConfiguration` необходимо, но **недостаточно** для продакшена — от чего это вас не защищает? (Подсказка: любой, у кого есть RBAC `system:masters`.)
 
-### 1.4 — Proof of work
+### 1.4 — Доказательства
 
-Paste into `docs/LAB11.md`:
+Вставьте в `docs/LAB11.md`:
 
-- The contents of `k8s/secrets/app-credentials.yaml` (your real file, your real base64 strings)
-- The output of `kubectl get secret app-credentials -n lab11 -o yaml | grep -A2 ^data:`
-- The base64-decode one-liner **and its plaintext output** showing you recovered your own password
-- Your 2–3 sentence answer to *why base64?* and the etcd-at-rest paragraph from 1.3
+- Содержимое `k8s/secrets/app-credentials.yaml` (ваш настоящий файл, ваши настоящие строки base64)
+- Вывод `kubectl get secret app-credentials -n lab11 -o yaml | grep -A2 ^data:`
+- Однострочник декодирования base64 **и его вывод открытым текстом**: видно, что вы восстановили свой пароль
+- Ответ в 2–3 предложениях на вопрос *зачем base64?* и абзац про etcd at rest из 1.3
 
 ---
 
-## Task 2 — Helm-Managed Secrets (3 pts)
+## Задание 2 — Секреты под управлением Helm (3 балла)
 
-### 2.1 — Templated Secret in the Lab 10 chart
+### 2.1 — Шаблонный Secret в чарте Lab 10
 
-`YOUR TASK`: add `templates/secret.yaml` to your Lab 10 chart (`k8s/lab10-app/templates/secret.yaml`). It must render a `kind: Secret` named after the chart's `fullname` helper, carry the standard chart labels, and consume **two** values from `.Values.secret` — `dbUsername` and `dbPassword`.
+`ВАША ЗАДАЧА`: добавьте `templates/secret.yaml` в чарт Lab 10 (`k8s/lab10-app/templates/secret.yaml`). Он должен отрендерить `kind: Secret` с именем из хелпера `fullname` чарта, нести стандартные лейблы чарта и брать **два** значения из `.Values.secret` — `dbUsername` и `dbPassword`.
 
-Critical rules:
-- Use `stringData:` (so Helm doesn't double-encode); the K8s API base64-encodes on its side.
-- In `values.yaml`, set the two fields to **placeholder strings** (`"PLACEHOLDER_USER"`, `"PLACEHOLDER_PASS"`). The real values come from `--set` or a `-f override.yaml` at install time — *never* committed.
+Жёсткие правила:
+- Берите `stringData:` (чтобы Helm не кодировал дважды); API Kubernetes кодирует в base64 на своей стороне.
+- В `values.yaml` задайте оба поля **строками-заглушками** (`"PLACEHOLDER_USER"`, `"PLACEHOLDER_PASS"`). Настоящие значения приходят из `--set` или из `-f override.yaml` в момент установки — *никогда* не коммитьте их.
 
-Skeleton (fill the YOUR-TASK markers):
+Каркас (заполните маркеры YOUR-TASK):
 
 ```yaml
 # k8s/lab10-app/templates/secret.yaml
@@ -155,7 +155,7 @@ stringData:
   DB_PASSWORD: YOUR-TASK
 ```
 
-And in `values.yaml`:
+И в `values.yaml`:
 
 ```yaml
 secret:
@@ -163,11 +163,11 @@ secret:
   dbPassword: "PLACEHOLDER_PASS"   # override at install time, NEVER commit real values
 ```
 
-### 2.2 — Consume it in the Deployment
+### 2.2 — Подключите его в Deployment
 
-`YOUR TASK`: edit your chart's existing Deployment template (`templates/deployment.yaml`) so the `web` container reads both keys as environment variables. Use the `envFrom` + `secretRef` pattern (cleaner than per-key `secretKeyRef` when the whole Secret is for one consumer).
+`ВАША ЗАДАЧА`: отредактируйте существующий шаблон Deployment в чарте (`templates/deployment.yaml`), чтобы контейнер `web` читал оба ключа как переменные окружения. Используйте паттерн `envFrom` + `secretRef` (чище, чем `secretKeyRef` на каждый ключ, когда весь Secret нужен одному потребителю).
 
-Skeleton (fill the YOUR-TASK marker):
+Каркас (заполните маркер YOUR-TASK):
 
 ```yaml
 containers:
@@ -178,15 +178,15 @@ containers:
           name: YOUR-TASK      # same helper-rendered name as in Task 2.1
 ```
 
-### 2.3 — Install with the real value out-of-band
+### 2.3 — Установите с настоящим значением вне репозитория
 
-`YOUR TASK`: install (or upgrade) the chart, supplying the real password via `--set` **or** a `-f local-secrets.yaml` that is `.gitignore`d. Then verify in the running pod.
+`ВАША ЗАДАЧА`: установите (или обновите) чарт, передав настоящий пароль через `--set` **или** через `-f local-secrets.yaml`, который лежит в `.gitignore`. Затем проверьте в запущенном Pod.
 
-> ⚠️ **The `--set` CI-logs trap.** `helm upgrade --install ... --set secret.dbPassword='hunter2'` is fine on your laptop. In CI it ends up in the workflow log unless the variable is wrapped as a secret (`${{ secrets.DB_PASSWORD }}` in GHA) **and** you `helm upgrade ... --set secret.dbPassword="$DB_PASSWORD"` with no echo. Document in `docs/LAB11.md` which pattern you'd use in a real GitHub Action.
+> ⚠️ **Ловушка `--set` и логов CI.** `helm upgrade --install ... --set secret.dbPassword='hunter2'` на ноутбуке нормально. В CI пароль оказывается в логе workflow, если переменная не обёрнута как секрет (`${{ secrets.DB_PASSWORD }}` в GHA) **и** вы не вызываете `helm upgrade ... --set secret.dbPassword="$DB_PASSWORD"` без echo. В `docs/LAB11.md` напишите, какой паттерн вы бы взяли в настоящем GitHub Action.
 
-> 🔮 **Lab 13 preview — `--set` does NOT survive ArgoCD.** Next week ArgoCD will sync this same chart from Git, and it only honors `helm.valueFiles` / `helm.valuesObject` on the `Application` CR — there is **no `--set` knob** on a GitOps reconcile. That's why the bonus task installs **OpenBao Agent Injector** or **ESO**: they deliver the secret out-of-band so the chart in Git can ship with placeholders forever. If you skip the bonus, the lab 13 workaround is `helm.valuesObject` referencing an externally-managed Secret — never a real value in Git.
+> 🔮 **Заглядывая в Lab 13: `--set` ArgoCD НЕ переживает.** На следующей неделе ArgoCD будет синхронизировать этот же чарт из Git и учтёт только `helm.valueFiles` / `helm.valuesObject` на CR `Application` — у GitOps-reconcile **нет ручки `--set`**. Поэтому бонус ставит **OpenBao Agent Injector** или **ESO**: они доставляют секрет в обход Git, и чарт в Git может вечно ехать с заглушками. Если бонус пропустите, обходной путь в Lab 13 — `helm.valuesObject`, который ссылается на Secret под внешним управлением. Настоящего значения в Git быть не должно.
 
-Verification commands (illustrative — your output will differ):
+Команды проверки (для примера — ваш вывод будет другим):
 
 ```bash
 helm upgrade --install lab10-app k8s/lab10-app -n lab11 \
@@ -204,26 +204,26 @@ kubectl describe pod -n lab11 -l app.kubernetes.io/name=lab10-app | grep -A1 -i 
 # (the Secret name appears; the value does NOT — describe redacts envFrom values)
 ```
 
-### 2.4 — Proof of work
+### 2.4 — Доказательства
 
-Paste into `docs/LAB11.md`:
+Вставьте в `docs/LAB11.md`:
 
-- Your `templates/secret.yaml` and the relevant `values.yaml` snippet (placeholder values only — *no real password*)
-- The `helm upgrade ... --set` command you actually ran (you can redact the password to `***`)
-- The `kubectl exec ... env | grep ^DB_` output proving the values landed in the container (you can redact the password to `***` here too)
-- The 2–3 sentence "how I would do this in CI" answer
+- Ваш `templates/secret.yaml` и нужный фрагмент `values.yaml` (только заглушки — *никакого настоящего пароля*)
+- Команду `helm upgrade ... --set`, которую вы реально запускали (пароль можно замазать до `***`)
+- Вывод `kubectl exec ... env | grep ^DB_`: значения попали в контейнер (пароль здесь тоже можно замазать до `***`)
+- Ответ в 2–3 предложениях: «как бы я сделал это в CI»
 
 ---
 
-## Task 3 — OpenBao Integration (3 pts)
+## Задание 3 — Интеграция с OpenBao (3 балла)
 
-This is the headline task. You will bring up OpenBao, learn the **env-var contract** that every later production setup reuses, write a **read-only HCL policy**, and prove the policy by trying to write — and failing.
+Это главное задание. Вы поднимете OpenBao, выучите **контракт переменных окружения**, который потом переиспользует любая продакшен-схема, напишете **HCL-политику только на чтение** и докажете её: попробуете записать — и не сможете.
 
-### 3.1 — Bring up the dev server
+### 3.1 — Поднимите dev-сервер
 
-`YOUR TASK`: start the OpenBao dev server with a **memorable** root token ID (you'll use it to log in). Then export the two environment variables every `bao` command depends on.
+`ВАША ЗАДАЧА`: запустите dev-сервер OpenBao с **запоминающимся** ID корневого токена (им вы будете входить). Затем экспортируйте две переменные окружения, от которых зависит каждая команда `bao`.
 
-Skeleton (fill the YOUR-TASK markers — and yes, the **point** of the blanks is to make you internalize the contract):
+Каркас (заполните маркеры YOUR-TASK — и да, **смысл** пропусков в том, чтобы вы вбили контракт в голову):
 
 ```bash
 # Start the dev server in the background. -dev = unsealed + in-memory.
@@ -239,17 +239,17 @@ sleep 1
 bao status                                       # Sealed false, Storage Type inmem, Version 2.5.0
 ```
 
-> 🧹 **Stopping the dev server.** It's the most recent background job in your shell — `kill %1` (or `kill $(pgrep -f 'bao server -dev')`) when you're done. Restarting wipes every secret (INMEM); that's the whole point.
+> 🧹 **Как остановить dev-сервер.** Это последняя фоновая задача в вашей оболочке — `kill %1` (или `kill $(pgrep -f 'bao server -dev')`), когда закончите. Перезапуск стирает все секреты (INMEM); в этом весь смысл.
 
-> 💡 **The contract:** every `bao` (or `vault`) client — your CLI, your apps, the ESO provider, the Agent injector — authenticates by `BAO_ADDR` + a token. In dev mode the token is the root token. In production the token comes from an **auth method** (Kubernetes ServiceAccount JWT, AppRole, OIDC), is short-lived, and is scoped by a policy. The env-var names are the same.
+> 💡 **Контракт:** каждый клиент `bao` (или `vault`) — ваш CLI, ваши приложения, провайдер ESO, Agent injector — аутентифицируется парой `BAO_ADDR` и токена. В dev-режиме токен корневой. В продакшене токен приходит из **auth method** (JWT ServiceAccount Kubernetes, AppRole, OIDC), живёт недолго и ограничен политикой. Имена переменных те же.
 
-> ⚠️ **Dev server is INMEM.** Every secret you put in goes away when the process restarts. That's deliberate — it makes the lab fast and the security model unmistakable.
+> ⚠️ **Dev-сервер — это INMEM.** Каждый положенный секрет исчезает, когда процесс перезапускается. Так и задумано: лабораторная идёт быстро, а модель безопасности читается без двусмысленности.
 
-### 3.2 — Put and get a secret on the KV-v2 path
+### 3.2 — Положите секрет на путь KV-v2 и прочитайте его
 
-`YOUR TASK`: enable the KV-v2 secrets engine at a path you choose, then write a secret containing **at least two** key-value pairs at a path you choose, then read one of the fields back.
+`ВАША ЗАДАЧА`: включите secrets engine KV-v2 на пути, который выберете, затем запишите секрет минимум с **двумя** парами ключ–значение на пути, который выберете, затем прочитайте одно из полей обратно.
 
-Skeleton:
+Каркас:
 
 ```bash
 # YOUR TASK lines below:
@@ -268,15 +268,15 @@ bao kv put ___/lab11/db \
 bao kv get -field=___ ___/lab11/db
 ```
 
-> ⚠️ **KV-v1 vs KV-v2 path gotcha.** `bao kv put secret/foo k=v` writes the *logical* path `secret/foo`, but the **API** path under KV-v2 is `secret/data/foo` (with a `data/` segment inserted). Policies and the Agent injector reference the API path — so an HCL rule must say `path "secret/data/lab11/db"`, not `path "secret/lab11/db"`. Forgetting this is the #1 way a "correct" policy denies a read.
+> ⚠️ **Ловушка путей KV-v1 и KV-v2.** `bao kv put secret/foo k=v` пишет *логический* путь `secret/foo`, но **API**-путь в KV-v2 — `secret/data/foo` (вставлен сегмент `data/`). Политики и Agent injector ссылаются на API-путь, поэтому правило HCL должно говорить `path "secret/data/lab11/db"`, а не `path "secret/lab11/db"`. Забыть это — способ номер один, которым «правильная» политика запрещает чтение.
 
-> ⚠️ **`bao kv put` vs `bao write` on the same data path.** KV-v2 versions data under `data/`; `bao write secret/data/foo data='{"k":"v"}'` works but uses a different JSON shape than `bao kv put`. Stick with `bao kv put` / `bao kv get` for KV-v2; `bao write` for everything else (auth backends, policies, roles).
+> ⚠️ **`bao kv put` и `bao write` на одном data-пути.** KV-v2 версионирует данные под `data/`; `bao write secret/data/foo data='{"k":"v"}'` работает, но JSON у него другой формы, чем у `bao kv put`. Для KV-v2 держитесь `bao kv put` / `bao kv get`; `bao write` — для всего остального (auth backend, политики, роли).
 
-### 3.3 — Write the read-only policy
+### 3.3 — Напишите политику только на чтение
 
-`YOUR TASK`: create `k8s/secrets/lab11-read.hcl` with one stanza that grants **read** on the exact data path for your secret, and **nothing else**. No `list`, no `update`, no `delete`, no glob — the whole point is least privilege.
+`ВАША ЗАДАЧА`: создайте `k8s/secrets/lab11-read.hcl` с одной станзой, которая даёт **read** ровно на data-путь вашего секрета и **ничего больше**. Ни `list`, ни `update`, ни `delete`, ни glob — весь смысл в наименьших привилегиях.
 
-Skeleton (fill the YOUR-TASK markers):
+Каркас (заполните маркеры YOUR-TASK):
 
 ```hcl
 # k8s/secrets/lab11-read.hcl
@@ -285,7 +285,7 @@ path "___" {                                     # YOUR-TASK: the API path to th
 }
 ```
 
-Apply it and mint a token bound to it:
+Примените её и выпустите токен, привязанный к ней:
 
 ```bash
 bao policy write lab11-read k8s/secrets/lab11-read.hcl
@@ -293,16 +293,16 @@ APP_TOKEN=$(bao token create -policy=lab11-read -ttl=1h -field=token)
 echo "$APP_TOKEN"      # save for the next step
 ```
 
-### 3.4 — Prove the policy by trying to break it
+### 3.4 — Докажите политику, пытаясь её сломать
 
-`YOUR TASK`: log in as the new token (set `BAO_TOKEN=$APP_TOKEN`), then run **two** commands and capture both outputs:
+`ВАША ЗАДАЧА`: войдите новым токеном (задайте `BAO_TOKEN=$APP_TOKEN`), затем выполните **две** команды и сохраните оба вывода:
 
-1. A `bao kv get -field=...` that **succeeds** (the policy allows read).
-2. A `bao kv put ...` to the same path that **fails** with a 403 (the policy does not allow write).
+1. `bao kv get -field=...`, который **проходит** (политика разрешает read).
+2. `bao kv put ...` на тот же путь, который **падает** с 403 (политика запись не разрешает).
 
-The second command failing is the evidence. If it succeeds, your policy granted too much — go back to 3.3.
+Провал второй команды и есть доказательство. Если она проходит, политика выдала слишком много — вернитесь к 3.3.
 
-Skeleton:
+Каркас:
 
 ```bash
 BAO_TOKEN=$APP_TOKEN bao kv get -field=___ ___/lab11/db    # YOUR-TASK: should print the value
@@ -310,46 +310,46 @@ BAO_TOKEN=$APP_TOKEN bao kv put ___/lab11/db ___=evil      # YOUR-TASK: should f
 # Error writing data to secret/data/lab11/db: ...permission denied
 ```
 
-Restore your root token for any cleanup: `export BAO_TOKEN=<your-dev-root-token-id>`.
+Верните корневой токен перед любой уборкой: `export BAO_TOKEN=<your-dev-root-token-id>`.
 
-### 3.5 — Proof of work
+### 3.5 — Доказательства
 
-Paste into `docs/LAB11.md`:
+Вставьте в `docs/LAB11.md`:
 
-- `bao version` (must show 2.5.0)
-- The exact `bao server -dev -dev-root-token-id=...` line and the `export BAO_ADDR`/`BAO_TOKEN` lines (the env-var contract — redact the token if you want)
-- `bao status` showing `Sealed false`, `Storage Type inmem`, `Version 2.5.0`
-- `bao kv put ...` create confirmation + `bao kv get -field=...` returning your value
-- Contents of `k8s/secrets/lab11-read.hcl` (your real policy)
-- The **two** outputs from 3.4 side by side — the read succeeding and the write failing with `permission denied`. **This is the headline evidence.**
-
----
-
-## Task 4 — Documentation (2 pts)
-
-`YOUR TASK`: finalize `docs/LAB11.md` with these sections, in this order:
-
-1. **The base64 'aha' moment** — your decoded plaintext (1.2) + the "why base64 then?" paragraph (1.3)
-2. **etcd encryption-at-rest** — the paragraph from 1.3 covering KMS vs `aescbc` and what `EncryptionConfiguration` does not protect
-3. **Helm-managed secret** — chart snippet, install command (redacted), pod env proof (2.4)
-4. **OpenBao workflow** — env-var contract, KV-v2 put/get, the read-only policy + the denied-write proof (3.5)
-5. **Vault → OpenBao history** — one paragraph: BSL Aug 2023, LF fork, why OpenBao for this course
-6. **Security analysis** — when native K8s Secret is fine vs when you need OpenBao; what dev mode hides from you that production exposes (no Raft, no audit device, no auto-unseal, no TLS); 2–3 sentences on the SOPS / Sealed Secrets alternatives and when they make sense
-7. **Production checklist** — five bullets you would actually put in a prod hardening doc (least-privilege roles, audit device, etc.)
+- `bao version` (должна показать 2.5.0)
+- Точную строку `bao server -dev -dev-root-token-id=...` и строки `export BAO_ADDR`/`BAO_TOKEN` (контракт переменных — токен можно замазать)
+- `bao status`, где видно `Sealed false`, `Storage Type inmem`, `Version 2.5.0`
+- Подтверждение создания из `bao kv put ...` и `bao kv get -field=...`, который вернул ваше значение
+- Содержимое `k8s/secrets/lab11-read.hcl` (ваша настоящая политика)
+- **Два** вывода из 3.4 рядом: чтение проходит, запись падает с `permission denied`. **Это главное доказательство.**
 
 ---
 
-## Bonus Task — Pick ONE (2 pts)
+## Задание 4 — Документация (2 балла)
 
-Pick **A** or **B**. Both are 2 pts. **Do not do both.** Less hand-holding here on purpose — you've earned it.
+`ВАША ЗАДАЧА`: доведите `docs/LAB11.md` до этих разделов, в таком порядке:
 
-### Option A — OpenBao Agent Injector
+1. **Момент «ага» с base64** — ваш раскодированный открытый текст (1.2) и абзац «зачем тогда base64?» (1.3)
+2. **Шифрование etcd at rest** — абзац из 1.3: KMS против `aescbc` и от чего `EncryptionConfiguration` не защищает
+3. **Секрет под управлением Helm** — фрагмент чарта, команда установки (замазанная), доказательство env в Pod (2.4)
+4. **Workflow OpenBao** — контракт переменных, put/get KV-v2, политика только на чтение и доказательство запрещённой записи (3.5)
+5. **История Vault → OpenBao** — один абзац: BSL, август 2023, форк Linux Foundation, зачем OpenBao в этом курсе
+6. **Разбор безопасности** — когда хватает нативного Secret Kubernetes, а когда нужен OpenBao; что dev-режим от вас прячет и что всплывает в продакшене (нет Raft, нет audit device, нет auto-unseal, нет TLS); 2–3 предложения про альтернативы SOPS / Sealed Secrets и когда они уместны
+7. **Продакшен-чеклист** — пять пунктов, которые вы реально положили бы в документ по харденингу прода (роли с наименьшими привилегиями, audit device и т.д.)
 
-You install the Agent Injector via the OpenBao Helm chart, annotate a pod, and prove that the secret lands on disk inside the pod without the app knowing about OpenBao.
+---
 
-**Required artifacts** (in `k8s/secrets/injector.yaml`):
+## Бонусное задание — выберите ОДНО (2 балла)
 
-1. The **annotations** on your pod template that trigger injection. The names below are the contract — fill in the values; the names that end in `-<file>` are templated by *you* (the filename portion becomes the filename under `/vault/secrets/`):
+Выберите **A** или **B**. Оба на 2 балла. **Не делайте оба.** Здесь нарочно меньше подсказок — вы это заслужили.
+
+### Вариант A — OpenBao Agent Injector
+
+Поставьте Agent Injector через Helm-чарт OpenBao, повесьте аннотации на Pod и докажите, что секрет оказывается на диске внутри Pod, а приложение про OpenBao не знает.
+
+**Обязательные артефакты** (в `k8s/secrets/injector.yaml`):
+
+1. **Аннотации** на шаблоне Pod, которые запускают инъекцию. Имена ниже — контракт: заполните значения; имена с хвостом `-<file>` шаблонизируете *вы* (кусок с именем файла становится именем файла в `/vault/secrets/`):
 
    ```yaml
    # k8s/secrets/injector.yaml — annotations: section of your pod template
@@ -360,31 +360,31 @@ You install the Agent Injector via the OpenBao Helm chart, annotate a pod, and p
      YOUR-TASK
    ```
 
-2. `serviceAccountName: lab11-sa` on the pod spec — the ServiceAccount whose JWT OpenBao validates.
+2. `serviceAccountName: lab11-sa` в spec Pod — это ServiceAccount, чей JWT проверяет OpenBao.
 
-**Required OpenBao config** (run inside the openbao server pod):
+**Обязательная конфигурация OpenBao** (запускайте внутри Pod сервера openbao):
 
-- `bao auth enable kubernetes` and `bao write auth/kubernetes/config kubernetes_host=...`
-- A `bao write auth/kubernetes/role/lab11 ...` that binds `lab11-sa`, namespace `lab11`, the `lab11-read` policy, and a sensible `ttl`.
+- `bao auth enable kubernetes` и `bao write auth/kubernetes/config kubernetes_host=...`
+- `bao write auth/kubernetes/role/lab11 ...`, который привязывает `lab11-sa`, namespace `lab11`, политику `lab11-read` и разумный `ttl`.
 
-**Proof of work:**
+**Доказательства:**
 
-- `kubectl get pods -n openbao` showing the injector pod Running
-- `kubectl describe pod -n lab11 <your-pod>` showing the **injected init container + sidecar** (`vault-agent-init` and `vault-agent`) that you did NOT put there
-- `kubectl exec -n lab11 <your-pod> -c <app-container> -- cat /vault/secrets/db` showing the rendered file (redact the value if you like — the *existence* of the file is what matters)
+- `kubectl get pods -n openbao`: Pod injector в состоянии Running
+- `kubectl describe pod -n lab11 <your-pod>`: видны **внедрённые init-контейнер и sidecar** (`vault-agent-init` и `vault-agent`), которых вы туда НЕ клали
+- `kubectl exec -n lab11 <your-pod> -c <app-container> -- cat /vault/secrets/db`: виден отрендеренный файл (значение можно замазать — важно само *наличие* файла)
 
-> The injector is a **MutatingAdmissionWebhook**. It edits your podspec at admission time. That's why your YAML has *one* container and the running pod has *three* — the webhook added two. This is the same mechanism Istio uses for its envoy sidecar.
+> Injector — это **MutatingAdmissionWebhook**. Он правит podspec в момент admission. Поэтому в YAML у вас *один* контейнер, а у запущенного Pod — *три*: два добавил webhook. Тот же механизм Istio использует для sidecar envoy.
 
-### Option B — External Secrets Operator (ESO)
+### Вариант B — External Secrets Operator (ESO)
 
-You install ESO via Helm, point a `SecretStore` at your OpenBao server, and an `ExternalSecret` produces a **native K8s Secret** that your app consumes with `envFrom: secretRef`. The app never knows ESO exists.
+Поставьте ESO через Helm, направьте `SecretStore` на ваш сервер OpenBao, и `ExternalSecret` породит **нативный Secret Kubernetes**, который приложение читает через `envFrom: secretRef`. Приложение не знает, что ESO существует.
 
-**Required artifacts** (in `k8s/secrets/eso.yaml`):
+**Обязательные артефакты** (в `k8s/secrets/eso.yaml`):
 
-1. A `SecretStore` CRD (`apiVersion: external-secrets.io/v1`) named `openbao` in namespace `lab11`, with a `provider.vault` block (ESO's `vault` provider is compatible with OpenBao). It uses `kubernetes` auth, the role you create in OpenBao, and `serviceAccountRef: {name: lab11-sa}`.
-2. An `ExternalSecret` CRD producing a native `db-creds` Secret.
+1. CRD `SecretStore` (`apiVersion: external-secrets.io/v1`) с именем `openbao` в namespace `lab11` и блоком `provider.vault` (провайдер `vault` в ESO совместим с OpenBao). Аутентификация — `kubernetes`, роль, которую вы создаёте в OpenBao, и `serviceAccountRef: {name: lab11-sa}`.
+2. CRD `ExternalSecret`, который порождает нативный Secret `db-creds`.
 
-Skeleton (fill the YOUR-TASK markers — the CRD field names are the contract):
+Каркас (заполните маркеры YOUR-TASK — имена полей CRD и есть контракт):
 
 ```yaml
 # k8s/secrets/eso.yaml
@@ -416,24 +416,24 @@ spec:
     # YOUR-TASK: add a second key — username — with the same shape
 ```
 
-**Required OpenBao config:** same Kubernetes auth + role binding as Option A (it's the same auth method).
+**Обязательная конфигурация OpenBao:** тот же Kubernetes auth и та же привязка роли, что в варианте A (это тот же auth method).
 
-**Required app wiring:** edit your Lab 10 chart to consume `db-creds` via `envFrom: secretRef`. Note that the app is now reading a *native K8s Secret* — no sidecar, no annotations, no OpenBao client in the pod. ESO does the syncing out-of-band.
+**Обязательная проводка приложения:** поправьте чарт Lab 10, чтобы он читал `db-creds` через `envFrom: secretRef`. Приложение теперь читает *нативный Secret Kubernetes* — без sidecar, без аннотаций, без клиента OpenBao в Pod. Синхронизацию ESO делает в обход.
 
-**Proof of work:**
+**Доказательства:**
 
-- `kubectl get pods -n external-secrets` showing the ESO controller Running
-- `kubectl get externalsecret db -n lab11` showing `STATUS: SecretSynced`
-- `kubectl get secret db-creds -n lab11` showing the ESO-produced Secret exists
-- `kubectl exec -n lab11 deploy/lab10-app-web -- env | grep ^DB_` showing the values landed in the app
+- `kubectl get pods -n external-secrets`: контроллер ESO в состоянии Running
+- `kubectl get externalsecret db -n lab11`: статус `STATUS: SecretSynced`
+- `kubectl get secret db-creds -n lab11`: Secret, который породил ESO, существует
+- `kubectl exec -n lab11 deploy/lab10-app-web -- env | grep ^DB_`: значения попали в приложение
 
-> ESO **polls** OpenBao every `refreshInterval`. Lower it for the demo (e.g. `30s`), but `1h` is the production default — rotating in OpenBao does not propagate instantly. That trade-off is the headline difference vs the Agent Injector (which renews via the token lease).
+> ESO **опрашивает** OpenBao каждые `refreshInterval`. Для демо уменьшите интервал (например, `30s`), но продакшен-значение по умолчанию — `1h`: ротация в OpenBao доезжает не сразу. Этот компромисс — главное отличие от Agent Injector (тот обновляется по lease токена).
 
-**Bonus documentation:** append a section to `docs/LAB11.md` with the manifest you used, the proof captures above, and **one paragraph** on why you picked A or B for the kind of app you'd want to run with it (think: "dynamic DB creds with 15-min TTL" → Agent Injector; "every microservice in a 50-pod monorepo reads the same handful of secrets" → ESO).
+**Документация бонуса:** допишите в `docs/LAB11.md` раздел с манифестом, который вы использовали, захватами доказательств выше и **одним абзацем**, почему вы выбрали A или B под тот тип приложения, с которым хотите это запускать (ориентир: «динамические креды БД с TTL 15 минут» → Agent Injector; «каждый микросервис в монорепозитории на 50 Pod читает один и тот же небольшой набор секретов» → ESO).
 
 ---
 
-## How to Submit
+## Как сдавать
 
 ```bash
 git switch -c lab11
@@ -444,12 +444,12 @@ git commit -m "feat(lab11): secrets + OpenBao (read-only policy, base64 demo)"
 git push -u origin lab11
 ```
 
-Open **two** PRs:
+Откройте **два** PR:
 
-- `your-fork:lab11` → `course-repo:master` *(reviewed)*
+- `your-fork:lab11` → `course-repo:master` *(на ревью)*
 - `your-fork:lab11` → `your-fork:master`
 
-PR checklist:
+Чеклист PR:
 
 ```text
 - [ ] Task 1 — app-credentials.yaml + base64 decode proof in docs/LAB11.md
@@ -462,110 +462,110 @@ PR checklist:
 
 ---
 
-## Acceptance Criteria
+## Критерии приёмки
 
-### Task 1 (2 pts)
-- ✅ `k8s/secrets/app-credentials.yaml` is your own hand-written `kind: Secret` with a deliberate `type:` choice and two base64-encoded `data:` keys
-- ✅ `docs/LAB11.md` contains the base64-decode one-liner **with your own plaintext output**
-- ✅ "Why base64?" answer and etcd-at-rest paragraph are present and correct
+### Задание 1 (2 балла)
+- ✅ `k8s/secrets/app-credentials.yaml` — ваш собственный, написанный руками `kind: Secret` с осознанным выбором `type:` и двумя ключами `data:`, закодированными в base64
+- ✅ В `docs/LAB11.md` есть однострочник декодирования base64 **вместе с вашим выводом открытым текстом**
+- ✅ Ответ «Зачем base64?» и абзац про etcd at rest есть, и они верные
 
-### Task 2 (3 pts)
-- ✅ `k8s/lab10-app/templates/secret.yaml` exists, uses the chart's name + label helpers, and reads from `.Values.secret.*`
-- ✅ `values.yaml` ships **placeholder** strings only — no real password
-- ✅ Deployment consumes the Secret via `envFrom: secretRef`
-- ✅ Pod env confirmed via `kubectl exec ... env | grep ^DB_`; `kubectl describe` does NOT show the values
-- ✅ `docs/LAB11.md` documents the CI pattern you'd use to avoid `--set` leaking the password
+### Задание 2 (3 балла)
+- ✅ `k8s/lab10-app/templates/secret.yaml` есть, использует хелперы имени и лейблов чарта и читает из `.Values.secret.*`
+- ✅ `values.yaml` везёт **только строки-заглушки** — никакого настоящего пароля
+- ✅ Deployment читает Secret через `envFrom: secretRef`
+- ✅ Переменные в Pod подтверждены через `kubectl exec ... env | grep ^DB_`; `kubectl describe` значения НЕ показывает
+- ✅ `docs/LAB11.md` описывает паттерн CI, которым вы не дадите `--set` слить пароль
 
-### Task 3 (3 pts)
-- ✅ `bao version` shows 2.5.0
-- ✅ `bao server -dev -dev-root-token-id=...` was run; `BAO_ADDR` and `BAO_TOKEN` exported
-- ✅ KV-v2 enabled, secret written with ≥ 2 keys, read back with `bao kv get -field=...`
-- ✅ `k8s/secrets/lab11-read.hcl` grants **read only** on the exact data path (no glob, no extra capabilities)
-- ✅ The denied-write evidence (`bao kv put ...` → `permission denied`) is captured in `docs/LAB11.md`
+### Задание 3 (3 балла)
+- ✅ `bao version` показывает 2.5.0
+- ✅ Был запущен `bao server -dev -dev-root-token-id=...`; экспортированы `BAO_ADDR` и `BAO_TOKEN`
+- ✅ Включён KV-v2, секрет записан с ≥ 2 ключами, прочитан обратно через `bao kv get -field=...`
+- ✅ `k8s/secrets/lab11-read.hcl` даёт **только read** на точный data-путь (без glob, без лишних capabilities)
+- ✅ Доказательство запрещённой записи (`bao kv put ...` → `permission denied`) лежит в `docs/LAB11.md`
 
-### Task 4 (2 pts)
-- ✅ `docs/LAB11.md` has all seven sections (1.2 + 1.3, etcd-at-rest, Helm, OpenBao, Vault→OpenBao history, security analysis, production checklist)
+### Задание 4 (2 балла)
+- ✅ В `docs/LAB11.md` все семь разделов (1.2 и 1.3, etcd at rest, Helm, OpenBao, история Vault→OpenBao, разбор безопасности, продакшен-чеклист)
 
-### Bonus (2 pts) — one option only
-- ✅ **A:** Agent Injector deployed; injected init+sidecar visible in `kubectl describe pod`; `/vault/secrets/<file>` exists in the app container; custom template renders multi-key `.env`
-- ✅ **B:** ESO installed; `ExternalSecret` shows `SecretSynced`; `db-creds` native Secret exists; app pod env contains the values
+### Бонус (2 балла) — только один вариант
+- ✅ **A:** Agent Injector задеплоен; внедрённые init и sidecar видны в `kubectl describe pod`; файл `/vault/secrets/<file>` есть в контейнере приложения; свой шаблон рендерит `.env` с несколькими ключами
+- ✅ **B:** ESO установлен; у `ExternalSecret` статус `SecretSynced`; нативный Secret `db-creds` есть; в env Pod приложения лежат значения
 
 ---
 
-## Rubric
+## Критерии оценивания
 
-| Task | Points | Criteria |
+| Задание | Баллы | Критерии |
 |------|-------:|----------|
-| **Task 1** — K8s Secrets & base64 trap | **2** | Hand-written Secret, decoded plaintext, base64 vs encryption explained, etcd-at-rest understood |
-| **Task 2** — Helm-managed Secret | **3** | Templated Secret, placeholder values, envFrom wiring, real value injected at install, CI pattern documented |
-| **Task 3** — OpenBao integration | **3** | Dev server up, env-var contract internalized, KV-v2 put/get, read-only policy enforces (denied-write proof) |
-| **Task 4** — Documentation | **2** | All seven sections present, security analysis genuine, BSL/OpenBao history correct |
-| **Bonus** — Injector OR ESO | **2** | Working injection (A) or sync (B) with manifests + proof |
-| **Total** | **12** | 10 main + 2 bonus |
+| **Задание 1** — Secrets Kubernetes и ловушка base64 | **2** | Secret написан руками, открытый текст раскодирован, base64 и шифрование разобраны, etcd at rest понят |
+| **Задание 2** — Secret под управлением Helm | **3** | Шаблонный Secret, значения-заглушки, проводка envFrom, настоящее значение подано при установке, паттерн CI описан |
+| **Задание 3** — интеграция с OpenBao | **3** | Dev-сервер поднят, контракт переменных усвоен, put/get KV-v2, политика только на чтение держит (доказательство запрещённой записи) |
+| **Задание 4** — документация | **2** | Все семь разделов на месте, разбор безопасности настоящий, история BSL и OpenBao верная |
+| **Бонус** — Injector или ESO | **2** | Рабочая инъекция (A) или синхронизация (B), с манифестами и доказательствами |
+| **Итого** | **12** | 10 основных + 2 бонус |
 
-**Grading bands:**
-- **10/10:** All four main tasks done, the denied-write evidence is real, no real secrets committed, security analysis shows genuine understanding
-- **8–9/10:** All tasks done with minor gaps in docs or one missing proof capture
-- **6–7/10:** Tasks 1+2 solid, OpenBao up but policy is too permissive (no denied-write evidence) or KV path wrong
-- **<6/10:** OpenBao not running, base64 demo missing, or real secrets committed
-
----
-
-## Resources
-
-<details>
-<summary>📚 Documentation</summary>
-
-- [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/) — concepts + the `type:` table
-- [Encrypting Confidential Data at Rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) — EncryptionConfiguration, KMS provider, key rotation
-- [OpenBao docs](https://openbao.org/docs/) — `bao` CLI, KV-v2, auth methods, policies
-- [OpenBao 2.5.0 release notes](https://openbao.org/community/release-notes/2-5-0/) — Feb 4 2026
-- [OpenBao Kubernetes auth](https://openbao.org/docs/auth/kubernetes/) — TokenReview API, role binding
-- [Vault Agent annotations (OpenBao-compatible)](https://developer.hashicorp.com/vault/docs/platform/k8s/injector/annotations) — annotation reference
-- [External Secrets Operator](https://external-secrets.io/) — CRDs + provider list
-- [ESO Vault/OpenBao provider](https://external-secrets.io/latest/provider/hashicorp-vault/) — config shape
-
-</details>
-
-<details>
-<summary>⚠️ Common Pitfalls (from real dry-runs)</summary>
-
-- **Base64 is encoding, not encryption.** `kubectl get secret -o yaml | grep -A1 data:` followed by `| base64 -d` recovers plaintext with **no key** — the #1 fact every junior gets wrong. If you walk away with one thing from this lab, walk away with this.
-- **`echo` adds a trailing newline.** `echo "foo" | base64` ≠ `echo -n "foo" | base64`. The newline silently invalidates passwords inside the app. Use `-n`.
-- **etcd encryption-at-rest needs KMS, not just `aescbc`.** Local-key `aescbc` providers store the key on the same disk as the data they "protect" — the key is sitting next to the lock. KMS providers (AWS KMS, GCP KMS, OpenBao Transit) keep the key out of the cluster.
-- **OpenBao dev server is INMEM.** Restart the process and every secret is gone. That's the point — dev mode is for learning the API, not for storing anything. Read the lecture's anti-pattern slide on running dev mode in prod.
-- **KV-v1 vs KV-v2 path difference.** `bao kv put secret/foo k=v` writes the *logical* path; policies and the Agent injector must reference the **API** path (`secret/data/foo`, with `data/` inserted) or the read silently denies. Same gotcha lives in the ESO `remoteRef.key` field.
-- **`bao kv put` vs `bao write`.** Both touch the same path on KV-v2 but use different JSON shapes; stick to `kv put`/`kv get` for KV-v2 to avoid the shape mismatch.
-- **Helm `--set` leaks to CI logs.** `helm upgrade ... --set db.password='hunter2'` in a GitHub Action log is a Code Spaces / tj-actions waiting to happen. Wrap as `${{ secrets.* }}` and reference by env var; better, use a real secret manager and let ESO/Agent Injector deliver the value.
-- **`automountServiceAccountToken: true` by default.** Every pod gets a SA token whether it needs one or not. For pods that don't talk to the K8s API or OpenBao, set this to `false` to shrink the blast radius.
-- **`vault.hashicorp.com/role: admin` is the new `--privileged`.** Bind one role per app per environment. Least privilege is the entire point of the policy you wrote in 3.3.
-- **Dev-mode root token in your shell history.** `export BAO_TOKEN=root` survives in `~/.bash_history`. Use a unique value per dev session and clear it (`unset BAO_TOKEN`) when you're done.
-
-</details>
-
-<details>
-<summary>🛠️ Tools worth knowing</summary>
-
-- [gitleaks](https://github.com/gitleaks/gitleaks) — pre-commit + CI scanner; catches the human moments
-- [trufflehog](https://github.com/trufflesecurity/trufflehog) — deeper detector, finds high-entropy strings in git history
-- [SOPS](https://getsops.io/) — file-level encryption with KMS/age/PGP; GitOps-friendly
-- [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) — per-cluster public-key encryption; CRD + controller
-- [k9s](https://k9scli.io/) — terminal UI; `:secret` shows them all at once
-
-</details>
+**Градации:**
+- **10/10:** все четыре основных задания сделаны, доказательство запрещённой записи настоящее, настоящие секреты не закоммичены, разбор безопасности показывает, что вы правда поняли
+- **8–9/10:** все задания сделаны, в документации мелкие дыры или не хватает одного захвата
+- **6–7/10:** задания 1 и 2 крепкие, OpenBao поднят, но политика слишком широкая (нет доказательства запрещённой записи) или путь KV неверный
+- **<6/10:** OpenBao не запущен, нет демо base64 или в коммите лежат настоящие секреты
 
 ---
 
-## Looking Ahead
+## Материалы
 
-| Lab | What it adds |
+<details>
+<summary>📚 Документация</summary>
+
+- [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/) — концепции и таблица `type:`
+- [Encrypting Confidential Data at Rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) — EncryptionConfiguration, KMS-провайдер, ротация ключей
+- [OpenBao docs](https://openbao.org/docs/) — CLI `bao`, KV-v2, auth method, политики
+- [OpenBao 2.5.0 release notes](https://openbao.org/community/release-notes/2-5-0/) — 4 февраля 2026
+- [OpenBao Kubernetes auth](https://openbao.org/docs/auth/kubernetes/) — TokenReview API, привязка роли
+- [Vault Agent annotations (OpenBao-compatible)](https://developer.hashicorp.com/vault/docs/platform/k8s/injector/annotations) — справочник аннотаций
+- [External Secrets Operator](https://external-secrets.io/) — CRD и список провайдеров
+- [ESO Vault/OpenBao provider](https://external-secrets.io/latest/provider/hashicorp-vault/) — форма конфигурации
+
+</details>
+
+<details>
+<summary>⚠️ Типичные ловушки (с реальных пробных прогонов)</summary>
+
+- **Base64 — это кодирование, не шифрование.** `kubectl get secret -o yaml | grep -A1 data:` и следом `| base64 -d` возвращает открытый текст **без ключа**. Это факт номер один, который каждый джун понимает неправильно. Если из лабораторной вы унесёте одну вещь, пусть будет эта.
+- **`echo` добавляет хвостовой перевод строки.** `echo "foo" | base64` ≠ `echo -n "foo" | base64`. Перевод строки молча делает пароль внутри приложения невалидным. Берите `-n`.
+- **Шифрованию etcd at rest нужен KMS, а не один `aescbc`.** Провайдер `aescbc` с локальным ключом хранит ключ на том же диске, что и данные, которые он «защищает»: ключ лежит рядом с замком. KMS-провайдеры (AWS KMS, GCP KMS, OpenBao Transit) держат ключ вне кластера.
+- **Dev-сервер OpenBao — это INMEM.** Перезапустите процесс — и секретов нет. В этом смысл: dev-режим нужен, чтобы учить API, а не чтобы что-то хранить. Прочитайте в лекции слайд про антипаттерн «dev-режим в проде».
+- **Разница путей KV-v1 и KV-v2.** `bao kv put secret/foo k=v` пишет *логический* путь; политики и Agent injector должны ссылаться на **API**-путь (`secret/data/foo`, со вставленным `data/`), иначе чтение молча запрещается. Та же ловушка живёт в поле `remoteRef.key` у ESO.
+- **`bao kv put` и `bao write`.** Оба трогают один путь на KV-v2, но JSON у них разной формы; для KV-v2 держитесь `kv put`/`kv get`, чтобы не словить несовпадение формы.
+- **Helm `--set` утекает в логи CI.** `helm upgrade ... --set db.password='hunter2'` в логе GitHub Action — это будущие Code Spaces и tj-actions. Оберните как `${{ secrets.* }}` и ссылайтесь через переменную окружения; лучше заведите настоящий менеджер секретов и пусть значение доставит ESO или Agent Injector.
+- **`automountServiceAccountToken: true` по умолчанию.** Каждый Pod получает токен ServiceAccount, нужен он ему или нет. Для Pod, которые не ходят в API Kubernetes и в OpenBao, поставьте `false`: радиус поражения станет меньше.
+- **`vault.hashicorp.com/role: admin` — это новый `--privileged`.** Одна роль на приложение на окружение. Наименьшие привилегии — весь смысл политики, которую вы написали в 3.3.
+- **Корневой токен dev-режима остаётся в истории оболочки.** `export BAO_TOKEN=root` переживает сессию в `~/.bash_history`. Берите уникальное значение на каждую dev-сессию и сбрасывайте его (`unset BAO_TOKEN`), когда закончите.
+
+</details>
+
+<details>
+<summary>🛠️ Инструменты, которые стоит знать</summary>
+
+- [gitleaks](https://github.com/gitleaks/gitleaks) — сканер для pre-commit и CI; ловит те самые человеческие моменты
+- [trufflehog](https://github.com/trufflesecurity/trufflehog) — детектор глубже, находит высокоэнтропийные строки в истории git
+- [SOPS](https://getsops.io/) — шифрование на уровне файла через KMS/age/PGP; дружит с GitOps
+- [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) — шифрование публичным ключом на каждый кластер; CRD и контроллер
+- [k9s](https://k9scli.io/) — терминальный UI; `:secret` показывает все секреты сразу
+
+</details>
+
+---
+
+## Что дальше
+
+| Lab | Что добавляет |
 |---:|---|
-| 12 | ConfigMaps + PVC — non-sensitive config + persistent state survives pod deletion |
-| 13 | ArgoCD GitOps — your secured chart deploys via Application/ApplicationSet |
-| 14 | Argo Rollouts canary; secrets rotate underneath progressive delivery |
-| 15 | StatefulSets — stable identity + per-pod PVC + secrets per replica |
-| 16 | kube-prometheus stack — scrape OpenBao's `/sys/metrics` |
+| 12 | ConfigMap и PVC — несекретный конфиг, и постоянное состояние переживает удаление Pod |
+| 13 | ArgoCD и GitOps — защищённый чарт выкатывается через Application/ApplicationSet |
+| 14 | canary в Argo Rollouts; секреты ротируются под progressive delivery |
+| 15 | StatefulSet — стабильное имя, PVC на каждый Pod и секреты на реплику |
+| 16 | стек kube-prometheus — скрейп `/sys/metrics` у OpenBao |
 
-**Good luck.** 🔐
+**Удачи.** 🔐
 
-> **Remember:** the moment you decoded your own Secret with `base64 -d` and got back plaintext is the moment you understood why every breach in the lecture's incident list was preventable. Keep that feeling. Carry it into every PR review where someone "just for now" puts a real value in `values.yaml`.
+> **Запомните:** момент, когда вы декодировали свой Secret командой `base64 -d` и получили открытый текст, — это момент, когда стало ясно, почему каждую утечку из списка инцидентов лекции можно было не допустить. Держите это чувство. Берите его на каждое ревью PR, где кто-то «только на сейчас» кладёт настоящее значение в `values.yaml`.

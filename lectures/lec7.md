@@ -1,245 +1,245 @@
-# 📌 Lecture 7 — Observability & Logging: From Blind Operations to Insight
+# 📌 Lecture 7 — Наблюдаемость и логирование: от работы вслепую к ясности
 
-## 📍 Slide 1 – 🔍 Welcome to Observability
+## 📍 Slide 1 – 🔍 Добро пожаловать в наблюдаемость
 
-* 🌍 **Your app runs in production** — but do you actually know what it's doing?
-* 😰 Lecture 1 named the failure mode: **Scenario 4 — Blind Operations** (users on Twitter, no metrics, no logs, restart in desperation)
-* 🔧 This is the lecture that **fixes it**: centralised logs you can query in seconds
-* 🎯 Today: deploy the Loki stack and learn to ask questions of your production logs
+* 🌍 **Приложение работает в проде** — но вы правда знаете, что оно делает?
+* 😰 Lecture 1 назвала режим отказа: **Сценарий 4 — слепые операции** (пользователи пишут в Twitter, метрик нет, логов нет, рестарт от безысходности)
+* 🔧 Эта лекция **чинит это**: централизованные логи, запрос за секунды
+* 🎯 Сегодня: выкатываем стек Loki и учимся спрашивать логи прода
 
 ```mermaid
 flowchart LR
-  Blind[😱 SSH + grep] -->|Loki Stack| Insight[🔍 LogQL in Grafana]
-  Insight --> Value[⚡ MTTR in minutes]
+  Blind[😱 SSH + grep] -->|стек Loki| Insight[🔍 LogQL в Grafana]
+  Insight --> Value[⚡ MTTR за минуты]
 ```
 
-> 🔗 **Lab 7 tie-in:** you'll deploy Loki 3.7 + **Grafana Alloy** + Grafana 13 via docker-compose, ship JSON logs from your Lab 1 Python app, and build a 4-panel dashboard. (Promtail is preserved in slides 14–15 below as historical context — it reached **End-of-Life on March 2, 2026**.)
+> 🔗 **Связка с Lab 7:** вы выкатите Loki 3.7 + **Grafana Alloy** + Grafana 13 через docker-compose, отправите JSON-логи из Python-приложения Lab 1 и соберёте дашборд из 4 панелей. (Promtail сохранён на слайдах 14–15 ниже как исторический контекст — он достиг **End-of-Life (снят с поддержки) March 2, 2026**.)
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Slide 2 – 🎯 Чему научитесь
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Distinguish the three pillars: **logs, metrics, traces** — and what each is for |
-| 2 | 🔍 Explain how Loki indexes by **labels**, not full text, and why that controls cost |
-| 3 | 📝 Emit **structured JSON logs** with correlation IDs from a Python service |
-| 4 | 🛠️ Write **LogQL** stream selectors, line filters, and log-range queries |
-| 5 | 📊 Build a Grafana log dashboard answering one operational question per panel |
+| 1 | 🧠 Отличить три столпа: **логи, метрики, трейсы** — и зачем каждый |
+| 2 | 🔍 Объяснить, как Loki индексирует **лейблы**, а не полный текст, и почему от этого зависит цена |
+| 3 | 📝 Писать **структурированные JSON-логи** с correlation ID из Python-сервиса |
+| 4 | 🛠️ Писать в **LogQL** селекторы потоков, фильтры строк и запросы по диапазону |
+| 5 | 📊 Собрать в Grafana дашборд логов: один операционный вопрос на панель |
 
-**Tech stack pinned for May 2026:**
-* 💾 **Loki 3.7** (3.0 launched May 2024; 3.x stabilised TSDB schema v13)
-* 📊 **Grafana 13** (13.0.1+security-01, released May 12 2026)
-* ⚡ **Grafana Alloy 1.16.1** (May 6 2026) — the canonical agent; **use this for new deployments**
-* 🪦 **Promtail** reached **End-of-Life on March 2, 2026**. Still works on existing setups, no further fixes. Slides 14–15 cover it for context only.
+**Стек зафиксирован на May 2026:**
+* 💾 **Loki 3.7** (3.0 вышел May 2024; в 3.x устаканилась схема TSDB v13)
+* 📊 **Grafana 13** (13.0.1+security-01, вышел May 12 2026)
+* ⚡ **Grafana Alloy 1.16.1** (May 6 2026) — канонический агент; **для новых deployment берите его**
+* 🪦 **Promtail** достиг **End-of-Life March 2, 2026**. На старых установках ещё работает, исправлений больше нет. Слайды 14–15 — только контекст.
 
 ---
 
-## 📍 Slide 3 – 🧱 The Three Pillars of Observability
+## 📍 Slide 3 – 🧱 Три столпа наблюдаемости
 
 ```mermaid
 flowchart TD
-  Obs[🔍 Observability] --> Logs[📋 Logs<br/>what happened]
-  Obs --> Metrics[📊 Metrics<br/>how much, how fast]
-  Obs --> Traces[🔗 Traces<br/>where in the call graph]
+  Obs[🔍 Наблюдаемость] --> Logs[📋 Логи<br/>что произошло]
+  Obs --> Metrics[📊 Метрики<br/>сколько и как быстро]
+  Obs --> Traces[🔗 Трейсы<br/>где в графе вызовов]
 ```
 
-| 📊 Pillar | 🎯 Question | 🛠️ This course |
+| 📊 Столп | 🎯 Вопрос | 🛠️ В этом курсе |
 |-----------|------------|----------------|
-| 📋 **Logs** | *What event occurred?* | **Lecture 7 + Lab 7** (Loki) |
-| 📊 **Metrics** | *How much / how fast / how often?* | Lecture 8 + Lab 8 (Prometheus) |
-| 🔗 **Traces** | *Where in the request did time go?* | Out of scope for Core — covered in SRE-Intro elective |
-| ☸️ **K8s view** | *All three on the cluster* | Lectures 15–16, Lab 16 |
+| 📋 **Логи** | *Какое событие случилось?* | **Lecture 7 + Lab 7** (Loki) |
+| 📊 **Метрики** | *Сколько / как быстро / как часто?* | Lecture 8 + Lab 8 (Prometheus) |
+| 🔗 **Трейсы** | *Где в запросе ушло время?* | Вне трека Core — факультатив SRE-Intro |
+| ☸️ **Взгляд из K8s** | *Все три на кластере* | Lectures 15–16, Lab 16 |
 
-> 📖 **Charity Majors** (Honeycomb co-founder, *Observability Engineering*, 2022): *"Observability is the ability to ask new questions of your system without shipping new code."*
+> 📖 **Charity Majors** (сооснователь Honeycomb, *Observability Engineering*, 2022): *«Наблюдаемость — это умение задавать системе новые вопросы, не выкатывая новый код.»*
 
 ---
 
-## 📍 Slide 4 – 🙈 The Visibility Problem
+## 📍 Slide 4 – 🙈 Проблема видимости
 
-Without centralised logs, debugging looks like this:
+Без централизованных логов отладка выглядит так:
 
 ```mermaid
 flowchart LR
-  Alert[🚨 Alert at 03:00] --> SSH1[🔌 SSH to host-1]
+  Alert[🚨 Алерт в 03:00] --> SSH1[🔌 SSH на host-1]
   SSH1 --> Grep1[🔍 grep /var/log/...]
-  Grep1 --> SSH2[🔌 SSH to host-2]
-  SSH2 --> Tail[👀 tail -f and hope]
-  Tail --> Guess[🤷 Restart and pray]
+  Grep1 --> SSH2[🔌 SSH на host-2]
+  SSH2 --> Tail[👀 tail -f и надежда]
+  Tail --> Guess[🤷 Рестарт и молитва]
 ```
 
-* 📁 Each host has its own log files, in its own format, with its own rotation
-* 🔍 Correlating one request across three services means three SSH sessions
-* 📅 Logs older than the rotation window are simply **gone** when you need them
-* 💀 By the time you find the relevant line, the incident has run an extra hour
+* 📁 У каждого хоста свои файлы логов, свой формат и своя ротация
+* 🔍 Склеить один запрос через три сервиса — три SSH-сессии
+* 📅 Логи старше окна ротации просто **исчезают** — ровно когда они нужны
+* 💀 Пока найдёте нужную строку, инцидент уже длится лишний час
 
-> 🔥 **Reality check (DORA 2024):** elite teams recover from incidents in under 1 hour. You can't do that with SSH + grep.
+> 🔥 **Сверка с реальностью (DORA 2024):** элитные команды поднимают сервис меньше чем за 1 час. На SSH + grep так не выйдете.
 
 ---
 
-## 📍 Slide 5 – 🚨 Alert Fatigue & "Works for Me"
+## 📍 Slide 5 – 🚨 Усталость от алертов и «у меня работает»
 
-Two pathologies that signal you need observability, not more dashboards:
+Две болезни, из-за которых нужна наблюдаемость, а не ещё дашборды:
 
-**1. Alert fatigue** — 200 warnings/day, every one a false positive. Real outages get muted.
+**1. Усталость от алертов** — 200 предупреждений в день, и каждое ложное. Настоящие аварии заглушают.
 
-**2. "It's working for me"** — users say the app is slow, the team can't reproduce, there's no data to settle the argument. Hours of cargo-cult debugging follow.
+**2. «У меня работает»** — пользователи говорят, что приложение тормозит, команда не воспроизводит, данных нет, спор не закрыть. Дальше часы отладки наугад.
 
 ```mermaid
 flowchart LR
-  Noise[📣 1000 alerts/day] --> Mute[🔇 Mute everything]
-  Mute --> Miss[🙈 Miss the real one]
-  Miss --> Outage[💥 4h outage]
+  Noise[📣 1000 алертов/день] --> Mute[🔇 Глушим всё]
+  Mute --> Miss[🙈 Пропуск настоящего]
+  Miss --> Outage[💥 Авария 4ч]
 ```
 
-> 📖 **Cindy Sridharan**, *Distributed Systems Observability* (O'Reilly, 2018): the cure is **high-cardinality, structured data** you can slice on demand — not more pre-baked alerts.
+> 📖 **Cindy Sridharan**, *Distributed Systems Observability* (O'Reilly, 2018): лекарство — **структурированные данные с высокой кардинальностью**, которые режете по месту, а не ещё пачка заранее заготовленных алертов.
 
 ---
 
-## 📍 Slide 6 – 💸 The Cost of Flying Blind
+## 📍 Slide 6 – 💸 Цена полёта вслепую
 
-| 🔥 Symptom | 💥 Cost |
+| 🔥 Симптом | 💥 Цена |
 |-----------|---------|
-| 🐢 Slow debugging | 4+ hour MTTR, escalations, missed SLOs |
-| 📋 No correlation across services | Microservice outages take days to triangulate |
-| 👉 No data → blame culture | Senior engineers leave |
-| 🙈 Silent failures | Issues only surface when customers tweet |
+| 🐢 Медленная отладка | MTTR 4+ часа, эскалации, сорванные SLO |
+| 📋 Нет склейки между сервисами | Аварии микросервисов разбирают днями |
+| 👉 Нет данных → культура виноватых | Сеньоры уходят |
+| 🙈 Тихие сбои | Проблема всплывает, только когда клиент пишет в Twitter |
 
-**📈 Concrete benchmark (DORA 2024 + Google SRE Book):**
-* MTTR without observability: **4+ hours** typical
-* MTTR with a Loki-class stack: **under 30 minutes**
-* Self-hosted Loki on object storage: **single-digit dollars/month** for tens of GB/day
+**📈 Конкретный ориентир (DORA 2024 + книга Google SRE):**
+* MTTR без наблюдаемости: типично **4+ часа**
+* MTTR со стеком класса Loki: **меньше 30 минут**
+* Свой Loki на объектном хранилище: **единицы долларов в месяц** на десятки ГБ в день
 
-> 🔥 **Hot take:** observability is the cheapest insurance policy in your stack. The break-even versus one prevented outage is measured in **seconds**.
+> 🔥 **Жёстко:** наблюдаемость — самая дешёвая страховка в стеке. Одна предотвращённая авария окупает её за **секунды**.
 
 ---
 
-## 📍 Slide 7 – 💡 Observability ≠ Monitoring
+## 📍 Slide 7 – 💡 Наблюдаемость ≠ мониторинг
 
-A distinction popularised by Charity Majors and the Honeycomb team:
+Различие, которое разогнали Charity Majors и команда Honeycomb:
 
-| ❓ Question | 📊 Monitoring | 🔍 Observability |
+| ❓ Вопрос | 📊 Мониторинг | 🔍 Наблюдаемость |
 |------------|---------------|------------------|
-| What it answers | *"Is the system up?"* | *"Why is the system doing this?"* |
-| Failure modes covered | **Known knowns** (pre-defined alerts) | **Unknown unknowns** (novel issues) |
-| Data shape | Low-cardinality time series | High-cardinality structured events |
-| You design alerts for… | Specific failure modes | Service-level objectives |
+| На какой вопрос отвечает | *«Система жива?»* | *«Почему система делает это?»* |
+| Какие сбои покрывает | **Известные известные** (заранее заданные алерты) | **Неизвестные неизвестные** (новые проблемы) |
+| Форма данных | Временные ряды с низкой кардинальностью | Структурированные события с высокой кардинальностью |
+| Алерты проектируете под… | Конкретные режимы сбоя | SLO |
 
-> 💬 **Charity Majors:** *"Monitoring is for known unknowns. Observability is for unknown unknowns."*
+> 💬 **Charity Majors:** *«Мониторинг — для известных неизвестных. Наблюдаемость — для неизвестных неизвестных.»*
 
-**🎯 Practical implication:** a healthy stack does both. Prometheus alerts (Lecture 8) handle the known. Loki + structured logs let you investigate the unknown.
+**🎯 Что из этого следует:** здоровый стек делает и то и другое. Алерты Prometheus (Lecture 8) закрывают известное. Loki и структурированные логи дают копать неизвестное.
 
 ---
 
-## 📍 Slide 8 – 📝 Why Structured Logging (JSON)
+## 📍 Slide 8 – 📝 Зачем структурированные логи (JSON)
 
-**❌ Unstructured — write-only:**
+**❌ Неструктурированные — записал и забыл:**
 ```
 2026-04-15 10:23:45 ERROR Connection to database failed on server-1 for user alice (req=7f3a)
 ```
 
-To filter on `user=alice` you write a regex. To aggregate by host you write a worse regex.
+Фильтр по `user=alice` — регулярка. Сводка по хосту — регулярка ещё хуже.
 
-**✅ Structured (JSON) — queryable:**
+**✅ Структурированные (JSON) — можно запросить:**
 ```json
 {"ts":"2026-04-15T10:23:45Z","level":"ERROR","service":"user-api",
  "msg":"db connection failed","user":"alice","host":"server-1","req_id":"7f3a"}
 ```
 
-Now `level="ERROR" and user="alice"` is one LogQL clause. Aggregating errors per host is a one-liner.
+Теперь `level="ERROR" and user="alice"` — одно условие LogQL. Ошибки по хостам — одна строка.
 
-> 🔥 **Rule:** if a human reads your logs more often than a machine, you've already lost. Logs are an API for your future on-call self.
+> 🔥 **Правило:** если логи чаще читает человек, а не машина, вы уже проиграли. Логи — API для вас, будущего дежурного.
 
 ---
 
-## 📍 Slide 9 – 🔗 Correlation IDs — One Request, Many Services
+## 📍 Slide 9 – 🔗 Correlation ID — один запрос, много сервисов
 
-A single user click can touch 5+ services. Without a correlation ID, you can't follow it across log streams.
+Один клик пользователя задевает 5+ сервисов. Без correlation ID (сквозной id запроса) его не проследить по потокам логов.
 
 ```mermaid
 sequenceDiagram
-  participant U as User
-  participant G as Gateway
+  participant U as Пользователь
+  participant G as Шлюз
   participant A as auth-api
   participant O as orders-api
   participant D as db
   U->>G: POST /order (X-Request-ID: 7f3a)
-  G->>A: verify token (req_id=7f3a)
-  G->>O: create order (req_id=7f3a)
+  G->>A: проверка токена (req_id=7f3a)
+  G->>O: создание заказа (req_id=7f3a)
   O->>D: INSERT (req_id=7f3a)
 ```
 
-**The pattern:**
-1. 🆔 Gateway generates a UUID per inbound request → `X-Request-ID` header
-2. 📨 Every downstream call forwards the header
-3. 📝 Every log line includes the ID as a JSON field
-4. 🔍 In Grafana: `{service=~".+"} | json | req_id="7f3a"` → the entire request, in order
+**Схема:**
+1. 🆔 Шлюз генерирует UUID на каждый входящий запрос → заголовок `X-Request-ID`
+2. 📨 Каждый вызов дальше передаёт заголовок
+3. 📝 Каждая строка лога пишет ID полем JSON
+4. 🔍 В Grafana: `{service=~".+"} | json | req_id="7f3a"` → весь запрос, по порядку
 
-> 📖 The OpenTelemetry spec calls this `traceparent` — the same idea, standardised.
+> 📖 В спецификации OpenTelemetry это `traceparent` — та же идея, уже как стандарт.
 
 ---
 
-## 📍 Slide 10 – ⚡ Loki vs ELK: Why Loki Won for Logs
+## 📍 Slide 10 – ⚡ Loki против ELK: почему для логов победил Loki
 
-The traditional log stack — Elasticsearch + Logstash + Kibana — indexes **every word** of every log. That's expensive.
+Классический стек логов — Elasticsearch + Logstash + Kibana — индексирует **каждое слово** каждого лога. Это дорого.
 
-| 📊 Aspect | 💾 Loki | 🔍 ELK |
+| 📊 Аспект | 💾 Loki | 🔍 ELK |
 |-----------|---------|--------|
-| Index | **Labels only** (service, env, level…) | **Full text** of every line |
-| Storage | Cheap object store (S3/GCS/MinIO) | Local SSD for hot index |
-| Cost at 100GB/day | ~$10–30/mo | ~$500–2000/mo |
-| Query language | LogQL (Prometheus-style) | Lucene |
-| Best for | Cloud-native, label-driven | Free-text forensics |
+| Индекс | **Только лейблы** (service, env, level…) | **Полный текст** каждой строки |
+| Хранение | Дешёвое объектное хранилище (S3/GCS/MinIO) | Локальный SSD под горячий индекс |
+| Цена при 100GB/day | ~$10–30/mo | ~$500–2000/mo |
+| Язык запросов | LogQL (в стиле Prometheus) | Lucene |
+| Лучше всего для | Cloud-native, от лейблов | Разбор по свободному тексту |
 
 ```mermaid
 flowchart LR
-  Loki[💾 Loki<br/>small label index] --> Cheap[💰 Cheap]
-  ELK[🔍 ELK<br/>full-text index] --> Expensive[💸 Expensive]
+  Loki[💾 Loki<br/>маленький индекс лейблов] --> Cheap[💰 Дёшево]
+  ELK[🔍 ELK<br/>полнотекстовый индекс] --> Expensive[💸 Дорого]
 ```
 
-> 💬 **Grafana Labs' pitch (2019):** *"Like Prometheus, but for logs."* — same labels, same federation model, same querier ergonomics.
+> 💬 **Формулировка Grafana Labs (2019):** *"Like Prometheus, but for logs."* («Как Prometheus, но для логов.») — те же лейблы, та же модель федерации, тот же удобный querier.
 
 ---
 
-## 📍 Slide 11 – 🏗️ Loki Architecture
+## 📍 Slide 11 – 🏗️ Архитектура Loki
 
 ```mermaid
 flowchart LR
-  Apps[📦 Apps] --> Agent[⚡ Alloy<br/>or legacy Promtail]
+  Apps[📦 Приложения] --> Agent[⚡ Alloy<br/>или старый Promtail]
   Agent -->|HTTP push| Dist[📥 Distributor]
   Dist --> Ing[💾 Ingester]
-  Ing -->|chunks| Obj[(☁️ Object Storage<br/>S3/GCS/MinIO)]
-  Ing -->|index| TSDB[(📇 TSDB Index)]
+  Ing -->|чанки| Obj[(☁️ Объектное хранилище<br/>S3/GCS/MinIO)]
+  Ing -->|индекс| TSDB[(📇 Индекс TSDB)]
   Q[❓ Querier] --> Ing
   Q --> Obj
   Q --> TSDB
   Graf[📊 Grafana] --> Q
 ```
 
-* 📥 **Distributor** — receives pushes, validates, fans out to ingesters
-* 💾 **Ingester** — buffers in memory, flushes compressed chunks to object storage
-* ❓ **Querier** — answers LogQL by reading the TSDB index, then fetching matching chunks
-* 📇 **TSDB index** (default since Loki 3.0, schema v13) — small, fast, replaces the old boltdb-shipper
+* 📥 **Distributor** — принимает push, проверяет, раздаёт по ingester
+* 💾 **Ingester** — держит буфер в памяти, сбрасывает сжатые чанки в объектное хранилище
+* ❓ **Querier** — отвечает на LogQL: читает индекс TSDB, потом забирает нужные чанки
+* 📇 **Индекс TSDB** (по умолчанию с Loki 3.0, схема v13) — маленький, быстрый, заменяет старый boltdb-shipper
 
-> 🔧 **Two deployment modes:** *single-binary* (one container, fine up to ~100GB/day — what Lab 7 uses) and *microservices* (each component scales independently — production at scale).
+> 🔧 **Два режима deployment:** *single-binary* (один контейнер, тянет до ~100GB/day — так делает Lab 7) и *microservices* (каждый компонент масштабируется сам — прод на объёме).
 
 ---
 
-## 📍 Slide 12 – 🏷️ Labels: The One Thing You Must Get Right
+## 📍 Slide 12 – 🏷️ Лейблы: единственное, что нельзя промахнуть
 
-Loki indexes by **labels**. Each unique label combination = one **stream**. Every stream costs index space and memory.
+Loki индексирует по **лейблам**. Каждая уникальная комбинация лейблов = один **поток**. Каждый поток ест место в индексе и память.
 
-**✅ Good labels — low cardinality:**
-* `service="user-api"` (10s of services)
-* `env="prod"` (3 values)
-* `level="ERROR"` (5 values)
+**✅ Хорошие лейблы — низкая кардинальность:**
+* `service="user-api"` (десятки сервисов)
+* `env="prod"` (3 значения)
+* `level="ERROR"` (5 значений)
 
-**❌ Bad labels — high cardinality:**
-* `user_id="12345"` (millions of users → **millions of streams** → ingester OOM)
-* `request_id="7f3a..."` (one per request → instant collapse)
-* `trace_id`, `email`, `path` with IDs in it…
+**❌ Плохие лейблы — высокая кардинальность:**
+* `user_id="12345"` (миллионы пользователей → **миллионы потоков** → OOM у ingester)
+* `request_id="7f3a..."` (один на запрос → сразу коллапс)
+* `trace_id`, `email`, `path` с id внутри…
 
-> 🔥 **The rule:** if a value is unique per request or per user, **it goes in the log line, not the label.** Use `| json | user_id="12345"` at query time.
+> 🔥 **Правило:** если значение уникально на запрос или на пользователя, **ему место в строке лога, не в лейбле.** В запросе пишите `| json | user_id="12345"`.
 
 ```logql
 # ✅ Good — small label set, filter on parsed JSON field
@@ -248,7 +248,7 @@ Loki indexes by **labels**. Each unique label combination = one **stream**. Ever
 
 ---
 
-## 📍 Slide 13 – ⚙️ Loki Single-Binary Config (Lab 7 baseline)
+## 📍 Slide 13 – ⚙️ Конфиг Loki single-binary (база Lab 7)
 
 ```yaml
 # loki/config.yml — Loki 3.7, schema v13, single-binary
@@ -283,23 +283,23 @@ compactor:
   retention_enabled: true      # ⚠️ Required when retention is set
 ```
 
-> ⚠️ **Common gotcha:** enabling `retention_period` without the `compactor` block = logs never actually delete. Loki silently ignores the limit.
+> ⚠️ **Частая ловушка:** `retention_period` без блока `compactor` = логи на самом деле не удаляются. Loki молча игнорирует лимит.
 
 ---
 
-## 📍 Slide 14 – 🔧 Alloy, Promtail, and the OTel Collector
+## 📍 Slide 14 – 🔧 Alloy, Promtail и OTel Collector
 
-**Three ways to ship logs into Loki in 2026:**
+**Три способа слать логи в Loki в 2026:**
 
-| Agent | Status (May 2026) | When to pick |
+| Агент | Статус (May 2026) | Когда брать |
 |-------|-------------------|--------------|
-| ⚡ **Grafana Alloy 1.16.1** | **Canonical agent** — Promtail + Prometheus agent + OTel in one binary | **All new deployments** (including Lab 7); all three pillars from one agent |
-| 🪦 **Promtail 3.x** | **End-of-Life March 2, 2026** — no further releases, no security fixes | Existing setups you haven't migrated yet; understanding legacy configs |
-| 🌐 **OpenTelemetry Collector** | Vendor-neutral CNCF standard | Multi-backend (Loki + Datadog + …), traces too |
+| ⚡ **Grafana Alloy 1.16.1** | **Канонический агент** — Promtail + агент Prometheus + OTel в одном бинарнике | **Все новые deployment** (включая Lab 7); все три столпа из одного агента |
+| 🪦 **Promtail 3.x** | **End-of-Life March 2, 2026** — релизов больше нет, security-исправлений тоже | Старые установки, которые ещё не мигрировали; чтобы читать legacy-конфиги |
+| 🌐 **OpenTelemetry Collector** | Нейтральный стандарт CNCF | Несколько бэкендов (Loki + Datadog + …), плюс трейсы |
 
 ```mermaid
 flowchart LR
-  App[📦 App] --> Stdout[stdout]
+  App[📦 Приложение] --> Stdout[stdout]
   Stdout --> A2[⚡ Alloy]
   Stdout --> A1[🪦 Promtail<br/>EOL 2026-03-02]
   Stdout --> A3[🌐 OTel Collector]
@@ -308,13 +308,13 @@ flowchart LR
   A3 --> Loki
 ```
 
-> 🔗 **Lab 7 walks through Alloy** because Promtail is no longer maintained. The Promtail config on the next slide is preserved so you can read and migrate brownfield deployments — but **do not stand up a new Promtail in 2026**.
+> 🔗 **Lab 7 идёт через Alloy**, потому что Promtail больше не сопровождают. Конфиг Promtail на следующем слайде оставлен, чтобы читать и мигрировать уже стоящие deployment — но **новый Promtail в 2026 не поднимайте**.
 
 ---
 
-## 📍 Slide 15 – 🪦 Promtail Config (legacy / historical context)
+## 📍 Slide 15 – 🪦 Конфиг Promtail (legacy / исторический контекст)
 
-> ⚠️ **Promtail is EOL since March 2, 2026.** This slide is preserved so you can read existing configs in production and migrate them to Alloy. Do **not** stand up a new Promtail.
+> ⚠️ **Promtail в EOL с March 2, 2026.** Слайд оставлен, чтобы читать живые конфиги в проде и переносить их на Alloy. Новый Promtail **не** поднимайте.
 
 ```yaml
 # promtail/config.yml — LEGACY, see Alloy slide for the modern equivalent
@@ -343,11 +343,11 @@ scrape_configs:
         target_label: 'container'
 ```
 
-* 📍 **`positions`** — survives restarts so you don't double-ship
-* 🐳 **Docker SD** — auto-discovers any container with `logging=promtail` label
-* 🏷️ **Relabel** — promotes Docker labels to Loki labels (cardinality-controlled)
+* 📍 **`positions`** — переживает рестарт, чтобы не отправить одно и то же дважды
+* 🐳 **Docker SD** — сам находит любой контейнер с лейблом `logging=promtail`
+* 🏷️ **Relabel** — поднимает Docker-лейблы в лейблы Loki (кардинальность под контролем)
 
-**Migration to Alloy** (`config.alloy`, River syntax — Lab 7 ships this):
+**Миграция на Alloy** (`config.alloy`, синтаксис River — именно его отдаёт Lab 7):
 
 ```hcl
 discovery.docker "containers" {
@@ -367,36 +367,36 @@ loki.write "default" {
 }
 ```
 
-> 🔁 Same three steps (discover → scrape → push), but Alloy speaks Prometheus + OTel from the same binary.
+> 🔁 Те же три шага (discover → scrape → push), но Alloy из одного бинарника говорит и на Prometheus, и на OTel.
 
 ---
 
-## 📍 Slide 16 – 🔍 LogQL Part 1: Stream Selectors & Line Filters
+## 📍 Slide 16 – 🔍 LogQL, часть 1: селекторы потоков и фильтры строк
 
-LogQL has two halves: **log queries** (return log lines) and **metric queries** (return numbers from logs).
+У LogQL две половины: **log-запросы** (возвращают строки логов) и **metric-запросы** (возвращают числа из логов).
 
-**Anatomy:**
+**Анатомия:**
 ```logql
 {service="user-api", env="prod"}    |= "error"   != "healthcheck"   |~ "5\\d\\d"
 └── stream selector ──────────────┘ └─ contains ┘ └─ excludes ────┘ └─ regex ─┘
 ```
 
-| 🔧 Operator | 🎯 Meaning |
+| 🔧 Оператор | 🎯 Смысл |
 |-------------|-----------|
-| `{label="v"}` | Exact label match |
-| `{label=~"re"}` | Regex label match |
-| `\|= "x"` | Line contains `x` |
-| `!= "x"` | Line does **not** contain `x` |
-| `\|~ "re"` | Line matches regex |
-| `!~ "re"` | Line does not match regex |
+| `{label="v"}` | Точное совпадение лейбла |
+| `{label=~"re"}` | Лейбл по регулярке |
+| `\|= "x"` | Строка содержит `x` |
+| `!= "x"` | Строка **не** содержит `x` |
+| `\|~ "re"` | Строка совпадает с регуляркой |
+| `!~ "re"` | Строка не совпадает с регуляркой |
 
-> 💡 **Filters cascade left-to-right.** Put the cheapest, most-selective filter first — it cuts the data the others have to process.
+> 💡 **Фильтры идут слева направо.** Сначала самый дешёвый и самый узкий — он срезает данные, которые иначе жевали бы остальные.
 
 ---
 
-## 📍 Slide 17 – 🔍 LogQL Part 2: Parsers & Field Filters
+## 📍 Slide 17 – 🔍 LogQL, часть 2: парсеры и фильтры по полям
 
-Once logs are JSON, you can pull fields out and filter on them:
+Когда логи — JSON, поля можно вытащить и фильтровать по ним:
 
 ```logql
 # Parse JSON, keep only ERRORs from one user
@@ -409,21 +409,21 @@ Once logs are JSON, you can pull fields out and filter on them:
 {service="user-api"} | json | line_format "{{.level}} {{.user_id}} {{.msg}}"
 ```
 
-| 🔧 Stage | 🎯 Purpose |
+| 🔧 Стадия | 🎯 Зачем |
 |----------|-----------|
-| `\| json` | Parse JSON → fields become filterable |
-| `\| logfmt` | Parse `key=value` format |
-| `\| regexp "..."` | Extract via named capture groups |
-| `\| line_format "..."` | Rewrite the displayed line |
-| `\| label_format` | Rewrite/add labels post-query |
+| `\| json` | Разобрать JSON → поля можно фильтровать |
+| `\| logfmt` | Разобрать формат `key=value` |
+| `\| regexp "..."` | Вытащить именованными группами |
+| `\| line_format "..."` | Переписать показанную строку |
+| `\| label_format` | Переписать или добавить лейблы после запроса |
 
-> 🔥 **High-cardinality without the pain:** because `user_id` lives in the JSON body (not in labels), Loki doesn't index it — but you can still filter on it at query time.
+> 🔥 **Высокая кардинальность без боли:** `user_id` живёт в теле JSON (не в лейблах), Loki его не индексирует — но в момент запроса фильтр по нему работает.
 
 ---
 
-## 📍 Slide 18 – 📊 LogQL Part 3: Metrics from Logs
+## 📍 Slide 18 – 📊 LogQL, часть 3: метрики из логов
 
-Log-range aggregations turn streams into time series — perfect for Grafana graphs and alert rules.
+Агрегации по диапазону превращают потоки во временные ряды — самое то для графиков Grafana и правил алертов.
 
 ```logql
 # 📈 Request rate per service (logs/sec)
@@ -440,18 +440,18 @@ quantile_over_time(0.95,
   {service="user-api"} | json | unwrap duration_ms [5m])
 ```
 
-| 🔧 Function | 🎯 Use case |
+| 🔧 Функция | 🎯 Когда |
 |-------------|-------------|
-| `rate([range])` | Lines per second |
-| `count_over_time([range])` | Total in window |
-| `bytes_rate([range])` | Bytes/sec (cost monitoring) |
-| `quantile_over_time(q, ...)` | P50/P95/P99 from numeric fields |
+| `rate([range])` | Строк в секунду |
+| `count_over_time([range])` | Всего за окно |
+| `bytes_rate([range])` | Байт/с (контроль стоимости) |
+| `quantile_over_time(q, ...)` | P50/P95/P99 из числовых полей |
 
 ---
 
-## 📍 Slide 19 – 🐍 Structured Logging in Python
+## 📍 Slide 19 – 🐍 Структурированные логи в Python
 
-**Lab 1's Python app** gets one upgrade — JSON output. Two idiomatic paths:
+**Python-приложение из Lab 1** получает одно улучшение — вывод в JSON. Два нормальных пути:
 
 ```python
 # Option A — python-json-logger (drop-in, no app changes)
@@ -475,34 +475,34 @@ log.info("user login", user_id=12345, req_id="7f3a", path="/login")
 # → {"event": "user login", "level": "info", "user_id": 12345, ...}
 ```
 
-> 🔗 **Lab 7 deliverable:** add JSON logging to your Lab 1 service, log startup, every HTTP request (method, path, status, client IP), and every error. Tests pass when `curl localhost:8000/health` produces a JSON line in `docker logs`.
+> 🔗 **Результат Lab 7:** добавьте JSON-логи в сервис из Lab 1. Логируйте старт, каждый HTTP-запрос (метод, путь, статус, IP клиента) и каждую ошибку. Тесты проходят, когда `curl localhost:8000/health` даёт JSON-строку в `docker logs`.
 
 ---
 
-## 📍 Slide 20 – 📊 Grafana Dashboard Design Principles
+## 📍 Slide 20 – 📊 Принципы дашбордов Grafana
 
-A dashboard answers **one question** for **one audience**. If you can't summarise it in a sentence, split it.
+Дашборд отвечает на **один вопрос** для **одной аудитории**. Не сжимается в одно предложение — делите.
 
 ```mermaid
 flowchart TD
-  Top[🚨 Health summary — red/green stat panels]
-  Top --> Mid[📈 Trends — request rate, error rate]
-  Mid --> Bot[📋 Logs — raw lines for drill-down]
+  Top[🚨 Сводка health — красные/зелёные stat-панели]
+  Top --> Mid[📈 Тренды — частота запросов, частота ошибок]
+  Mid --> Bot[📋 Логи — сырые строки для разбора]
 ```
 
-* 🎯 **One question per dashboard** — *"Is user-api healthy?"*, not *"Show me everything."*
-* 🚦 **Stat panels at the top** — red/green, glanceable in 2 seconds
-* 📈 **Time series in the middle** — context for the stats
-* 📋 **Log panel at the bottom** — raw lines, scoped to the same time range
-* 🔁 **Variables** for `$service` and `$env` — one dashboard, many environments
+* 🎯 **Один вопрос на дашборд** — *«user-api здоров?»*, а не *«Покажи всё.»*
+* 🚦 **Stat-панели сверху** — красный/зелёный, считывается за 2 секунды
+* 📈 **Временные ряды посередине** — контекст для цифр
+* 📋 **Панель логов снизу** — сырые строки, то же окно времени
+* 🔁 **Переменные** `$service` и `$env` — один дашборд, много окружений
 
-> 📖 *"The Hierarchy of Visual Communication"* — Tufte's law applied: most-important data takes the most pixels and the brightest colour.
+> 📖 *«Иерархия визуальной коммуникации»* — закон Тафти на практике: самые важные данные забирают больше пикселей и самый яркий цвет.
 
 ---
 
-## 📍 Slide 21 – 📊 Lab 7's Four Panels (LogQL)
+## 📍 Slide 21 – 📊 Четыре панели Lab 7 (LogQL)
 
-The Lab 7 dashboard ships four panels covering the most common questions:
+Дашборд Lab 7 несёт четыре панели под самые частые вопросы:
 
 ```logql
 # 1️⃣ Logs panel — recent activity, all your apps
@@ -518,108 +518,108 @@ sum by (app) (rate({app=~"devops-.*"} [1m]))
 sum by (level) (count_over_time({app=~"devops-.*"} | json [5m]))
 ```
 
-| Panel | Visualisation | Answers |
+| Панель | Визуализация | Отвечает |
 |-------|---------------|---------|
-| 1 | Logs | *"What's happening right now?"* |
-| 2 | Time series | *"How busy are we?"* |
-| 3 | Logs | *"What broke?"* |
-| 4 | Pie / Stat | *"How noisy is the app?"* |
+| 1 | Логи | *«Что происходит прямо сейчас?»* |
+| 2 | Временной ряд | *«Насколько мы загружены?»* |
+| 3 | Логи | *«Что сломалось?»* |
+| 4 | Круговая / Stat | *«Насколько приложение шумное?»* |
 
-> 🔗 **Evidence required:** screenshot of all four panels with real data generated by `curl` loops against your app.
+> 🔗 **Нужно доказательство:** скриншот всех четырёх панелей с живыми данными от циклов `curl` в ваше приложение.
 
 ---
 
-## 📍 Slide 22 – 🏭 Production Considerations
+## 📍 Slide 22 – 🏭 Что учесть в проде
 
-Single-binary Loki on a laptop is Lab 7. Production needs four more decisions:
+Loki single-binary на ноутбуке — это Lab 7. В проде нужно принять ещё четыре решения:
 
-| 🔧 Decision | 🪜 Lab default | 🏭 Production |
+| 🔧 Решение | 🪜 В лабе | 🏭 В проде |
 |-------------|----------------|---------------|
-| 💾 Storage | `filesystem` | **S3 / GCS / MinIO** — cheap, durable, scales independently |
-| 👥 Tenancy | `auth_enabled: false` | **Multi-tenant** with `X-Scope-OrgID` header; each team isolated |
-| 🗓️ Retention | 168h (7 days) | **Tiered** — 30d for INFO, 1y for security/audit logs |
-| 📦 Topology | Single binary | **Microservices mode** — distributor, ingester, querier scale separately |
-| 🔐 Auth | None | **OIDC / mTLS** at the Grafana edge + Loki tenancy header |
-| 💰 Cost guard | None | **Rate limits + ingestion quotas** per tenant |
+| 💾 Хранение | `filesystem` | **S3 / GCS / MinIO** — дёшево, надёжно, масштаб сам по себе |
+| 👥 Тенантность | `auth_enabled: false` | **Мультитенантность** с заголовком `X-Scope-OrgID`; команды изолированы |
+| 🗓️ Срок хранения | 168h (7 дней) | **По уровням** — 30 дней для INFO, 1 год для логов security и аудита |
+| 📦 Топология | Один бинарник | **Режим microservices** — distributor, ingester, querier масштабируются по отдельности |
+| 🔐 Доступ | Нет | **OIDC / mTLS** на краю Grafana плюс заголовок тенанта Loki |
+| 💰 Защита от расходов | Нет | **Лимиты скорости и квоты приёма** на тенанта |
 
-> ⚠️ **Cost trap:** unbounded log volume is the #1 way teams burn through their observability budget. Set per-tenant `ingestion_rate_mb` and `max_streams_per_user` from day one.
-
----
-
-## 📍 Slide 23 – 🌍 Logging in Real Companies
-
-* 🎬 **Netflix** — Atlas for metrics, **Mantis** + custom log platform; thousands of microservices stream structured events
-* 🦄 **GitHub** — Splunk for security audit + Loki for application logs (~PB/month combined)
-* 🚀 **SpaceX** — *"telemetry-everything"* — every launch streams ~3,000 sensor channels into a time-series store
-* 🏦 **Stripe** — structured logs are an API; every line is a JSON event with a stable schema, used by data scientists and on-call alike
-* 🎮 **Riot Games** — Loki + Grafana for player-session telemetry across 100M+ monthly actives
-* 📦 **Spotify** — Loki at ~1.5PB ingested/month, multi-tenant per squad
-
-> 🔥 **Common thread:** every one of them logs in **structured JSON** with **correlation IDs** and treats logs as a queryable data source, not a debug dump.
+> ⚠️ **Ловушка по деньгам:** безлимитный объём логов — способ №1 сжечь бюджет на наблюдаемость. С первого дня поставьте на тенанта `ingestion_rate_mb` и `max_streams_per_user`.
 
 ---
 
-## 📍 Slide 24 – 🎯 Key Takeaways
+## 📍 Slide 23 – 🌍 Как логируют в настоящих компаниях
 
-1. 🔍 **Observability = logs + metrics + traces.** This lecture covered logs. Lecture 8 covers metrics.
-2. 📝 **Structured JSON or you're not really logging** — you're writing a diary nobody can search.
-3. 🆔 **Correlation IDs** stitch one request across many services. Generate at the edge, propagate everywhere.
-4. 🏷️ **Loki indexes labels, not text.** Keep label cardinality low. High-cardinality fields belong in the JSON body and `| json` at query time.
-5. 🛠️ **LogQL** = stream selector → line filter → parser → metric function. Cheapest filter first.
-6. 📊 **Dashboards answer one question** for one audience. Red/green at the top, raw logs at the bottom.
-7. ⚡ **Promtail is EOL (March 2, 2026), Alloy is canonical.** Pick Alloy 1.16.1+ for every new deployment; OTel Collector if you need multi-backend.
+* 🎬 **Netflix** — Atlas для метрик, **Mantis** и своя платформа логов; тысячи микросервисов льют структурированные события
+* 🦄 **GitHub** — Splunk для security-аудита и Loki для логов приложений (вместе ~PB/месяц)
+* 🚀 **SpaceX** — *«telemetry-everything»* (телеметрия на всё) — каждый пуск льёт ~3,000 каналов датчиков в хранилище временных рядов
+* 🏦 **Stripe** — структурированные логи это API; каждая строка — JSON-событие со стабильной схемой, им пользуются и дата-сайентисты, и дежурные
+* 🎮 **Riot Games** — Loki + Grafana для телеметрии игровых сессий, 100M+ активных в месяц
+* 📦 **Spotify** — Loki принимает ~1.5PB в месяц, мультитенантность по сквадам
 
-> 💡 **You can't fix what you can't see. Today you gave production eyes.**
+> 🔥 **Общее:** все пишут **структурированный JSON** с **correlation ID** и держат логи запрашиваемым источником, а не свалкой для отладки.
 
 ---
 
-## 📍 Slide 25 – 🧠 The Mindset Shift
+## 📍 Slide 24 – 🎯 Что забрать с собой
 
-| 😰 Old | 🔍 Observable |
+1. 🔍 **Наблюдаемость = логи + метрики + трейсы.** Эта лекция — про логи. Lecture 8 — про метрики.
+2. 📝 **Нет структурированного JSON — это не логи**, а дневник, по которому нельзя искать.
+3. 🆔 **Correlation ID** сшивает один запрос через много сервисов. Генерируйте на краю, прокидывайте везде.
+4. 🏷️ **Loki индексирует лейблы, не текст.** Кардинальность лейблов держите низкой. Поля с высокой кардинальностью живут в теле JSON, а `| json` — в момент запроса.
+5. 🛠️ **LogQL** = селектор потока → фильтр строки → парсер → функция метрики. Сначала самый дешёвый фильтр.
+6. 📊 **Дашборд отвечает на один вопрос** для одной аудитории. Красный/зелёный сверху, сырые логи снизу.
+7. ⚡ **Promtail в EOL (March 2, 2026), канонический агент — Alloy.** На каждый новый deployment берите Alloy 1.16.1+; OTel Collector — когда бэкендов несколько.
+
+> 💡 **Нельзя починить то, чего не видишь. Сегодня у прода появились глаза.**
+
+---
+
+## 📍 Slide 25 – 🧠 Сдвиг в голове
+
+| 😰 Раньше | 🔍 С наблюдаемостью |
 |-------|---------------|
-| 🔌 "SSH and grep" | 📊 "Open Grafana and LogQL" |
-| 📁 "Check the logs on server-3" | 🌐 "All logs, one place, one query" |
-| 👉 "It's probably the database" | 📊 "Data shows it's the cache layer" |
-| 😨 "Debugging takes hours" | ⚡ "Root cause in 5 minutes" |
-| 💻 "Works on my machine" | 📋 "Production says otherwise — here's the log line" |
+| 🔌 «SSH и grep» | 📊 «Открыть Grafana и LogQL» |
+| 📁 «Посмотри логи на server-3» | 🌐 «Все логи, одно место, один запрос» |
+| 👉 «Наверное, база» | 📊 «Данные показывают: это слой кэша» |
+| 😨 «Отладка занимает часы» | ⚡ «Корневая причина за 5 минут» |
+| 💻 «У меня работает» | 📋 «Прод говорит иначе — вот строка лога» |
 
-> ❓ Which column describes your team's last incident review?
+> ❓ Какой столбец про последний разбор инцидента у вашей команды?
 
 ---
 
-## 📍 Slide 26 – 🚀 What Comes Next
+## 📍 Slide 26 – 🚀 Что дальше
 
-**📚 Next lecture: *Monitoring with Prometheus*** — the metrics pillar.
+**📚 Следующая лекция: *Мониторинг с Prometheus*** — столп метрик.
 
-* 📊 Why time-series metrics complement logs (and where each wins)
-* 🔢 PromQL — same query model you just learned in LogQL, applied to numbers
-* 📈 Instrumenting the Python app with `prometheus_client` (counters, histograms, gauges)
-* 🚨 Alert rules with thresholds, durations, and SLO-style burn rates
-* 📊 Building a Prometheus + Grafana dashboard for Lab 1's service
+* 📊 Почему метрики во временных рядах дополняют логи (и где кто сильнее)
+* 🔢 PromQL — та же модель запроса, что вы только что видели в LogQL, только для чисел
+* 📈 Инструментирование Python-приложения через `prometheus_client` (counter, histogram, gauge)
+* 🚨 Правила алертов: пороги, длительности и burn rate в духе SLO
+* 📊 Дашборд Prometheus + Grafana для сервиса из Lab 1
 
-**🔬 Lab 7:** deploy Loki 3.7 + Grafana Alloy 1.16.1 + Grafana 13 via docker-compose, add JSON logging to your Lab 1 Python app, build the 4-panel dashboard, harden for production (resource limits, health checks, no anonymous Grafana). Bonus 2.5 pts: automate the whole thing with an Ansible role from Lab 6.
+**🔬 Lab 7:** выкатите Loki 3.7 + Grafana Alloy 1.16.1 + Grafana 13 через docker-compose, добавьте JSON-логи в Python-приложение из Lab 1, соберите дашборд из 4 панелей, укрепите под прод (лимиты ресурсов, health-проверки, Grafana без анонимного доступа). Бонус 2.5 балла: автоматизируйте всё ролью Ansible из Lab 6.
 
 ```mermaid
 flowchart LR
-  L7[📋 Lab 7: Logs] --> L8[📊 Lab 8: Metrics] --> L16[☸️ Lab 16: K8s observability]
+  L7[📋 Lab 7: логи] --> L8[📊 Lab 8: метрики] --> L16[☸️ Lab 16: наблюдаемость K8s]
 ```
 
-**👋 See you in Lecture 8.**
+**👋 До встречи в Lecture 8.**
 
 ---
 
-## 📚 Resources & Further Reading
+## 📚 Материалы и что почитать
 
-**📕 Books:**
-* *Observability Engineering* — Charity Majors, Liz Fong-Jones, George Miranda (O'Reilly, 2022). The reference.
-* *Distributed Systems Observability* — Cindy Sridharan (O'Reilly, 2018). Free PDF at humio.com.
-* *Site Reliability Engineering* — Beyer et al. — Chapters 10–12 on monitoring philosophy. Free at sre.google/books.
+**📕 Книги:**
+* *Observability Engineering* — Charity Majors, Liz Fong-Jones, George Miranda (O'Reilly, 2022). Главный справочник.
+* *Distributed Systems Observability* — Cindy Sridharan (O'Reilly, 2018). Бесплатный PDF на humio.com.
+* *Site Reliability Engineering* — Beyer et al. — главы 10–12 про философию мониторинга. Бесплатно на sre.google/books.
 
-**🔗 Links:**
-* 🌐 [grafana.com/docs/loki/latest](https://grafana.com/docs/loki/latest/) — Loki 3.x docs
-* 🌐 [grafana.com/docs/alloy/latest](https://grafana.com/docs/alloy/latest/) — Alloy (Promtail's successor)
-* 🌐 [LogQL reference](https://grafana.com/docs/loki/latest/query/) — every operator, with examples
-* 🌐 [opentelemetry.io](https://opentelemetry.io) — the CNCF observability standard
-* 🌐 [structlog.org](https://www.structlog.org) — the Python structured-logging library
+**🔗 Ссылки:**
+* 🌐 [grafana.com/docs/loki/latest](https://grafana.com/docs/loki/latest/) — документация Loki 3.x
+* 🌐 [grafana.com/docs/alloy/latest](https://grafana.com/docs/alloy/latest/) — Alloy (преемник Promtail)
+* 🌐 [Справка по LogQL](https://grafana.com/docs/loki/latest/query/) — все операторы, с примерами
+* 🌐 [opentelemetry.io](https://opentelemetry.io) — стандарт наблюдаемости CNCF
+* 🌐 [structlog.org](https://www.structlog.org) — библиотека структурированных логов для Python
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 7–9 leaderboard window.
+**🎓 Квиз:** квиз после лекции идёт в окно таблицы лидеров недель 7–9.

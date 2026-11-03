@@ -1,190 +1,190 @@
-# 📌 Lecture 2 — Containerization with Docker: From "Works on My Machine" to Works Everywhere
+# 📌 Lecture 2 — Контейнеризация с Docker: от «работает у меня» до «работает везде»
 
-## 📍 Slide 1 – 🐳 Welcome to Containerization
+## 📍 Слайд 1 – 🐳 Добро пожаловать в контейнеризацию
 
-* 🌍 **"Works on my machine"** — the most expensive phrase in software (Lecture 1's running joke, now we fix it)
-* 📦 **Containers** = package your app + dependencies + runtime into a single shippable unit
-* 🚀 **Docker** = the tool that made containers mainstream in 2013
-* 🎯 This lecture: build production-grade containers — small, secure, reproducible
+* 🌍 **«Работает у меня»** — самая дорогая фраза в разработке (сквозная шутка Lecture 1, теперь её чиним)
+* 📦 **Контейнеры** = приложение + зависимости + рантайм в одной единице поставки
+* 🚀 **Docker** = инструмент, который в 2013 сделал контейнеры мейнстримом
+* 🎯 Эта лекция: контейнеры прод-уровня — маленькие, безопасные, воспроизводимые
 
 ```mermaid
 flowchart LR
-  Problem[😰 Works on My Machine] -->|Docker| Solution[🐳 Works Everywhere]
-  Solution --> Value[💎 Consistent Deployments]
+  Problem[😰 Работает у меня] -->|Docker| Solution[🐳 Работает везде]
+  Solution --> Value[💎 Одинаковые выкладки]
 ```
 
-> 🔗 **Tie-in to Lab 2:** you'll containerize the Python service from Lab 1. By the end you'll have a multi-stage Dockerfile under 100MB final image.
+> 🔗 **Связка с Lab 2:** вы упакуете Python-сервис из Lab 1 в контейнер. К концу будет multi-stage Dockerfile, финальный образ меньше 100 МБ.
 
 ---
 
-## 📍 Slide 2 – 🎯 Learning Outcomes
+## 📍 Слайд 2 – 🎯 Чему научитесь
 
-| # | Outcome |
+| # | Результат |
 |---|---------|
-| 1 | 🧠 Explain how Linux namespaces and cgroups make containers possible |
-| 2 | 📝 Write production-ready Dockerfiles |
-| 3 | 🔐 Apply rootless and distroless patterns |
-| 4 | 📦 Cut image size with multi-stage builds |
-| 5 | 🚀 Push and pull from Docker Hub or GHCR |
+| 1 | 🧠 Объяснить, как namespaces и cgroups в Linux делают контейнеры возможными |
+| 2 | 📝 Писать production-ready Dockerfile |
+| 3 | 🔐 Применять паттерны rootless и distroless |
+| 4 | 📦 Резать размер образа multi-stage сборкой |
+| 5 | 🚀 Делать push и pull из Docker Hub или GHCR |
 
-**Tech stack pinned for May 2026:** Docker Engine **29.5+** (released May 2026; containerd image store is now default), BuildKit on by default, Compose v2 in Go (Python compose v1 reached EOL July 2023).
-
----
-
-## 📍 Slide 3 – ❓ The Big Question
-
-* 📊 **~65%** of organizations run containers in production (CNCF Annual Survey 2024)
-* 🐳 Docker Hub holds **15M+** public images, serves **~17B** pulls per month
-* 💥 Yet a 2024 Snyk scan found **~80%** of public images contain at least one HIGH-severity CVE
-
-> 💬 *"Containers are the new deployment unit."* — Kelsey Hightower
-
-**🤔 Discussion:** if every image is potentially vulnerable, what makes a "good" Dockerfile?
+**Стек на май 2026:** Docker Engine **29.5+** (вышел в мае 2026; хранилище образов containerd теперь по умолчанию), BuildKit включён по умолчанию, Compose v2 на Go (Python Compose v1 дошёл до EOL в июле 2023).
 
 ---
 
-## 📍 Slide 4 – 🔥 The Dependency Problem
+## 📍 Слайд 3 – ❓ Главный вопрос
 
-* 👨‍💻 **Dev box:** Python 3.13, glibc 2.40, OpenSSL 3.3
-* 🖥️ **Prod box:** Python 3.10, glibc 2.31, OpenSSL 1.1
-* 💥 App crashes in prod with `GLIBC_2.34 not found` — and nobody can reproduce locally
+* 📊 **~65%** организаций гоняют контейнеры в проде (CNCF Annual Survey 2024)
+* 🐳 В Docker Hub **15M+** публичных образов и **~17B** pull в месяц
+* 💥 При этом скан Snyk за 2024 нашёл хотя бы одну CVE уровня HIGH в **~80%** публичных образов
+
+> 💬 *«Контейнеры — новая единица выкладки.»* — Kelsey Hightower
+
+**🤔 Обсуждение:** если любой образ может быть дырявым, какой Dockerfile хороший?
+
+---
+
+## 📍 Слайд 4 – 🔥 Проблема зависимостей
+
+* 👨‍💻 **Машина разработчика:** Python 3.13, glibc 2.40, OpenSSL 3.3
+* 🖥️ **Прод:** Python 3.10, glibc 2.31, OpenSSL 1.1
+* 💥 В проде приложение падает с `GLIBC_2.34 not found`, и локально это никто не повторит
 
 ```mermaid
 flowchart LR
-  Dev[👨‍💻 Dev: Python 3.13] -.->|❌ Mismatch| Prod[🖥️ Prod: Python 3.10]
-  Dev --> Container[🐳 Container] --> Prod
-  Container -->|✅ Works everywhere| Run[🚀 Run]
+  Dev[👨‍💻 Разработка: Python 3.13] -.->|❌ Несовпадение| Prod[🖥️ Прод: Python 3.10]
+  Dev --> Container[🐳 Контейнер] --> Prod
+  Container -->|✅ Работает везде| Run[🚀 Запуск]
 ```
 
-The container freezes the *entire userspace* — interpreter, libraries, system tools — into one immutable artifact. Only the kernel is shared.
+Контейнер замораживает весь userspace (пользовательское пространство) — интерпретатор, библиотеки, системные утилиты — в один неизменяемый артефакт. Общее только ядро.
 
 ---
 
-## 📍 Slide 5 – 😱 The VM Solution (and Why Containers Won)
+## 📍 Слайд 5 – 😱 Решение через ВМ (и почему победили контейнеры)
 
-VMs solved isolation in the 2000s by virtualizing **hardware**: a full OS per app.
+В 2000-х изоляцию решали ВМ — виртуализацией **железа**: своя ОС на каждое приложение.
 
-| 📊 | 🖥️ VM | 🐳 Container |
+| 📊 | 🖥️ ВМ | 🐳 Контейнер |
 |----|------|-------------|
-| Boot time | minutes | seconds |
-| Overhead | full OS per app (~GB) | shared kernel (~MB) |
-| Density per host | tens | hundreds to thousands |
-| Image size | 1–10 GB | 5 MB – 1 GB |
-| Isolation | hardware-level | process-level + namespaces |
+| Загрузка | минуты | секунды |
+| Накладные расходы | своя ОС на приложение (~ГБ) | общее ядро (~МБ) |
+| Плотность на хосте | десятки | сотни и тысячи |
+| Размер образа | 1–10 ГБ | 5 МБ – 1 ГБ |
+| Изоляция | уровень железа | уровень процесса + namespaces |
 
-> 🔥 **The trade-off:** containers are weaker isolation. A kernel CVE escapes containers but not VMs. That's why production K8s clusters often run on VMs.
-
----
-
-## 📍 Slide 6 – 📜 A Brief History of Containers
-
-* 📅 **1979** — `chroot()` added to Unix V7. The ancestor of all containers.
-* 📅 **2000** — FreeBSD Jails: chroot + process isolation.
-* 📅 **2008** — **LXC** (Linux Containers): namespaces + cgroups together.
-* 📅 **2013** — **Docker** open-sourced by dotCloud (renamed). Solomon Hykes's PyCon demo goes viral.
-* 📅 **2015** — Docker donates the container runtime spec (OCI). Containerd separates from Docker.
-* 📅 **2016** — Kubernetes hits 1.0; container orchestration becomes the production story.
-* 📅 **2020** — Kubernetes deprecates Docker as a runtime (uses containerd directly). Docker images still work — they're OCI.
-* 📅 **2023** — Docker Compose v1 (Python) reaches EOL July 2023. **Compose v2 (Go)** is the standard.
-* 📅 **2026** — Docker Engine **29** released (May 2026). Containerd image store becomes the default for new installs — finishes the "Docker is becoming containerd + tooling" trajectory that started in 2015.
+> 🔥 **Жёстко:** изоляция контейнеров слабее. CVE ядра выходит из контейнера, но не из ВМ. Поэтому прод-кластеры K8s часто сидят на ВМ.
 
 ---
 
-## 📍 Slide 7 – 🐧 The Kernel Primitives That Make It Work
+## 📍 Слайд 6 – 📜 Короткая история контейнеров
 
-Containers are not a feature — they're a *composition* of Linux features:
+* 📅 **1979** — в Unix V7 добавили `chroot()`. Предок всех контейнеров.
+* 📅 **2000** — FreeBSD Jails: chroot плюс изоляция процессов.
+* 📅 **2008** — **LXC** (Linux Containers): namespaces и cgroups вместе.
+* 📅 **2013** — **Docker** открывает исходники. Компания ещё называется dotCloud, потом её переименуют. Демо Solomon Hykes на PyCon разлетается.
+* 📅 **2015** — Docker отдаёт спецификацию рантайма контейнеров (OCI). containerd отделяется от Docker.
+* 📅 **2016** — Kubernetes достигает 1.0; оркестрация контейнеров выходит на первый план в проде.
+* 📅 **2020** — Kubernetes отказывается от Docker как от рантайма (берёт containerd напрямую). Образы Docker живы — они OCI.
+* 📅 **2023** — Docker Compose v1 (Python) доходит до EOL в июле 2023. Стандарт — **Compose v2 (Go)**.
+* 📅 **2026** — выходит Docker Engine **29** (май 2026). Хранилище образов containerd становится умолчанием на новых установках. Так заканчивается путь «Docker становится containerd плюс обвязка», начатый в 2015.
 
-| Primitive | What it isolates |
+---
+
+## 📍 Слайд 7 – 🐧 Примитивы ядра, на которых это стоит
+
+Контейнер — не фича. Это *композиция* возможностей Linux:
+
+| Примитив | Что изолирует |
 |-----------|------------------|
-| 🏷️ **Namespaces** (PID, NET, MNT, UTS, IPC, USER, CGROUP) | Process trees, networks, mounts, hostname, IPC, UIDs, cgroup view |
-| 🎛️ **cgroups (v2)** | CPU, memory, block I/O, PIDs — *quotas*, not isolation |
-| 📂 **Union filesystems** (overlay2) | Stacked read-only layers + one R/W layer = the image model |
-| 🛡️ **Capabilities + seccomp + AppArmor** | What syscalls a container is allowed to make |
+| 🏷️ **Namespaces** (PID, NET, MNT, UTS, IPC, USER, CGROUP) | Деревья процессов, сети, точки монтирования, hostname, IPC, UID, вид cgroup |
+| 🎛️ **cgroups (v2)** | CPU, память, блочный I/O, PID — *квоты*, не изоляция |
+| 📂 **Union-файловые системы** (overlay2) | Стопка слоёв только для чтения + один слой R/W = модель образа |
+| 🛡️ **Capabilities + seccomp + AppArmor** | Какие syscall контейнеру разрешены |
 
 ```mermaid
 flowchart TD
-  Container[🐳 Container] --> NS[🏷️ Namespaces<br/>isolation]
-  Container --> CG[🎛️ cgroups<br/>resource limits]
-  Container --> UF[📂 overlay2<br/>image layers]
-  Container --> SC[🛡️ seccomp/AppArmor<br/>syscall guard]
+  Container[🐳 Контейнер] --> NS[🏷️ Namespaces<br/>изоляция]
+  Container --> CG[🎛️ cgroups<br/>лимиты ресурсов]
+  Container --> UF[📂 overlay2<br/>слои образа]
+  Container --> SC[🛡️ seccomp/AppArmor<br/>фильтр syscall]
 ```
 
-> 📖 *Containers from Scratch* (Liz Rice talk, 2017) — builds a container in 100 lines of Go using these primitives.
+> 📖 *Containers from Scratch* (доклад Liz Rice, 2017) — контейнер в 100 строках Go на этих примитивах.
 
 ---
 
-## 📍 Slide 8 – 🏗️ Docker Architecture
+## 📍 Слайд 8 – 🏗️ Архитектура Docker
 
 ```mermaid
 flowchart LR
   CLI[💻 docker CLI] -->|REST API| Daemon[🛠️ dockerd]
   Daemon --> Containerd[📦 containerd]
   Containerd --> Runc[🏃 runc]
-  Runc --> Kernel[🐧 Linux kernel]
-  Daemon -->|pull/push| Registry[🌐 Registry]
+  Runc --> Kernel[🐧 ядро Linux]
+  Daemon -->|pull/push| Registry[🌐 Реестр]
 ```
 
-* **`docker` CLI** — what you type
-* **`dockerd`** — the daemon; talks to containerd via gRPC
-* **`containerd`** — the OCI runtime manager (also used directly by K8s)
-* **`runc`** — the actual process spawner that calls the kernel
-* **Registry** — Docker Hub, GHCR, ECR, GAR, Harbor — stores images
+* **`docker` CLI** — то, что вы набираете
+* **`dockerd`** — демон; говорит с containerd по gRPC
+* **`containerd`** — менеджер OCI-рантайма (K8s тоже ходит в него напрямую)
+* **`runc`** — именно он порождает процесс и зовёт ядро
+* **Реестр** — Docker Hub, GHCR, ECR, GAR, Harbor — хранит образы
 
-> 📝 **Rootless Docker** (default since Docker 23): `dockerd` runs as your user, not root. Adopt it.
+> 📝 **Rootless Docker** (по умолчанию с Docker 23): `dockerd` работает от вашего пользователя, не от root. Берите этот режим.
 
 ---
 
-## 📍 Slide 9 – 🔁 Docker 29 and the containerd Image Store
+## 📍 Слайд 9 – 🔁 Docker 29 и хранилище образов containerd
 
-For a decade, Docker had its own image store (the *graph driver* — `overlay2`, `aufs`, etc.). containerd had a *different* image store. Same OCI images on disk, but two databases describing them. Docker 23 introduced the containerd image store as a feature flag in 2023; **Docker 29 (May 2026) makes it the default for new installs**.
+Десять лет Docker хранил образы сам (*graph driver* — `overlay2`, `aufs` и другие). У containerd хранилище было *другое*. На диске те же OCI-образы, описывают их две базы. В Docker 23 (2023) хранилище containerd включили флагом. **Docker 29 (май 2026) делает его умолчанием для новых установок.**
 
-Why students should care:
-* 🪞 **Lazy pulls** — pull only the layers you actually need (eStargz / SOCI)
-* 🖥️ **Multi-platform images locally** — `docker buildx build --platform linux/amd64,linux/arm64` finally works without registry round-trips
-* 📦 **Better disk reclamation** — image GC matches what `nerdctl` and Kubernetes already do
-* 🧹 **One image database** on the host instead of two
+Зачем вам это:
+* 🪞 **Ленивые pull** — качаете только нужные слои (eStargz / SOCI)
+* 🖥️ **Мультиплатформенные образы локально** — `docker buildx build --platform linux/amd64,linux/arm64` наконец работает без круга через реестр
+* 📦 **Диск чистится честнее** — GC образов как у `nerdctl` и Kubernetes
+* 🧹 **Одна база образов** на хосте, не две
 
 ```mermaid
 flowchart LR
   subgraph "Docker ≤ 22"
-    A[Graph driver<br/>own DB]
+    A[Graph driver<br/>своя БД]
   end
-  subgraph "Docker 23-28 (flag)"
-    B[containerd image store<br/>opt-in]
+  subgraph "Docker 23-28 (флаг)"
+    B[containerd image store<br/>по флагу]
   end
   subgraph "Docker 29+"
-    C[containerd image store<br/>default]
+    C[containerd image store<br/>по умолчанию]
   end
   A --> B --> C
 ```
 
-> 🔥 **Hot take:** Docker the engine is now mostly a polished UX on top of containerd + BuildKit. That's a *good* thing for the ecosystem; it means Kubernetes, nerdctl, podman and Docker agree on the runtime.
+> 🔥 **Жёстко:** движок Docker теперь в основном аккуратный UX поверх containerd и BuildKit. Для экосистемы это *хорошо*: Kubernetes, nerdctl, podman и Docker сходятся в рантайме.
 
 ---
 
-## 📍 Slide 10 – 📚 Image Layers — The Mental Model
+## 📍 Слайд 10 – 📚 Слои образа — модель в голове
 
-Every Dockerfile instruction creates a **read-only layer**. Layers are stacked via overlayfs; the running container adds one R/W layer on top.
+Каждая инструкция Dockerfile даёт **слой только для чтения**. Слои складывает overlayfs; у живого контейнера сверху ещё один слой R/W.
 
 ```mermaid
 flowchart TB
-  L4[Layer 4: COPY app.py<br/>R/W layer at runtime]
-  L3[Layer 3: pip install -r requirements.txt]
-  L2[Layer 2: COPY requirements.txt]
-  L1[Layer 1: python:3.13-slim base]
+  L4[Слой 4: COPY app.py<br/>слой R/W на запуске]
+  L3[Слой 3: pip install -r requirements.txt]
+  L2[Слой 2: COPY requirements.txt]
+  L1[Слой 1: база python:3.13-slim]
   L4 --> L3 --> L2 --> L1
 ```
 
-**Why this matters:**
-* 🚀 Layers are **cached** — unchanged steps don't rebuild
-* 📦 Layers are **shared** — three images using the same base each store the base once
-* 💀 Layers are **additive** — deleting a file in a later layer hides it but the layer above still has it
+**Почему это важно:**
+* 🚀 Слои **кешируются** — неизменённый шаг не пересобирается
+* 📦 Слои **общие** — три образа на одной базе хранят базу один раз
+* 💀 Слои **только добавляются** — файл, удалённый в позднем слое, спрятан, но байты остаются в раннем слое
 
-> 🔥 **Anti-pattern:** `COPY secrets.env / && rm secrets.env` does NOT remove the secret. It's still in the earlier layer. Treat every layer as forever.
+> 🔥 **Антипаттерн:** `COPY secrets.env / && rm secrets.env` секрет НЕ удаляет. Он остаётся в раннем слое. Каждый слой считайте вечным.
 
 ---
 
-## 📍 Slide 11 – 📝 Dockerfile Basics — Read This Twice
+## 📍 Слайд 11 – 📝 База Dockerfile — прочитайте дважды
 
 ```dockerfile
 # 🏗️ Base image — alpine, debian-slim, distroless, scratch
@@ -209,33 +209,33 @@ EXPOSE 8080
 CMD ["python", "app.py"]
 ```
 
-> ⚠️ **PID 1 trap:** shell form (`CMD python app.py`) makes `/bin/sh` PID 1 and your app PID 2 — signals (SIGTERM) never reach it. Always use exec form `CMD ["python", "app.py"]`.
+> ⚠️ **Ловушка PID 1:** форма shell (`CMD python app.py`) делает `/bin/sh` PID 1, а приложение — PID 2. Сигналы (SIGTERM) до него не доходят. Всегда берите exec-форму `CMD ["python", "app.py"]`.
 
 ---
 
-## 📍 Slide 12 – ⚡ Before vs After Docker
+## 📍 Слайд 12 – ⚡ До и после Docker
 
-| 😰 Without Docker | 🚀 With Docker |
+| 😰 Без Docker | 🚀 С Docker |
 |---|---|
-| README has 14 steps of `apt-get install` | `docker run myapp` |
-| "Works on Linux, not Windows" | Works the same on Linux/macOS/Windows (with Linux containers) |
-| Production drift accumulates | Image is immutable; rebuilds are reproducible |
-| Onboarding a new dev takes hours | `docker compose up` and code |
-| One bad dependency = whole-server reinstall | `docker stop && docker rm && docker run` — done |
+| В README 14 шагов `apt-get install` | `docker run myapp` |
+| «На Linux работает, на Windows нет» | Одинаково на Linux, macOS и Windows (Linux-контейнеры) |
+| Drift в проде копится | Образ неизменяем, пересборка воспроизводима |
+| Новичка заводят часами | `docker compose up` — и можно писать код |
+| Одна кривая зависимость = переустановка всего сервера | `docker stop && docker rm && docker run` — и готово |
 
 ---
 
-## 📍 Slide 13 – 🎮 Scenario 1: Running as Root
+## 📍 Слайд 13 – 🎮 Сценарий 1: запуск от root
 
-**The failure:**
+**Сбой:**
 ```dockerfile
 FROM python:3.13-slim
 COPY . /app
 CMD ["python", "/app/server.py"]
 ```
-This runs as **root inside the container**. A kernel CVE (e.g., CVE-2022-0185, the FILESYSTEM\_MOUNT escape) lets the process become root on the host. That's container escape.
+Процесс идёт от **root внутри контейнера**. CVE ядра (например, CVE-2022-0185, побег FILESYSTEM\_MOUNT) позволяет процессу стать root на хосте. Это побег из контейнера.
 
-**The fix — drop privileges:**
+**Починка — сбросить привилегии:**
 ```dockerfile
 FROM python:3.13-slim
 RUN useradd --uid 10001 --create-home --shell /bin/bash app
@@ -245,50 +245,50 @@ USER 10001     # 👤 numeric UID survives renames
 CMD ["python", "server.py"]
 ```
 
-> 🔒 **Bonus:** add `--read-only` and `--cap-drop=ALL` at `docker run` time. Lab 2 walks through this.
+> 🔒 **Бонус:** на `docker run` добавьте `--read-only` и `--cap-drop=ALL`. Lab 2 проводит по этим флагам.
 
 ---
 
-## 📍 Slide 14 – 🐌 Scenario 2: Slow Builds (Bad Layer Order)
+## 📍 Слайд 14 – 🐌 Сценарий 2: медленные сборки (плохой порядок слоёв)
 
-**Wrong order — every code change re-installs all dependencies (5 minute build):**
+**Неверный порядок: любое изменение кода заново ставит все зависимости (сборка на 5 минут):**
 ```dockerfile
 COPY . /app                 # 🚫 Every change invalidates everything below
 RUN pip install -r /app/requirements.txt
 ```
 
-**Correct order — dependency layer cached until `requirements.txt` changes:**
+**Верный порядок: слой зависимостей в кеше, пока не изменится `requirements.txt`:**
 ```dockerfile
 COPY requirements.txt .     # ✅ Rarely changes
 RUN pip install -r requirements.txt
 COPY . .                    # ✅ Code changes don't bust the deps layer
 ```
 
-**Rule of thumb:** order layers from **least-frequently-changing** to **most**. Base → system packages → language deps → app code.
+**Правило:** слои от самых редких изменений к самым частым. База → пакеты системы → зависимости языка → код.
 
 ---
 
-## 📍 Slide 15 – 📦 Scenario 3: Bloated Images
+## 📍 Слайд 15 – 📦 Сценарий 3: раздутые образы
 
-A naive Python image is **~1.2 GB**. That's a problem:
-* 🐢 Slow `docker pull` → slow deploys, slow autoscale
-* 💸 Storage and egress costs scale with image size
-* 🛡️ Bigger image = more packages = more CVEs
+Наивный образ Python весит **~1.2 ГБ**. Это проблема:
+* 🐢 Медленный `docker pull` → медленные деплои и медленный автоскейл
+* 💸 Хранение и исходящий трафик растут вместе с образом
+* 🛡️ Больше образ = больше пакетов = больше CVE
 
-**Slim it:**
-| Base image | Size | Trade-off |
+**Как похудеть:**
+| Базовый образ | Размер | Компромисс |
 |------------|-----:|-----------|
-| `python:3.13` (debian) | ~1.2 GB | comprehensive |
-| `python:3.13-slim` | ~150 MB | no man pages, fewer system libs |
-| `python:3.13-alpine` | ~60 MB | musl libc — some wheels break |
-| `gcr.io/distroless/python3` | ~50 MB | no shell, no package manager |
-| `scratch` (for Go/Rust) | ~10 MB | nothing but your binary |
+| `python:3.13` (debian) | ~1.2 ГБ | всё на месте |
+| `python:3.13-slim` | ~150 МБ | нет man-страниц, меньше системных библиотек |
+| `python:3.13-alpine` | ~60 МБ | musl libc: часть wheels ломается |
+| `gcr.io/distroless/python3` | ~50 МБ | нет shell, нет пакетного менеджера |
+| `scratch` (для Go/Rust) | ~10 МБ | только ваш бинарник |
 
 ---
 
-## 📍 Slide 16 – 📁 Scenario 4: No `.dockerignore`
+## 📍 Слайд 16 – 📁 Сценарий 4: нет `.dockerignore`
 
-Without `.dockerignore`, `COPY . .` ships your local `node_modules/`, `.git`, `.venv`, IDE configs, and **secrets** into the image. The build context can be hundreds of MB.
+Без `.dockerignore` команда `COPY . .` кладёт в образ локальные `node_modules/`, `.git`, `.venv`, конфиги IDE и **секреты**. Контекст сборки легко весит сотни МБ.
 
 ```gitignore
 # .dockerignore — same syntax as .gitignore
@@ -306,13 +306,13 @@ README.md
 .vscode/
 ```
 
-> 🔍 **Real story:** in 2022, Toyota leaked customer data because a `.git` folder was included in a deployed container. Always have a `.dockerignore`.
+> 🔍 **Реальный случай:** в 2022 Toyota слила данные клиентов, потому что в выкаченный контейнер попал каталог `.git`. `.dockerignore` нужен всегда.
 
 ---
 
-## 📍 Slide 17 – 🚀 Multi-Stage Builds: The Big Trick
+## 📍 Слайд 17 – 🚀 Multi-stage сборки: главный трюк
 
-Compile in a heavy image, **copy only the artifact** into a tiny final image.
+Собирайте в тяжёлом образе, **в крошечный финальный копируйте только артефакт**.
 
 ```dockerfile
 # 🏗️ Build stage: full toolchain
@@ -328,18 +328,18 @@ USER nonroot:nonroot
 ENTRYPOINT ["/app"]
 ```
 
-Result for a typical Go service:
-* Single-stage `golang:1.23` image: **~900 MB**
-* Multi-stage distroless image: **~15 MB**
-* Same binary, **60× smaller**, **zero shell**, **zero package manager**
+Итог для обычного Go-сервиса:
+* Один этап, образ `golang:1.23`: **~900 МБ**
+* Multi-stage, distroless: **~15 МБ**
+* Тот же бинарник, **в 60 раз меньше**, **ноль shell**, **ноль пакетного менеджера**
 
-> 🔗 **Lab 2 bonus:** rewrite your Lab 1 Go app as a multi-stage distroless build.
+> 🔗 **Бонус Lab 2:** перепишите Go-приложение из Lab 1 в multi-stage сборку на distroless.
 
 ---
 
-## 📍 Slide 18 – 🔐 Distroless and `scratch`
+## 📍 Слайд 18 – 🔐 Distroless и `scratch`
 
-**Distroless** (Google, 2018): images with your runtime + your app, but **no shell, no apt, no busybox**. Drastically reduces attack surface.
+**Distroless** (Google, 2018): рантайм и приложение, но **без shell, без apt, без busybox**. Поверхность атаки резко меньше.
 
 ```dockerfile
 # ❌ Standard slim — debug-friendly, larger, more CVEs
@@ -353,62 +353,62 @@ COPY --from=build /app /app
 CMD ["/app/server.py"]
 ```
 
-**`scratch`** — the empty image. Use only for statically-linked binaries (Go with `CGO_ENABLED=0`, Rust with musl). 0 CVEs because there's literally nothing else.
+**`scratch`** — пустой образ. Только для статически слинкованных бинарников (Go с `CGO_ENABLED=0`, Rust с musl). 0 CVE: больше в образе ничего нет.
 
-> 📖 **Liz Rice's *Container Security* (O'Reilly, 2020)** — the reference on hardening images.
+> 📖 **Liz Rice, *Container Security* (O'Reilly, 2020)** — справочник по ужесточению образов.
 
 ---
 
-## 📍 Slide 19 – 🌐 Docker Hub & Registries
+## 📍 Слайд 19 – 🌐 Docker Hub и реестры
 
 ```mermaid
 flowchart LR
-  Build[🛠️ docker build] -->|tag| Local[📦 Local image]
-  Local -->|docker push| Registry[🌐 Registry]
-  Registry -->|docker pull| Prod[🖥️ Production]
+  Build[🛠️ docker build] -->|tag| Local[📦 Локальный образ]
+  Local -->|docker push| Registry[🌐 Реестр]
+  Registry -->|docker pull| Prod[🖥️ Прод]
 ```
 
-| Registry | Notes |
+| Реестр | Заметки |
 |----------|-------|
-| 🐳 **Docker Hub** | Default; 1 free private repo; rate limits hurt CI |
-| 🐙 **GHCR** (ghcr.io) | Free for public, integrated with GitHub Actions |
-| ☁️ **ECR / GAR / ACR** | Cloud-native; IAM-gated; recommended for AWS/GCP/Azure prod |
-| 🏠 **Harbor** | Self-hosted; CNCF graduated; image signing + vuln scan built in |
+| 🐳 **Docker Hub** | По умолчанию; 1 бесплатный приватный репозиторий; лимиты бьют по CI |
+| 🐙 **GHCR** (ghcr.io) | Публичные бесплатно, рядом GitHub Actions |
+| ☁️ **ECR / GAR / ACR** | Родные для облака; доступ через IAM; их берут в прод AWS/GCP/Azure |
+| 🏠 **Harbor** | У себя; статус CNCF graduated; подпись образов и скан уязвимостей сразу в комплекте |
 
-**Image references:** `[registry/]namespace/repo[:tag][@digest]`
+**Ссылка на образ:** `[registry/]namespace/repo[:tag][@digest]`
 - `nginx` → `docker.io/library/nginx:latest`
-- `ghcr.io/innodevops/lab2-app:v1.2.3@sha256:abc…` — pin by digest for production
+- `ghcr.io/innodevops/lab2-app:v1.2.3@sha256:abc…` — в проде фиксируйте digest
 
 ---
 
-## 📍 Slide 20 – 🏷️ Tagging Strategies
+## 📍 Слайд 20 – 🏷️ Как тегировать
 
-> 🚫 **Never deploy `:latest` to production.** It's mutable; you can't reproduce yesterday's deploy.
+> 🚫 **Никогда не выкатывайте `:latest` в прод.** Тег меняется; вчерашний деплой не повторить.
 
-| Strategy | Example | When |
+| Стратегия | Пример | Когда |
 |----------|---------|------|
-| 📌 **SemVer** | `v1.4.2` | Library or product release |
-| 🔢 **Git SHA** | `git-3a7f29c` | CI builds; always unique |
-| 📅 **CalVer** | `2026.04.0` | Time-driven release cadence |
-| 🌿 **Branch** | `main`, `develop` | Dev-time only |
-| 🔒 **Digest pin** | `@sha256:…` | Production — immutable |
+| 📌 **SemVer** | `v1.4.2` | Релиз библиотеки или продукта |
+| 🔢 **Git SHA** | `git-3a7f29c` | Сборки CI, всегда уникальны |
+| 📅 **CalVer** | `2026.04.0` | Релизы по календарю |
+| 🌿 **Ветка** | `main`, `develop` | Только пока разрабатываете |
+| 🔒 **Пин по digest** | `@sha256:…` | Прод: ссылка не меняется |
 
-**Recommended:** push two tags per build — a SemVer-or-SHA tag for reproducibility, plus a moving `main` tag for convenience. Production references the immutable one.
+**Как лучше:** на каждую сборку пушьте два тега — SemVer или SHA, чтобы можно было повторить, и движущийся `main` для удобства. Прод смотрит на неизменяемый.
 
 ---
 
-## 📍 Slide 21 – 🛡️ Container Security Best Practices
+## 📍 Слайд 21 – 🛡️ Безопасность контейнеров: что делать
 
-A checklist you can apply to any Dockerfile:
+Чеклист на любой Dockerfile:
 
-1. ✅ **Pin base image versions** — `python:3.13-slim`, not `python:slim` or `python:latest`
-2. ✅ **Drop to a non-root UID** — `USER 10001`
-3. ✅ **Add a `HEALTHCHECK`** so the orchestrator knows when your app is alive
-4. ✅ **Don't bake secrets in** — `--build-arg` is visible in `docker history`; use BuildKit secrets or runtime env
-5. ✅ **Set `WORKDIR`** explicitly — `/app`, not `/` or `~`
-6. ✅ **Use `COPY` not `ADD`** unless you specifically need URL fetching or tar auto-extract
-7. ✅ **Scan images** — Trivy, Grype, or Snyk in CI; gate the build on HIGH/CRITICAL CVEs
-8. ✅ **Sign images** — cosign + Sigstore; verify in admission controller (covered in DevSecOps elective)
+1. ✅ **Фиксируйте версию базового образа** — `python:3.13-slim`, не `python:slim` и не `python:latest`
+2. ✅ **Падайте на UID не-root** — `USER 10001`
+3. ✅ **Ставьте `HEALTHCHECK`**, чтобы оркестратор видел, что приложение живо
+4. ✅ **Не запекайте секреты** — `--build-arg` виден в `docker history`; берите секреты BuildKit или env на запуске
+5. ✅ **Задавайте `WORKDIR` явно** — `/app`, не `/` и не `~`
+6. ✅ **Берите `COPY`, не `ADD`**, если вам не нужны загрузка по URL и автораспаковка tar
+7. ✅ **Сканируйте образы** — Trivy, Grype или Snyk в CI; роняйте сборку на CVE уровня HIGH/CRITICAL
+8. ✅ **Подписывайте образы** — cosign + Sigstore; проверяйте в admission controller (это на курсе DevSecOps по выбору)
 
 ```bash
 # 🔍 Lab 2 will use this
@@ -417,9 +417,9 @@ trivy image --severity HIGH,CRITICAL --exit-code 1 myapp:v1.0.0
 
 ---
 
-## 📍 Slide 22 – 🐙 Compose: Multi-Container Locally
+## 📍 Слайд 22 – 🐙 Compose: несколько контейнеров локально
 
-`docker-compose.yml` describes a multi-container stack declaratively — perfect for local dev and CI smoke tests.
+`docker-compose.yml` описывает стек из нескольких контейнеров декларативно. Удобно локально и для дымовых тестов в CI.
 
 ```yaml
 services:
@@ -440,77 +440,77 @@ services:
       POSTGRES_PASSWORD: dev
 ```
 
-> 🔗 **You'll use Compose in Labs 6, 7, 8.** For production multi-container workloads, Kubernetes (Lab 9+) takes over.
+> 🔗 **Compose будет в Labs 6, 7, 8.** Прод из нескольких контейнеров дальше забирает Kubernetes (Lab 9+).
 
 ---
 
-## 📍 Slide 23 – 🌍 Container Patterns at Real Companies
+## 📍 Слайд 23 – 🌍 Как контейнеры используют вживую
 
-* 🎬 **Netflix** — every microservice ships as a container image; thousands of builds/day pushed to S3-backed internal registry.
-* 📦 **Amazon (Bottlerocket)** — container-optimized OS, the host runs almost nothing else.
-* 🔍 **Google** — invented containers in production (Borg, 2003); pushes ~2 billion containers/week internally.
-* 💬 **GitHub** — *every* PR runs in a container via Actions; ~100 million containers/month.
-* 🏦 **Capital One** — moved core banking from VMs to containers on EKS; cut compute costs ~40%.
+* 🎬 **Netflix** — каждый микросервис уходит образом контейнера; тысячи сборок в день пушат во внутренний реестр на S3.
+* 📦 **Amazon (Bottlerocket)** — ОС заточена под контейнеры: на хосте больше почти ничего не крутится.
+* 🔍 **Google** — придумали контейнеры в проде (Borg, 2003); внутри пушат ~2 миллиарда контейнеров в неделю.
+* 💬 **GitHub** — *каждый* PR крутится в контейнере через Actions; ~100 миллионов контейнеров в месяц.
+* 🏦 **Capital One** — перевели ядро банка с ВМ на контейнеры в EKS; вычисления подешевели примерно на 40%.
 
-> 🔥 **Common thread:** containers are how modern engineering organisations ship at scale.
-
----
-
-## 📍 Slide 24 – 🎯 Key Takeaways
-
-1. 📦 **Containers are not magic** — namespaces + cgroups + overlayfs + a registry
-2. 🏗️ **Order layers from stable to volatile** — keep caches warm
-3. 👤 **Never run as root** — drop to a non-zero UID, ideally numeric
-4. 🛡️ **Multi-stage + distroless** — smaller image, fewer CVEs, faster pulls
-5. 🏷️ **Tag by SemVer or SHA; never deploy `:latest`**
-6. 🔍 **Scan every image in CI** — Trivy or Grype, gate on HIGH/CRITICAL
-7. 📄 **`.dockerignore` is not optional** — keeps secrets and `.git` out
-
-> 💡 **A good Dockerfile is small, secure, and reproducible. Two out of three is a bug.**
+> 🔥 **Общее:** так современные инженерные организации выкатывают на масштабе.
 
 ---
 
-## 📍 Slide 25 – 🧠 The Mindset Shift
+## 📍 Слайд 24 – 🎯 Главное
 
-| 😰 Old | 🚀 Container-native |
+1. 📦 **Контейнеры — не магия:** namespaces + cgroups + overlayfs + реестр
+2. 🏗️ **Слои от стабильных к изменчивым** — держите кеш горячим
+3. 👤 **Никогда не работайте от root** — падайте до ненулевого UID, лучше числового
+4. 🛡️ **Multi-stage + distroless** — меньше образ, меньше CVE, быстрее pull
+5. 🏷️ **Тегируйте SemVer или SHA; никогда не выкатывайте `:latest`**
+6. 🔍 **Сканируйте каждый образ в CI** — Trivy или Grype, роняйте сборку на HIGH/CRITICAL
+7. 📄 **`.dockerignore` обязателен** — секреты и `.git` остаются снаружи
+
+> 💡 **Хороший Dockerfile маленький, безопасный и воспроизводимый. Два из трёх — уже баг.**
+
+---
+
+## 📍 Слайд 25 – 🧠 Смена взгляда
+
+| 😰 Раньше | 🚀 Под контейнеры |
 |-------|---------------------|
-| "Set up the server" | Define the environment in a `Dockerfile` |
-| "Update the production box" | Build a new image, redeploy |
-| "Works on my machine" | Works in the image, image works everywhere |
-| "Big monolith on a VM" | Many small services, each a container |
-| Image is a black box | Image is a versioned artifact, scanned and signed |
+| «Подними сервер» | Опиши окружение в `Dockerfile` |
+| «Обнови машину в проде» | Собери новый образ и выкати заново |
+| «Работает у меня» | Работает в образе, образ работает везде |
+| «Большой монолит на ВМ» | Много маленьких сервисов, каждый в своём контейнере |
+| Образ — чёрный ящик | Образ — артефакт с версией, его сканируют и подписывают |
 
 ---
 
-## 📍 Slide 26 – 🚀 What Comes Next
+## 📍 Слайд 26 – 🚀 Что дальше
 
-**📚 Next lecture: *Continuous Integration*** — every push runs tests, builds an image, and scans it before merging.
+**📚 Следующая лекция: *Непрерывная интеграция*.** Каждый push гоняет тесты, собирает образ и сканирует его до мержа.
 
-* 🔄 Why CI prevents the failures you saw in Lecture 1
-* 🛠️ GitHub Actions workflow syntax
-* 🧪 Testing pyramid: unit → integration → end-to-end
-* 🐳 Building and pushing your Lab 2 image automatically
+* 🔄 Почему CI не пускает сбои из Lecture 1
+* 🛠️ Синтаксис workflow в GitHub Actions
+* 🧪 Пирамида тестов: модульные → интеграционные → сквозные
+* 🐳 Образ из Lab 2 собирается и пушится сам
 
-**🔬 Lab 2:** containerize your Lab 1 service with a multi-stage Dockerfile, scan it with Trivy, push to GHCR. The image you build this week will follow your service through every remaining lab — K8s deploys it (Lab 9), Helm packages it (Lab 10), ArgoCD ships it (Lab 13).
+**🔬 Lab 2:** упакуйте сервис из Lab 1 в multi-stage Dockerfile, просканируйте Trivy, запушьте в GHCR. Образ этой недели пойдёт за сервисом по всем оставшимся лабам. K8s его выкатывает (Lab 9), Helm упаковывает (Lab 10), ArgoCD доставляет (Lab 13).
 
 ```mermaid
 flowchart LR
-  Lab1[🐍 Lab 1 app] --> Lab2[🐳 Lab 2 image] --> Lab3[🤖 Lab 3 CI]
+  Lab1[🐍 Lab 1: приложение] --> Lab2[🐳 Lab 2: образ] --> Lab3[🤖 Lab 3: CI]
   Lab3 --> Future[🚀 Labs 9+: K8s]
 ```
 
-**👋 See you in Lecture 3.**
+**👋 Увидимся в Lecture 3.**
 
 ---
 
-## 📚 Resources
+## 📚 Материалы
 
-* 📕 *Docker Deep Dive* — Nigel Poulton (latest ed. covers BuildKit + Compose v2)
-* 📕 *Container Security* — Liz Rice, O'Reilly 2020 (free PDF at aquasec.com)
-* 🎥 *Containers from Scratch* — Liz Rice GopherCon talk (YouTube, 2017)
-* 🌐 [docs.docker.com](https://docs.docker.com) — official Docker docs (Engine 27.x)
-* 🌐 [distroless](https://github.com/GoogleContainerTools/distroless) — Google's distroless images
-* 🌐 [opencontainers.org](https://opencontainers.org) — OCI spec (image + runtime + distribution)
-* 🌐 [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker) — hardening checklist
+* 📕 *Docker Deep Dive* — Nigel Poulton (свежее издание покрывает BuildKit и Compose v2)
+* 📕 *Container Security* — Liz Rice, O'Reilly 2020 (бесплатный PDF на aquasec.com)
+* 🎥 *Containers from Scratch* — доклад Liz Rice на GopherCon (YouTube, 2017)
+* 🌐 [docs.docker.com](https://docs.docker.com) — официальная документация Docker (Engine 27.x)
+* 🌐 [distroless](https://github.com/GoogleContainerTools/distroless) — образы distroless от Google
+* 🌐 [opencontainers.org](https://opencontainers.org) — спецификация OCI (image, runtime, distribution)
+* 🌐 [CIS Docker Benchmark](https://www.cisecurity.org/benchmark/docker) — чеклист ужесточения
 
-**🎓 Quiz:** post-lecture quiz feeds the weeks 1–3 leaderboard window.
+**🎓 Квиз:** после лекции он кормит окно таблицы лидеров недель 1–3.
